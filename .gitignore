@@ -1,0 +1,87 @@
+# ==========================================
+# Global & OS System Files
+# ==========================================
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+.env
+*.pem
+*.key
+
+# IDE Settings
+.vscode/
+.idea/
+*.swp
+
+# ==========================================
+# 1. Broker (/broker)
+# ==========================================
+broker/*.log
+broker/*.pid
+
+
+# ==========================================
+# 2. ESP32 (/esp32)
+# ==========================================
+# PlatformIO build artifacts
+esp32/.pio/
+esp32/.vscode/
+
+# Arduino IDE build artifacts
+esp32/build/
+esp32/out/
+
+# Local Wifi Credentials / Secrets
+esp32/include/secrets.h
+
+
+# ==========================================
+# 3. Ultra96 (/ultra96)
+# ==========================================
+# Python artifacts
+ultra96/__pycache__/
+ultra96/*.py[cod]
+ultra96/*$py.class
+
+# Virtual environments
+ultra96/venv/
+ultra96/.venv/
+ultra96/env/
+
+# Large ML models / weight files (adjust if committing small models)
+ultra96/*.onnx
+ultra96/*.pth
+ultra96/*.h5
+ultra96/*.xclbin
+
+
+# ==========================================
+# 4. Visualiser - Unity (/visualiser)
+# ==========================================
+# Unity auto-generated directories
+visualiser/[Ll]ibrary/
+visualiser/[Tt]emp/
+visualiser/[Oo]bj/
+visualiser/[Bb]uild/
+visualiser/[Bb]uilds/
+visualiser/[Ll]ogs/
+visualiser/[Uu]serSettings/
+visualiser/[Mm]emoryCaptures/
+
+# Visual Studio / Rider generated files
+visualiser/*.csproj
+visualiser/*.unityproj
+visualiser/*.sln
+visualiser/*.suo
+visualiser/*.user
+visualiser/*.userprefs
+visualiser/*.pidb
+visualiser/*.booproj
+visualiser/*.svd
+visualiser/*.pdb
+visualiser/*.opendb
+visualiser/*.idb
+
+# OS X / Unity builds
+visualiser/*.app/
