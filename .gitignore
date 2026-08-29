@@ -44,6 +44,7 @@ esp32/include/secrets.h
 ultra96/__pycache__/
 ultra96/*.py[cod]
 ultra96/*$py.class
+ultra96/pytorch/__pycache__/train_baseline.cpython-314.pyc
 
 # Virtual environments
 ultra96/venv/
@@ -51,10 +52,11 @@ ultra96/.venv/
 ultra96/env/
 
 # Large ML models / weight files (adjust if committing small models)
-ultra96/*.onnx
-ultra96/*.pth
-ultra96/*.h5
-ultra96/*.xclbin
+ultra96/pytorch/*.onnx
+ultra96/pytorch/*.pth
+ultra96/pytorch/*.h5
+ultra96/pytorch/*.xclbin
+ultra96/pytorch/*.png
 
 
 # ==========================================
