@@ -56,7 +56,9 @@ ultra96/pytorch/*.onnx
 ultra96/pytorch/*.pth
 ultra96/pytorch/*.h5
 ultra96/pytorch/*.xclbin
-ultra96/pytorch/*.png
+ultra96/pytorch/hls_export/
+# will likely remove once start training with real data to save checkpoints
+ultra96/pytorch/saved_checkpoints/ 
 
 
 # ==========================================

@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
+import os
 import numpy as np
 
 def set_seed(seed=42):
@@ -282,6 +283,10 @@ def run_pipeline():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
+    # Define and create the output directory for model checkpoints
+    checkpoint_dir = "saved_checkpoints"
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
     # Datasets and Loaders
     train_dataset = DummyIMUDataset(num_samples=1200, window_size=128, num_classes=7, seed=42)
     val_dataset = DummyIMUDataset(num_samples=300, window_size=128, num_classes=7, seed=123)
@@ -304,7 +309,7 @@ def run_pipeline():
 
     best_val_acc = 0.0
     best_val_loss = float('inf')
-    best_model_path = "gesture_1dcnn_best.pth"
+    best_model_path = os.path.join(checkpoint_dir, "gesture_1dcnn_best.pth")
 
     print("\n--- Starting Model Training ---")
     num_epochs = 10
