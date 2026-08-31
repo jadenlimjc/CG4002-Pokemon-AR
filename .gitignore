@@ -90,3 +90,4 @@ visualiser/*.idb
 
 # OS X / Unity builds
 visualiser/*.app/
+/ultra96/.python-version

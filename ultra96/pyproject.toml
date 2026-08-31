@@ -1,0 +1,18 @@
+[project]
+name = "ultra96"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.2",
+    "paho-mqtt>=2.1.0",
+    "python-dotenv>=1.2.3",
+    "torch>=2.13.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
