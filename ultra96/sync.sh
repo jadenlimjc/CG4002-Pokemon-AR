@@ -10,6 +10,7 @@ if ! "$TUNNEL_SCRIPT" --rsync \
     --exclude='.venv' \
     --exclude='__pycache__' \
     --exclude='.git' \
+    --exclude='*secrets*' \
     "$SCRIPT_DIR/.." \
     "xilinx@makerslab-fpga-38.ddns.comp.nus.edu.sg:~/cg4002/"
 then
