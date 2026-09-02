@@ -1,0 +1,50 @@
+@startuml CG4002_Module_Architecture
+
+skinparam defaultFontSize 11
+skinparam shadowing false
+skinparam rectangleBorderColor #333333
+skinparam rectangleBackgroundColor #FFFFFF
+
+title CG4002 Pokemon AR - Module Architecture
+
+rectangle "Unity AR Application" as App {
+
+    rectangle "NetworkManager\n(UDP port 8888)" as NetworkMgr
+    rectangle "GestureEvents\n(Global event bus)" as GestureEvt
+
+    rectangle "CatchManager\n- Pokeball arc\n- Jiggle seq\n- Occluded VFX" as CatchMgr
+    rectangle "BattleManager\n- Damage calc\n- Turn system\n- Animations" as BattleMgr
+    rectangle "PokemonSpawner\n- Mesh raycast\n- Semantic query\n- Terrain→Type" as Spawner
+
+    rectangle "GameStateManager\n(FSM, 7 states)" as GSM
+
+    rectangle "UI Layer\nBattleHUD  |  EncounterNotification" as UI
+
+    rectangle "Niantic Lightship ARDK Layer" as Lightship {
+        rectangle "ARSemanticSeg-\nmentationMgr\n\nChannels:\nsky, grass, water,\nground, building,\ntree, floor, table" as SemanticMgr
+        rectangle "AROcclusion-\nManager\n\nDepth map →\nPokemon hide\nbehind real objects" as OcclusionMgr
+        rectangle "ARMeshManager\n\nTriangulated mesh\nof real surfaces\n→ spawn/walk on\nactual geometry" as MeshMgr
+        rectangle "ARSession  |  ARCamera (Lightship-enhanced)\n6DoF tracking + camera passthrough" as ARSession
+    }
+}
+
+' === Connections ===
+NetworkMgr -down-> GestureEvt : "Deserialize JSON"
+
+GestureEvt -down-> CatchMgr : "OnGestureReceived"
+GestureEvt -down-> BattleMgr : "OnGestureReceived"
+GestureEvt -down-> Spawner : "OnGestureReceived"
+
+CatchMgr -down-> GSM
+BattleMgr -down-> GSM
+Spawner -down-> GSM
+
+GSM -down-> UI : "OnPhaseChanged"
+
+Spawner -down-> SemanticMgr
+Spawner -down-> MeshMgr
+SemanticMgr -down-> ARSession
+OcclusionMgr -down-> ARSession
+MeshMgr -down-> ARSession
+
+@enduml
