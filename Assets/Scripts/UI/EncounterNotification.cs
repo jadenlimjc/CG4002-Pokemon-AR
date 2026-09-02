@@ -40,7 +40,7 @@ public class EncounterNotification : MonoBehaviour
     {
         if (newPhase == GamePhase.Encounter)
         {
-            PokemonSpawner spawner = FindObjectOfType<PokemonSpawner>();
+            PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
             string name = spawner?.CurrentPokemonData?.pokemonName ?? "???";
             ShowNotification(name);
         }

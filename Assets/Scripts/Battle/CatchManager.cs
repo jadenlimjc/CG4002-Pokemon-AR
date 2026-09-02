@@ -102,7 +102,7 @@ public class CatchManager : MonoBehaviour
 
     private bool IsPokemonInReticle()
     {
-        PokemonSpawner spawner = FindObjectOfType<PokemonSpawner>();
+        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
         if (spawner == null || spawner.CurrentWildPokemon == null) return false;
 
         Vector3 screenPos = Camera.main.WorldToScreenPoint(
@@ -120,7 +120,7 @@ public class CatchManager : MonoBehaviour
 
     private IEnumerator ThrowPokeball(bool hit)
     {
-        PokemonSpawner spawner = FindObjectOfType<PokemonSpawner>();
+        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
         if (spawner == null || spawner.CurrentWildPokemon == null) yield break;
 
         Vector3 startPos = Camera.main.transform.position + Camera.main.transform.forward * 0.5f;

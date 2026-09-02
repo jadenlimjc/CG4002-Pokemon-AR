@@ -102,7 +102,7 @@ public class BattleHUD : MonoBehaviour
 
     private void ShowEncounterUI()
     {
-        PokemonSpawner spawner = FindObjectOfType<PokemonSpawner>();
+        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
         if (spawner != null && spawner.CurrentPokemonData != null)
         {
             string pokeName = spawner.CurrentPokemonData.pokemonName;
@@ -117,7 +117,7 @@ public class BattleHUD : MonoBehaviour
     private void ShowBattleUI()
     {
         BattleManager battle = BattleManager.Instance;
-        PokemonSpawner spawner = FindObjectOfType<PokemonSpawner>();
+        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
 
         if (battle == null) return;
 

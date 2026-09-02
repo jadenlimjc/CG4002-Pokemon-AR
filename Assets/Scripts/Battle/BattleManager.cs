@@ -22,7 +22,7 @@ public class BattleManager : MonoBehaviour
     public int PlayerHP => playerHP;
     public int WildHP => wildHP;
     public int PlayerMaxHP => playerPokemon != null ? playerPokemon.maxHP : 100;
-    public int WildMaxHP => FindObjectOfType<PokemonSpawner>()?.CurrentPokemonData?.maxHP ?? 100;
+    public int WildMaxHP => FindFirstObjectByType<PokemonSpawner>()?.CurrentPokemonData?.maxHP ?? 100;
     public bool IsPlayerTurn => isPlayerTurn;
     public PokemonData PlayerPokemon => playerPokemon;
 
@@ -94,7 +94,7 @@ public class BattleManager : MonoBehaviour
 
     private void StartBattle()
     {
-        PokemonSpawner spawner = FindObjectOfType<PokemonSpawner>();
+        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
         wildPokemonData = spawner.CurrentPokemonData;
 
         // Initialize HP
@@ -136,7 +136,7 @@ public class BattleManager : MonoBehaviour
         playerPokemonInstance.transform.localScale = Vector3.one * playerPokemon.spawnScale;
 
         // Face the wild Pokemon
-        PokemonSpawner spawner = FindObjectOfType<PokemonSpawner>();
+        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
         if (spawner.CurrentWildPokemon != null)
         {
             Vector3 lookDir = spawner.CurrentWildPokemon.transform.position - spawnPos;

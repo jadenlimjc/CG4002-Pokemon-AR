@@ -20,7 +20,6 @@ public class MockInputController : MonoBehaviour
     [SerializeField] private KeyCode move3Key = KeyCode.Alpha3;
     [SerializeField] private KeyCode move4Key = KeyCode.Alpha4;
     [SerializeField] private KeyCode resetKey = KeyCode.R;
-    [SerializeField] private KeyCode spawnKey = KeyCode.Space;
 
     [Header("Mock Confidence")]
     [SerializeField] private float mockConfidence = 0.95f;
