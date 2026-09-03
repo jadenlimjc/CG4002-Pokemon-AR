@@ -28,6 +28,7 @@ uint16_t mqtt_port = 1883;
 
 struct __attribute__((packed)) TelemetryPacket {
     uint32_t sample_index; // 4 bytes
+    uint32_t timestamp_us; // 4 bytes
     int16_t accel_x;       // 2 bytes
     int16_t accel_y;       // 2 bytes
     int16_t accel_z;       // 2 bytes
@@ -70,8 +71,7 @@ void connectMQTT();
 void SensorSampleTask(void* pvParameters);
 void NetworkTask(void* pvParameters);
 
-bool connectSSHTest();
-void runPingPongTest();
+void pingCallback(char* topic, byte* payload, unsigned int length);
 
 // ==========================================
 // SETUP
@@ -192,6 +192,7 @@ void SensorSampleTask(void* pvParameters) {
         TelemetryPacket packet;
 
         packet.sample_index = current_index++;
+        packet.timestamp_us = millis();
 
         // TODO:
         // Replace these mock values with actual
@@ -278,6 +279,8 @@ void NetworkTask(void* pvParameters) {
         if (WiFi.status() == WL_CONNECTED && !client.connected()) {
             connectMQTT();
         }
+
+        client.setCallback(mqttCallback);
 
         client.loop();
 
@@ -470,8 +473,7 @@ void connectMQTT() {
             client.publish("glove/status", online_payload.c_str(), true);
             mqtt_connection_failures = 0;
 
-            // Future subscriptions:
-            //
+            client.subscribe("esp32/ping");
             // client.subscribe("glove/config");
             // client.subscribe("glove/haptic/cmd");
         } else {
@@ -483,5 +485,13 @@ void connectMQTT() {
             retries++;
             mqtt_connection_failures++;
         }
+    }
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+    if (strcmp(topic, "esp32/ping") == 0) {
+        uint32_t current_time = millis();
+        // Send the 4-byte time back immediately
+        client.publish("esp32/pong", (uint8_t*)&current_time, sizeof(current_time));
     }
 }
