@@ -31,7 +31,8 @@ public class PokemonSpawner : MonoBehaviour
 
     private void OnEnable()
     {
-        GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
+        if (GameStateManager.Instance != null)
+            GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
     }
 
     private void OnDisable()

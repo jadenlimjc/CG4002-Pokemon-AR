@@ -39,7 +39,8 @@ public class BattleHUD : MonoBehaviour
 
     private void OnEnable()
     {
-        GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
+        if (GameStateManager.Instance != null)
+            GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
 
         if (BattleManager.Instance != null)
         {

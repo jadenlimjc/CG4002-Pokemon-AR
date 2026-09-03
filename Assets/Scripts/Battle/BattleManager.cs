@@ -48,7 +48,8 @@ public class BattleManager : MonoBehaviour
 
     private void OnEnable()
     {
-        GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
+        if (GameStateManager.Instance != null)
+            GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
         GestureEvents.OnGestureReceived += HandleGesture;
     }
 
