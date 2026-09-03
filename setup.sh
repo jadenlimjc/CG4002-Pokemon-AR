@@ -3,7 +3,7 @@ set -e
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$PROJECT_ROOT/.env"
-PASSWD_FILE="$PROJECT_ROOT/broker/mosquitto.passwd"
+PASSWD_FILE="$PROJECT_ROOT/ultra96/mqtt/mosquitto.passwd"
 SECRETS_FILE="$PROJECT_ROOT/esp32/main/secrets.h"
 SSH_KEY_PATH="$HOME/.ssh/esp32_key"
 
