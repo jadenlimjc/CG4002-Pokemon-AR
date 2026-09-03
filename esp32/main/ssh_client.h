@@ -54,7 +54,6 @@ private:
     static constexpr unsigned int ULTRA96_SSH_PORT = 22;
     static constexpr uint16_t MQTT_PORT = 1883;
 
-    // TODO: confirm this account/credential exists on ultra96 (not stujump).
     static constexpr const char *ULTRA96_USERNAME = "xilinx";
     static constexpr const char *ULTRA96_PASSWORD = "xilinx";
 
@@ -92,9 +91,7 @@ private:
     bool authenticate(ssh_session s, const char *user, const char *password) {
         ssh_key private_key = nullptr;
 
-        int rc = ssh_pki_import_privkey_base64(
-            SSH_PRIVATE_KEY, nullptr, nullptr, nullptr, &private_key
-        );
+        int rc = ssh_pki_import_privkey_base64(SSH_PRIVATE_KEY, nullptr, nullptr, nullptr, &private_key);
 
         if (rc == SSH_OK && private_key) {
             rc = ssh_userauth_publickey(s, user, private_key);
@@ -106,28 +103,18 @@ private:
             }
 
             if (rc == SSH_AUTH_PARTIAL) {
-                Serial.printf(
-                    "[SSH] Pubkey accepted for %s, password also required.\n", user
-                );
+                Serial.printf("[SSH] Pubkey accepted for %s, password also required.\n", user);
             } else {
-                Serial.printf(
-                    "[SSH] Pubkey auth failed for %s: %s\n",
-                    user, ssh_get_error(s)
-                );
+                Serial.printf("[SSH] Pubkey auth failed for %s: %s\n", user, ssh_get_error(s));
             }
         } else {
-            Serial.printf(
-                "[SSH] Private key import failed: %s\n", ssh_get_error(s)
-            );
+            Serial.printf("[SSH] Private key import failed: %s\n", ssh_get_error(s));
         }
 
         rc = ssh_userauth_password(s, user, password);
 
         if (rc != SSH_AUTH_SUCCESS) {
-            Serial.printf(
-                "[SSH] Password auth failed for %s: %s\n",
-                user, ssh_get_error(s)
-            );
+            Serial.printf("[SSH] Password auth failed for %s: %s\n", user, ssh_get_error(s));
             return false;
         }
 
@@ -410,13 +397,8 @@ public:
             return 0;
         }
 
-        if (ssh_channel_open_forward(
-                jump_channel, ULTRA96_HOST, ULTRA96_SSH_PORT, "localhost", 0
-            ) != SSH_OK) {
-
-            Serial.printf(
-                "[SSH] jump_channel open_forward failed: %s\n", ssh_get_error(session1)
-            );
+        if (ssh_channel_open_forward(jump_channel, ULTRA96_HOST, ULTRA96_SSH_PORT, "localhost", 0) != SSH_OK) {
+            Serial.printf("[SSH] jump_channel open_forward failed: %s\n", ssh_get_error(session1));
             stop();
             return 0;
         }
@@ -442,9 +424,7 @@ public:
 
         pump_keep_running = true;
 
-        BaseType_t pump_result = xTaskCreate(
-            bridgePumpTask, "SSHBridge", 8192, pump_params, 3, &pump_task_handle
-        );
+        BaseType_t pump_result = xTaskCreate(bridgePumpTask, "SSHBridge", 8192, pump_params, 3, &pump_task_handle);
 
         if (pump_result != pdPASS) {
             Serial.println("[SSH] Bridge pump task creation failed.");
@@ -512,13 +492,8 @@ public:
             return 0;
         }
 
-        if (ssh_channel_open_forward(
-                channel2, "localhost", MQTT_PORT, "localhost", 0
-            ) != SSH_OK) {
-
-            Serial.printf(
-                "[SSH] channel2 open_forward failed: %s\n", ssh_get_error(session2)
-            );
+        if (ssh_channel_open_forward(channel2, "localhost", MQTT_PORT, "localhost", 0) != SSH_OK) {
+            Serial.printf("[SSH] channel2 open_forward failed: %s\n", ssh_get_error(session2));
             stop();
             return 0;
         }
