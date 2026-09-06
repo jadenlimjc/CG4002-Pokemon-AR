@@ -68,13 +68,13 @@ def export_weights_and_vectors():
             f.write('#ifndef WEIGHTS_H\n#define WEIGHTS_H\n\n')
             f.write('// Auto-generated weights for Vitis HLS\n')
             f.write('// This file is included by gesture_cnn.cpp\n\n')
-            f.write('typedef float data_t;\n\n')
+            f.write('#include "gesture_cnn.h"\n\n')
 
             for torch_name, c_name in NAME_MAP.items():
                 if torch_name in state_dict:
                     param = state_dict[torch_name]
                     vals = param.detach().numpy().flatten()
-                    vals_str = ', '.join(f'{v:.8f}f' for v in vals)
+                    vals_str = ', '.join(f'{v:.8f}' for v in vals)
                     
                     print(f"Exporting {torch_name} -> {c_name} (Shape: {param.shape})")
                     
