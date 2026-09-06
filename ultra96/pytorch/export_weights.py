@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import os
-from train_baseline import Gesture1DCNN  # Correctly import the model class
+from model import Gesture1DCNN  # Import from the dedicated model file
 
 # --- This dictionary is the key to the solution ---
 # It maps the complex PyTorch names to the simple C++ names.
