@@ -28,6 +28,9 @@ public class MockInputController : MonoBehaviour
     {
         if (!enableMockInput) return;
 
+        if (Input.anyKeyDown)
+            Debug.Log($"[MockInput] Key pressed: {Input.inputString}");
+
         if (Input.GetKeyDown(aimKey))
         {
             Debug.Log("[MockInput] ARM_PULLBACK triggered (show reticle)");
