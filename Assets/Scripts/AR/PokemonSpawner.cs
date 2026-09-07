@@ -54,7 +54,12 @@ public class PokemonSpawner : MonoBehaviour
 
     private void Update()
     {
-        if (!hasLoggedUpdate) { Debug.Log("[Spawner] Update() is running"); hasLoggedUpdate = true; }
+        if (!hasLoggedUpdate)
+        {
+            Debug.Log($"[Spawner] Update() is running. Phase: {GameStateManager.Instance?.CurrentPhase}, Time: {Time.time}, LastSpawn: {lastSpawnTime}, Cooldown: {spawnCooldown}");
+            Debug.Log($"[Spawner] DefaultPool: {(defaultPool != null ? defaultPool.Length.ToString() : "null")} entries");
+            hasLoggedUpdate = true;
+        }
         if (GameStateManager.Instance == null)
         {
             if (!hasLoggedNull) { Debug.LogWarning("[Spawner] GameStateManager.Instance is null"); hasLoggedNull = true; }
