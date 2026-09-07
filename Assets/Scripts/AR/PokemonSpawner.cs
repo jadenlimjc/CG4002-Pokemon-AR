@@ -49,13 +49,15 @@ public class PokemonSpawner : MonoBehaviour
             GameStateManager.Instance.OnPhaseChanged -= HandlePhaseChanged;
     }
 
-    private bool hasLoggedOnce = false;
+    private bool hasLoggedUpdate = false;
+    private bool hasLoggedNull = false;
 
     private void Update()
     {
+        if (!hasLoggedUpdate) { Debug.Log("[Spawner] Update() is running"); hasLoggedUpdate = true; }
         if (GameStateManager.Instance == null)
         {
-            if (!hasLoggedOnce) { Debug.LogWarning("[Spawner] GameStateManager.Instance is null"); hasLoggedOnce = true; }
+            if (!hasLoggedNull) { Debug.LogWarning("[Spawner] GameStateManager.Instance is null"); hasLoggedNull = true; }
             return;
         }
         if (GameStateManager.Instance.CurrentPhase != GamePhase.Idle) return;
