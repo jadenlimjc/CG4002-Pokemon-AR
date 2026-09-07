@@ -39,17 +39,33 @@ public class BattleHUD : MonoBehaviour
 
     private void OnEnable()
     {
+        SubscribeEvents();
+    }
+
+    private void Start()
+    {
+        SubscribeEvents();
+    }
+
+    private void SubscribeEvents()
+    {
         if (GameStateManager.Instance != null)
+        {
+            GameStateManager.Instance.OnPhaseChanged -= HandlePhaseChanged;
             GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
+        }
 
         if (BattleManager.Instance != null)
         {
+            BattleManager.Instance.OnHPChanged -= UpdateHP;
             BattleManager.Instance.OnHPChanged += UpdateHP;
+            BattleManager.Instance.OnBattleMessage -= ShowMessage;
             BattleManager.Instance.OnBattleMessage += ShowMessage;
         }
 
         if (CatchManager.Instance != null)
         {
+            CatchManager.Instance.OnCatchResult -= HandleCatchResult;
             CatchManager.Instance.OnCatchResult += HandleCatchResult;
         }
     }

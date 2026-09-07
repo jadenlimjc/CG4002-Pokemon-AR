@@ -35,17 +35,33 @@ public class PokemonSpawner : MonoBehaviour
             GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
     }
 
+    private void Start()
+    {
+        if (GameStateManager.Instance != null)
+            GameStateManager.Instance.OnPhaseChanged -= HandlePhaseChanged;
+        if (GameStateManager.Instance != null)
+            GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
+    }
+
     private void OnDisable()
     {
         if (GameStateManager.Instance != null)
             GameStateManager.Instance.OnPhaseChanged -= HandlePhaseChanged;
     }
 
+    private bool hasLoggedOnce = false;
+
     private void Update()
     {
+        if (GameStateManager.Instance == null)
+        {
+            if (!hasLoggedOnce) { Debug.LogWarning("[Spawner] GameStateManager.Instance is null"); hasLoggedOnce = true; }
+            return;
+        }
         if (GameStateManager.Instance.CurrentPhase != GamePhase.Idle) return;
         if (Time.time - lastSpawnTime < spawnCooldown) return;
 
+        Debug.Log("[Spawner] Attempting to spawn...");
         TrySpawnWildPokemon();
     }
 
