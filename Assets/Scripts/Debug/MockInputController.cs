@@ -24,8 +24,15 @@ public class MockInputController : MonoBehaviour
     [Header("Mock Confidence")]
     [SerializeField] private float mockConfidence = 0.95f;
 
+    private bool hasLoggedOnce = false;
+
     private void Update()
     {
+        if (!hasLoggedOnce) { Debug.Log("[MockInput] Update is running"); hasLoggedOnce = true; }
+
+        if (Input.GetMouseButtonDown(0))
+            Debug.Log("[MockInput] Mouse click detected");
+
         if (!enableMockInput) return;
 
         if (Input.anyKeyDown)
