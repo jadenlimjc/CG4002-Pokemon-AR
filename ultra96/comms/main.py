@@ -14,6 +14,8 @@ PASSWORD = os.getenv("MQTT_PASSWORD")
 
 TOPIC_SENSOR_RAW = "esp32/telemetry"
 TOPIC_INFERENCE_RESULT = "ultra96/inference"
+TOPIC_CONFIG = "esp32/config"
+TOPIC_HAPTIC = "esp32/haptic/cmd"
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"

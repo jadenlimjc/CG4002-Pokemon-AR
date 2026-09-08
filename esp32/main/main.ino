@@ -276,11 +276,9 @@ void NetworkTask(void* pvParameters) {
         // MQTT
         // ----------------------------------
 
-        if (WiFi.status() == WL_CONNECTED && !client.connected()) {
+        if (WiFi.status() == WL_CONNECTED && !client.connecte()) {
             connectMQTT();
         }
-
-        client.setCallback(mqttCallback);
 
         client.loop();
 
@@ -288,7 +286,7 @@ void NetworkTask(void* pvParameters) {
         // MQTT telemetry
         // ----------------------------------
 
-        if (xQueueReceive(telemetryQueue, &packet, pdMS_TO_TICKS(5)) == pdTRUE) {
+        if (xQueueReceive(telemetryQueue, &packet, pMS_TO_TICKS(5)) == pdTRUE) {
             if (WiFi.status() == WL_CONNECTED && client.connected()) {
                 const uint8_t* payload = reinterpret_cast<const uint8_t*>(&packet);
                 bool success = client.publish(TOPIC_TELEMETRY, payload, sizeof(TelemetryPacket));
@@ -465,6 +463,8 @@ void connectMQTT() {
         if (client.connect(client_id.c_str(), MQTT_USER, MQTT_PASSWORD, lwt_topic, lwt_qos, lwt_retain, lwt_payload)) {
             Serial.println("[NetworkTask] Connected to MQTT broker successfully!");
 
+            client.setCallback(mqttCallback);
+
             // --------------------------------
             // Online status
             // --------------------------------
@@ -474,8 +474,8 @@ void connectMQTT() {
             mqtt_connection_failures = 0;
 
             client.subscribe("esp32/ping");
-            // client.subscribe("glove/config");
-            // client.subscribe("glove/haptic/cmd");
+            client.subscribe("esp32/config");
+            client.subscribe("esp32/haptic/cmd");
         } else {
             Serial.printf("[NetworkTask] MQTT connection failed. " "RC state: %d\n", client.state());
             Serial.println("[NetworkTask] Retrying in 1.5 seconds...");
@@ -493,5 +493,20 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         uint32_t current_time = millis();
         // Send the 4-byte time back immediately
         client.publish("esp32/pong", (uint8_t*)&current_time, sizeof(current_time));
+        return;
+    }
+
+    char message[length + 1];
+    memcpy(message, payload, length);
+    message[length] = '\0';
+
+    if (strcmp(topic, "esp32/config") == 0) {
+        Serial.printf("[MQTT Rx] Topic: %s | Config Payload: %s\n", topic, message);
+    }
+    else if (strcmp(topic, "esp32/haptic/cmd") == 0) {
+        Serial.printf("[MQTT Rx] Topic: %s | Haptic Command Received: %s (Simulating motor trigger)\n", topic, message);
+    }
+    else {
+        Serial.printf("[MQTT Rx] Topic: %s | Raw Payload: %s\n", topic, message);
     }
 }
