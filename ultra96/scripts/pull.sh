@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 TUNNEL_SCRIPT="$SCRIPT_DIR/tunnel_ultra96.sh"
 
-echo "-- STARTING DRY RUN (Computer -> Ultra96) --"
+echo "-- STARTING PULL DRY RUN (Computer <- Ultra96) --"
 "$TUNNEL_SCRIPT" --rsync \
     -avz --delete \
     --dry-run \
@@ -14,8 +14,8 @@ echo "-- STARTING DRY RUN (Computer -> Ultra96) --"
     --exclude='__pycache__' \
     --exclude='.git' \
     --exclude='*secrets*' \
-    "$PROJECT_ROOT" \
     "xilinx@makerslab-fpga-38.ddns.comp.nus.edu.sg:~/cg4002/"
+    "$PROJECT_ROOT" \
 echo "--------------------------------------------"
 
 read -p "Apply these changes? (y/n): " confirm
@@ -28,9 +28,9 @@ if [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]]; then
     --exclude='__pycache__' \
     --exclude='.git' \
     --exclude='*secrets*' \
-    "$PROJECT_ROOT" \
     "xilinx@makerslab-fpga-38.ddns.comp.nus.edu.sg:~/cg4002/"
-    echo "Sync Complete!"
+    "$PROJECT_ROOT" \
+    echo "Pull Complete!"
 else
-    echo "Sync cancelled."
+    echo "Pull cancelled."
 fi

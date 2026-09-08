@@ -4,6 +4,9 @@ import struct
 import statistics
 import paho.mqtt.client as mqtt
 
+LOG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "logs"))
+LOG_FILE = os.path.join(LOG_DIR, "telemetry_bench.csv")
+
 class TelemetryBenchmark:
     def __init__(self):
         self.packet_count = 0
@@ -71,7 +74,7 @@ class TelemetryBenchmark:
             "-" * 40,
             f"Average Latency : {avg_lat:.2f} ms",
             f"Minimum Latency : {min_lat:.2f} ms",
-            f"Maximum Spike   : {max_lat:.2f} ms",
+            f"Maximum Latency : {max_lat:.2f} ms",
             "="*40
         ]
 
@@ -86,6 +89,30 @@ class TelemetryBenchmark:
             sys.stdout.write(f"{line}\033[K\n")
 
         sys.stdout.flush()
+
+    def log_final_metrics(self):
+        """Appends run summaries to the CSV log file upon script completion."""
+        if not self.latencies or self.first_packet_time is None:
+            print("[!] No latency metrics collected to log.")
+            return
+
+        os.makedirs(LOG_DIR, exist_ok=True)
+        file_exists = os.path.isfile(LOG_FILE)
+
+        avg_lat = statistics.mean(self.latencies)
+        max_lat = max(self.latencies)
+        min_lat = min(self.latencies)
+        elapsed_sec = (time.time() * 1000 - self.first_packet_time) / 1000.0
+        hz = (self.packet_count / elapsed_sec) if elapsed_sec > 0 else 0
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with open(LOG_FILE, mode="a", encoding="utf-8") as f:
+            if not file_exists:
+                f.write("Timestamp,Total Packets,Duration (s),Throughput (Hz),Avg Latency (ms),Min Latency (ms),Max Latency (ms),Clock Offset (ms)\n")
+
+            f.write(f"{timestamp},{self.packet_count},{elapsed_sec:.2f},{hz:.2f},{avg_lat:.2f},{min_lat:.2f},{max_lat:.2f},{self.clock_offset:.2f}\n")
+
+        print(f"\n[+] Summary log written to: {LOG_FILE}")
 
 if __name__ == "__main__":
     benchmark = TelemetryBenchmark()
@@ -111,3 +138,4 @@ if __name__ == "__main__":
     finally:
         client.loop_stop()
         client.disconnect()
+        benchmark.log_final_metrics()
