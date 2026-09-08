@@ -237,6 +237,8 @@ void NetworkTask(void* pvParameters) {
     Serial.println("[NetworkTask] Task started on Core 1.");
     Serial.printf("[NetworkTask] Free heap before Wi-Fi: %u bytes\n", ESP.getFreeHeap());
 
+    TelemetryPacket packet;
+
     // --------------------------------------
     // Initial Wi-Fi connection
     // --------------------------------------
@@ -276,7 +278,7 @@ void NetworkTask(void* pvParameters) {
         // MQTT
         // ----------------------------------
 
-        if (WiFi.status() == WL_CONNECTED && !client.connecte()) {
+        if (WiFi.status() == WL_CONNECTED && !client.connected()) {
             connectMQTT();
         }
 
@@ -286,7 +288,7 @@ void NetworkTask(void* pvParameters) {
         // MQTT telemetry
         // ----------------------------------
 
-        if (xQueueReceive(telemetryQueue, &packet, pMS_TO_TICKS(5)) == pdTRUE) {
+        if (xQueueReceive(telemetryQueue, &packet, pdMS_TO_TICKS(5)) == pdTRUE) {
             if (WiFi.status() == WL_CONNECTED && client.connected()) {
                 const uint8_t* payload = reinterpret_cast<const uint8_t*>(&packet);
                 bool success = client.publish(TOPIC_TELEMETRY, payload, sizeof(TelemetryPacket));

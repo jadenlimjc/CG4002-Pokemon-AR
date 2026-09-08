@@ -12,15 +12,16 @@ GYRO_SCALE = 250.0 / 32768.0  # Range +-250 dps
 
 
 class TelemetryBuffer:
-    def __init__(self, window_size=20, max_gap_fill=5, queue_maxsize=10):
+    def __init__(self, window_size=20, hop_size=10, max_gap_fill=5, queue_maxsize=10):
         self.window_size = window_size
+        self.hop_size = hop_size
+        self.step_counter = 0
         self.max_gap_fill = max_gap_fill
         self.output_queue = Queue(maxsize=queue_maxsize)
         self.buffer = deque(maxlen=window_size)
         self.expected_seq = None
 
     def _convert_units(self, raw_readings: tuple) -> list:
-        """Extracts and scales IMU values, hall reading, and flags into feature vector."""
         ax, ay, az, gx, gy, gz, hall_raw, flags = raw_readings
         hall_trigger = flags & 0x01
 
@@ -65,17 +66,21 @@ class TelemetryBuffer:
         else:
             # Large sequence jump: Reset window
             self.buffer.clear()
+            self.step_counter = 0
             self._push_and_emit(converted)
             self.expected_seq = sample_index + 1
 
     def _push_and_emit(self, frame: list):
         self.buffer.append(frame)
+        self.step_counter += 1
 
-        if len(self.buffer) == self.window_size:
+        # if len(self.buffer) == self.window_size:
+        if len(self.buffer) == self.window_size and self.step_counter >= self.hop_size:
             matrix = np.array(self.buffer, dtype=np.float32)
             try:
                 self.output_queue.put_nowait(matrix)
             except Full:
-                # ML thread is busy: drop oldest window to prevent latency stack-up
                 self.output_queue.get_nowait()
                 self.output_queue.put_nowait(matrix)
+
+            self.step_counter = 0
