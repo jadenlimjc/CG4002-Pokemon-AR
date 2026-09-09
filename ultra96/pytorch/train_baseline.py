@@ -3,8 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
-import os
-import numpy as np
+import os, numpy as np
 from model import Gesture1DCNN # Import the model from its dedicated file
 
 def set_seed(seed=42):
@@ -46,11 +45,19 @@ class DummyIMUDataset(Dataset):
         self.data = []
         self.labels = []
 
-        for _ in range(num_samples):
+        for i in range(num_samples):
             label = np.random.randint(0, num_classes)
+            
+            # --- Introduce "confounder" gestures ---
+            # 25% of the time that a "Neutral" sample is generated, replace it
+            # with a random, sharp, non-classifiable movement.
+            if label == 0 and np.random.rand() < 0.25:
+                label = -1 # Use a temporary label for confounder gestures
+            
             sample = self._generate_gesture_sample(label)
             self.data.append(sample)
-            self.labels.append(label)
+            # Map the temporary confounder label (-1) back to the Neutral class (0) for training.
+            self.labels.append(0 if label == -1 else label)
 
         self.data = torch.tensor(np.array(self.data), dtype=torch.float32)
         self.labels = torch.tensor(self.labels, dtype=torch.long)
@@ -71,7 +78,17 @@ class DummyIMUDataset(Dataset):
             drift = np.linspace(0, np.random.normal(0, 0.03), self.window_size)
             sample[i] += drift
 
-        if label == 0: # Neutral / Idle
+        if label == 0: # Neutral / Idle (pure noise)
+            return sample
+
+        if label == -1: # Confounder Gesture (random spikes)
+            num_spikes = np.random.randint(1, 4)
+            for _ in range(num_spikes):
+                channel = np.random.randint(0, 6)
+                position = np.random.randint(20, self.window_size - 20)
+                width = np.random.uniform(0.1, 0.4)
+                amplitude = np.random.uniform(1.0, 3.0) * (1 if np.random.rand() > 0.5 else -1)
+                sample[channel, :] += amplitude * np.exp(-((np.arange(self.window_size) - position) / (width * 20))**2)
             return sample
 
         # Define a time axis for the gesture event
@@ -182,45 +199,6 @@ class RealTimeGesturePredictor:
         self.cooldown_counter = self.cooldown_steps
         return self._get_class_name(pred_class), confidence, "TRIGGERED"
 
-
-# =====================================================================
-# 4. DATA VISUALIZATION
-# =====================================================================
-def visualize_and_save_gestures(dataset, gesture_map, filename="gesture_visualization.png"):
-    """Finds one sample of each gesture and plots its 6-channel data."""
-    print(f"\n--- Generating Data Visualization ---")
-    
-    # Define the channels for the y-axis labels
-    channels = ["Accel X", "Accel Y", "Accel Z", "Gyro X", "Gyro Y", "Gyro Z"]
-    
-    # Create a figure with one subplot for each gesture type
-    fig, axes = plt.subplots(len(gesture_map), 1, figsize=(12, 2 * len(gesture_map)), sharex=True)
-    fig.suptitle("Synthetic IMU Gesture Samples", fontsize=16)
-
-    for i, (label, name) in enumerate(gesture_map.items()):
-        ax = axes[i]
-        try:
-            # Find the first index of the current gesture label in the dataset
-            sample_idx = next(j for j, lbl in enumerate(dataset.labels) if lbl == label)
-            sample_data, _ = dataset[sample_idx]
-            sample_data = sample_data.numpy() # Convert from tensor to numpy array
-
-            # Plot all 6 channels for this sample
-            for channel_idx in range(sample_data.shape[0]):
-                ax.plot(sample_data[channel_idx], label=channels[channel_idx])
-            
-            ax.set_title(f"Gesture: {name} (Label: {label})")
-            ax.set_ylabel("Amplitude")
-            ax.grid(True, linestyle='--', alpha=0.6)
-
-        except StopIteration:
-            ax.set_title(f"Gesture: {name} (Label: {label}) - Not found in dataset")
-
-    axes[-1].set_xlabel("Time Steps")
-    fig.tight_layout(rect=[0, 0.03, 1, 0.97]) # Adjust layout to make room for suptitle
-    plt.savefig(filename)
-    print(f"Saved gesture visualization to '{filename}'")
-
 # =====================================================================
 # 4. TRAINING & VALIDATION PIPELINE
 # =====================================================================
@@ -247,9 +225,6 @@ def run_pipeline():
         0: "Neutral", 1: "Aim", 2: "Throw", 3: "Stop Aim",
         4: "Punch", 5: "Downward Swipe", 6: "Guard"
     }
-
-    # Visualize the generated validation data before starting training
-    visualize_and_save_gestures(val_dataset, gesture_map)
 
     model = Gesture1DCNN(in_channels=6, num_classes=7).to(device)
     criterion = nn.CrossEntropyLoss()
@@ -308,49 +283,8 @@ def run_pipeline():
         else:
             print() # Newline if no model was saved
 
-    # =====================================================================
-    # 5. TEST REAL-TIME DEBOUNCE INFERENCE
-    # =====================================================================
-    # Load the best model for the final test
-    print("\n--- Testing Real-Time Predictor with Debounce ---")
-    print(f"Loading best model from '{best_model_path}' for testing (Best Val Acc: {best_val_acc:.2f}%, Best Val Loss: {best_val_loss:.4f})")
-    model.load_state_dict(torch.load(best_model_path))
-
-    # Create the predictor AFTER loading the best model weights
-    predictor = RealTimeGesturePredictor(model.cpu(),
-                                       confidence_threshold=0.70,
-                                       debounce_cooldown_steps=3,
-                                       idle_class_idx=0,
-                                       class_map=gesture_map)
-
-    # --- Create a more realistic test stream from the validation set ---
-    # Find one sample of a gesture (e.g., class 4 - Punch) and one of idle (class 0)
-    try:
-        gesture_sample, _ = val_dataset[next(i for i, label in enumerate(val_dataset.labels) if label == 4)] # Find first instance of label 4
-        idle_sample, _ = val_dataset[next(i for i, label in enumerate(val_dataset.labels) if label == 0)]    # Find first instance of label 0
-    except StopIteration:
-        print("Could not find required gesture/idle samples in the validation set for the test stream.")
-        # Fallback to creating a random sample if not found
-        # This is a fallback and might not be representative of the validation set.
-        # The 'try' block is the preferred path.
-        gesture_sample = torch.from_numpy(val_dataset._generate_gesture_sample(4))
-        idle_sample = torch.from_numpy(val_dataset._generate_gesture_sample(0))
-
-    # Simulate a stream: [idle, idle, GESTURE, GESTURE, idle, idle] to test the debouncer
-    # Ensure all samples in the stream are tensors, regardless of where they came from.
-    if not isinstance(gesture_sample, torch.Tensor):
-        gesture_sample = torch.from_numpy(gesture_sample)
-    if not isinstance(idle_sample, torch.Tensor):
-        idle_sample = torch.from_numpy(idle_sample)
-        
-    test_stream = [idle_sample, idle_sample, gesture_sample, gesture_sample, idle_sample, idle_sample]
-
-    print("Simulating stream: [IDLE, IDLE, PUNCH, PUNCH, IDLE, IDLE]")
-    for step, sample in enumerate(test_stream, 1):
-        # Add a batch dimension: (6, 128) -> (1, 6, 128)
-        window_tensor = sample.unsqueeze(0)
-        pred_gesture, conf, status = predictor.predict_window(window_tensor)
-        print(f"Step {step}: Status = {status:<15} | Gesture = {pred_gesture:<14} | Confidence = {conf:.2f}")
+    print("\n--- Training Complete ---")
+    print(f"Best model saved to '{best_model_path}' with Validation Accuracy: {best_val_acc:.2f}%")
 
 
 if __name__ == "__main__":
