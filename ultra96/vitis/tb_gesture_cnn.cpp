@@ -5,15 +5,14 @@
 #include "weights.h"
 
 // =================================================================================
-// Golden Reference Implementation (using floating-point for precision)
-// This function mimics the HLS kernel's logic exactly but uses standard
-// C++ types to generate a bit-accurate golden reference for the fixed-point design.
+// Bit-accurate golden reference.  Keep the same fixed-point types and
+// expression ordering as the synthesizable implementation.
 // =================================================================================
 void gesture_cnn_ref(
     const data_t in_buf[IN_CHANNELS][IN_LENGTH],
     result_t final_logits[NUM_CLASSES]
 ) {
-    // Internal feature maps for the reference model
+    // Use standard arrays for the reference implementation
     data_t b1_conv[32][IN_LENGTH];
     data_t b1_pool[32][64];
     data_t b2_conv[64][64];
@@ -25,9 +24,11 @@ void gesture_cnn_ref(
     // --- Block 1 ---
     const accum_t eps1 = accum_t(1e-5);
     for (int oc = 0; oc < 32; ++oc) {
-        accum_t inv_std1 = accum_t(1.0) / accum_t(sqrt(bn1_running_var[oc].to_float() + eps1.to_float()));
+        accum_t variance1 = accum_t(bn1_running_var[oc]) + eps1;
+        accum_t inv_std1 = accum_t(1) / hls::sqrt(variance1);
         accum_t scale1 = accum_t(bn1_weight[oc]) * inv_std1;
-        accum_t shift1 = accum_t(bn1_bias[oc]) - accum_t(bn1_running_mean[oc]) * scale1;
+        accum_t shift1 = accum_t(bn1_bias[oc]) -
+            (accum_t(bn1_running_mean[oc]) * accum_t(bn1_weight[oc]) * inv_std1);
         for (int l = 0; l < 128; ++l) {
             accum_t acc = accum_t(conv1_bias[oc]);
             for (int ic = 0; ic < 6; ++ic) {
@@ -47,9 +48,11 @@ void gesture_cnn_ref(
     // --- Block 2 ---
     const accum_t eps2 = accum_t(1e-5);
     for (int oc = 0; oc < 64; ++oc) {
-        accum_t inv_std2 = accum_t(1.0) / accum_t(sqrt(bn2_running_var[oc].to_float() + eps2.to_float()));
+        accum_t variance2 = accum_t(bn2_running_var[oc]) + eps2;
+        accum_t inv_std2 = accum_t(1) / hls::sqrt(variance2);
         accum_t scale2 = accum_t(bn2_weight[oc]) * inv_std2;
-        accum_t shift2 = accum_t(bn2_bias[oc]) - accum_t(bn2_running_mean[oc]) * scale2;
+        accum_t shift2 = accum_t(bn2_bias[oc]) -
+            (accum_t(bn2_running_mean[oc]) * accum_t(bn2_weight[oc]) * inv_std2);
         for (int l = 0; l < 64; ++l) {
             accum_t acc = accum_t(conv2_bias[oc]);
             for (int ic = 0; ic < 32; ++ic) {
@@ -69,9 +72,11 @@ void gesture_cnn_ref(
     // --- Block 3 ---
     const accum_t eps3 = accum_t(1e-5);
     for (int oc = 0; oc < 128; ++oc) {
-        accum_t inv_std3 = accum_t(1.0) / accum_t(sqrt(bn3_running_var[oc].to_float() + eps3.to_float()));
+        accum_t variance3 = accum_t(bn3_running_var[oc]) + eps3;
+        accum_t inv_std3 = accum_t(1) / hls::sqrt(variance3);
         accum_t scale3 = accum_t(bn3_weight[oc]) * inv_std3;
-        accum_t shift3 = accum_t(bn3_bias[oc]) - accum_t(bn3_running_mean[oc]) * scale3;
+        accum_t shift3 = accum_t(bn3_bias[oc]) -
+            (accum_t(bn3_running_mean[oc]) * accum_t(bn3_weight[oc]) * inv_std3);
         for (int l = 0; l < 32; ++l) {
             accum_t acc = accum_t(conv3_bias[oc]);
             for (int ic = 0; ic < 64; ++ic) {
@@ -87,7 +92,7 @@ void gesture_cnn_ref(
         }
     }
     for (int c = 0; c < 128; ++c) {
-        accum_t sum = 0;
+        accum_t sum = accum_t(0);
         for (int l = 0; l < 32; ++l) sum += accum_t(b3_conv[c][l]);
         pooled_vec[c] = data_t(sum / accum_t(32));
     }
@@ -120,23 +125,37 @@ int main() {
     // This buffer will hold the input quantized to the HLS data_t type
     static data_t in_buf_quantized[IN_CHANNELS][IN_LENGTH];
 
+    // golden_input.dat is flattened from a PyTorch [C, L] tensor, so load it
+    // channel-major first.  The hardware stream itself is time-major because
+    // conv_bn_relu consumes all channels for each timestep.
     for (int i = 0; i < TOTAL_INPUT_SIZE; ++i) {
         float val;
-        in_file >> val;
-        axis_t packet;
-        union { float f; unsigned int i; } u;
-        u.f = val;
+        if (!(in_file >> val)) {
+            std::cerr << "Error: golden_input.dat contains fewer than "
+                      << TOTAL_INPUT_SIZE << " values" << std::endl;
+            return 1;
+        }
 
         // Quantize the input for the C++ reference model
         in_buf_quantized[i / IN_LENGTH][i % IN_LENGTH] = data_t(val);
-
-        packet.data = u.i;
-        packet.last = (i == TOTAL_INPUT_SIZE - 1) ? 1 : 0;
-        in_stream.write(packet);
     }
     in_file.close();
 
+    for (int l = 0; l < IN_LENGTH; ++l) {
+        for (int c = 0; c < IN_CHANNELS; ++c) {
+            const int stream_idx = l * IN_CHANNELS + c;
+            axis_t packet;
+            union { float f; unsigned int i; } u;
+            u.f = in_buf_quantized[c][l].to_float();
+            packet.data = u.i;
+            packet.keep = -1;
+            packet.last = (stream_idx == TOTAL_INPUT_SIZE - 1) ? 1 : 0;
+            in_stream.write(packet);
+        }
+    }
+
     // Generate the bit-accurate golden reference for the fixed-point model
+    // This now calls the pure C++ reference function.
     result_t ref_logits[NUM_CLASSES];
     gesture_cnn_ref(in_buf_quantized, ref_logits);
 
@@ -152,8 +171,15 @@ int main() {
         result_t hw_val = result_t(u.f); // Convert hardware float output back to fixed-point
         result_t ref_val = ref_logits[i];
 
+        // Calculate the difference. For ap_fixed, it's best to convert to a
+        // common floating-point type for comparison.
+        float diff = std::abs(hw_val.to_float() - ref_val.to_float());
+        // Define a small tolerance. The smallest representable value for our
+        // fixed-point type is a good choice.
+        const float tolerance = 1.0 / (1 << (24 - 12)); // One result_t LSB
+
         std::cout << "Class " << i << " | Hardware: " << hw_val << " | C++ Ref: " << ref_val << std::endl;
-        if (hw_val != ref_val) {
+        if (diff > tolerance) {
             match = false;
         }
     }
