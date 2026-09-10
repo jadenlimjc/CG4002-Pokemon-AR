@@ -13,6 +13,10 @@ public class MockInputController : MonoBehaviour
         if (!enableMockInput) return;
 
         Event e = Event.current;
+        if (e != null && e.isKey)
+        {
+            Debug.Log($"[MockInput] Event detected: type={e.type} key={e.keyCode}");
+        }
         if (e != null && e.type == EventType.KeyDown)
         {
             switch (e.keyCode)
