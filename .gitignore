@@ -46,7 +46,7 @@ esp32/include/secrets.h
 ultra96/__pycache__/
 ultra96/*.py[cod]
 ultra96/*$py.class
-ultra96/pytorch/__pycache__/train_baseline.cpython-314.pyc
+ultra96/pytorch/__pycache__/*.pyc
 
 # Virtual environments
 ultra96/venv/
@@ -61,6 +61,7 @@ ultra96/pytorch/*.xclbin
 ultra96/pytorch/hls_export/
 # will likely remove once start training with real data to save checkpoints
 ultra96/pytorch/saved_checkpoints/ 
+ultra96/pytorch/*.png
 
 
 # ==========================================
