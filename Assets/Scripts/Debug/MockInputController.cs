@@ -1,92 +1,70 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
-/// <summary>
-/// Debug controller that simulates gesture inputs via keyboard.
-/// Attach to any GameObject in the scene during development.
-/// Disable or remove before final build.
-/// </summary>
 public class MockInputController : MonoBehaviour
 {
     [Header("Enable/Disable")]
     [SerializeField] private bool enableMockInput = true;
 
-    [Header("Key Bindings")]
-    [SerializeField] private KeyCode aimKey = KeyCode.A;
-    [SerializeField] private KeyCode catchThrowKey = KeyCode.C;
-    [SerializeField] private KeyCode cancelKey = KeyCode.X;
-    [SerializeField] private KeyCode battleEntryKey = KeyCode.B;
-    [SerializeField] private KeyCode move1Key = KeyCode.Alpha1;
-    [SerializeField] private KeyCode move2Key = KeyCode.Alpha2;
-    [SerializeField] private KeyCode move3Key = KeyCode.Alpha3;
-    [SerializeField] private KeyCode move4Key = KeyCode.Alpha4;
-    [SerializeField] private KeyCode resetKey = KeyCode.R;
-
     [Header("Mock Confidence")]
     [SerializeField] private float mockConfidence = 0.95f;
 
-    private bool hasLoggedOnce = false;
-
     private void Update()
     {
-        if (!hasLoggedOnce) { Debug.Log("[MockInput] Update is running"); hasLoggedOnce = true; }
-
-        if (Input.GetMouseButtonDown(0))
-            Debug.Log("[MockInput] Mouse click detected");
-
         if (!enableMockInput) return;
 
-        if (Input.anyKeyDown)
-            Debug.Log($"[MockInput] Key pressed: {Input.inputString}");
+        var kb = Keyboard.current;
+        if (kb == null) return;
 
-        if (Input.GetKeyDown(aimKey))
+        if (kb.aKey.wasPressedThisFrame)
         {
             Debug.Log("[MockInput] ARM_PULLBACK triggered (show reticle)");
             GestureEvents.RaiseGestureReceived(GestureAction.ARM_PULLBACK, mockConfidence);
         }
 
-        if (Input.GetKeyDown(catchThrowKey))
+        if (kb.cKey.wasPressedThisFrame)
         {
             Debug.Log("[MockInput] CATCH_THROW triggered");
             GestureEvents.RaiseGestureReceived(GestureAction.CATCH_THROW, mockConfidence);
         }
 
-        if (Input.GetKeyDown(cancelKey))
+        if (kb.xKey.wasPressedThisFrame)
         {
             Debug.Log("[MockInput] CANCEL triggered (hide reticle)");
             GestureEvents.RaiseGestureReceived(GestureAction.CANCEL, mockConfidence);
         }
 
-        if (Input.GetKeyDown(battleEntryKey))
+        if (kb.bKey.wasPressedThisFrame)
         {
             Debug.Log("[MockInput] POKEBALL_THROW triggered (battle entry)");
             GestureEvents.RaiseGestureReceived(GestureAction.POKEBALL_THROW, mockConfidence);
         }
 
-        if (Input.GetKeyDown(move1Key))
+        if (kb.digit1Key.wasPressedThisFrame)
         {
             Debug.Log("[MockInput] BATTLE_MOVE_1: Close Combat");
             GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_1, mockConfidence);
         }
 
-        if (Input.GetKeyDown(move2Key))
+        if (kb.digit2Key.wasPressedThisFrame)
         {
             Debug.Log("[MockInput] BATTLE_MOVE_2: Protect");
             GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_2, mockConfidence);
         }
 
-        if (Input.GetKeyDown(move3Key))
+        if (kb.digit3Key.wasPressedThisFrame)
         {
             Debug.Log("[MockInput] BATTLE_MOVE_3: Brick Break");
             GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_3, mockConfidence);
         }
 
-        if (Input.GetKeyDown(move4Key))
+        if (kb.digit4Key.wasPressedThisFrame)
         {
             Debug.Log("[MockInput] BATTLE_MOVE_4: Drain Punch");
             GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_4, mockConfidence);
         }
 
-        if (Input.GetKeyDown(resetKey))
+        if (kb.rKey.wasPressedThisFrame)
         {
             Debug.Log("[MockInput] RESET to Idle");
             GameStateManager.Instance.ResetToIdle();
@@ -103,15 +81,15 @@ public class MockInputController : MonoBehaviour
         GUILayout.Label($"State: {GameStateManager.Instance?.CurrentPhase}");
         GUILayout.Label($"Aiming: {(CatchManager.Instance?.IsAiming == true ? "YES" : "no")}");
         GUILayout.Label("");
-        GUILayout.Label($"[{aimKey}] Aim (show reticle)");
-        GUILayout.Label($"[{catchThrowKey}] Catch Throw (fire ball)");
-        GUILayout.Label($"[{cancelKey}] Cancel (hide reticle)");
-        GUILayout.Label($"[{battleEntryKey}] Battle Entry");
-        GUILayout.Label($"[{move1Key}] Move 1: Close Combat");
-        GUILayout.Label($"[{move2Key}] Move 2: Protect");
-        GUILayout.Label($"[{move3Key}] Move 3: Brick Break");
-        GUILayout.Label($"[{move4Key}] Move 4: Drain Punch");
-        GUILayout.Label($"[{resetKey}] Reset to Idle");
+        GUILayout.Label("[A] Aim (show reticle)");
+        GUILayout.Label("[C] Catch Throw (fire ball)");
+        GUILayout.Label("[X] Cancel (hide reticle)");
+        GUILayout.Label("[B] Battle Entry");
+        GUILayout.Label("[1] Move 1: Close Combat");
+        GUILayout.Label("[2] Move 2: Protect");
+        GUILayout.Label("[3] Move 3: Brick Break");
+        GUILayout.Label("[4] Move 4: Drain Punch");
+        GUILayout.Label("[R] Reset to Idle");
         GUILayout.Label("");
         GUILayout.Label($"Network: {(NetworkManager.Instance?.IsConnected == true ? "Connected" : "Disconnected")}");
         GUILayout.EndArea();
