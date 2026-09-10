@@ -7,7 +7,8 @@ public class EncounterNotification : MonoBehaviour
     [Header("UI References")]
     [SerializeField] private GameObject notificationPanel;
     [SerializeField] private TextMeshProUGUI pokemonNameText;
-    [SerializeField] private GameObject exclamationIcon; // "!" or startled symbol
+    [SerializeField] private TextMeshProUGUI terrainTypeText;
+    [SerializeField] private GameObject exclamationIcon;
 
     [Header("Animation")]
     [SerializeField] private float fadeInDuration = 0.3f;
@@ -52,7 +53,8 @@ public class EncounterNotification : MonoBehaviour
         {
             PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
             string name = spawner?.CurrentPokemonData?.pokemonName ?? "???";
-            ShowNotification(name);
+            string terrain = spawner?.LastDetectedTerrain ?? "Unknown";
+            ShowNotification(name, terrain);
         }
         else if (oldPhase == GamePhase.Encounter)
         {
@@ -60,10 +62,13 @@ public class EncounterNotification : MonoBehaviour
         }
     }
 
-    private void ShowNotification(string pokemonName)
+    private void ShowNotification(string pokemonName, string terrain)
     {
         if (pokemonNameText != null)
             pokemonNameText.text = $"Wild {pokemonName} appeared!";
+
+        if (terrainTypeText != null)
+            terrainTypeText.text = $"Terrain: {terrain}";
 
         StartCoroutine(AnimateNotification());
     }

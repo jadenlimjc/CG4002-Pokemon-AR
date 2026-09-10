@@ -26,8 +26,11 @@ public class PokemonSpawner : MonoBehaviour
     private Animator currentAnimator;
     private NsdkSceneSegmentationSubsystem _segmentationSubsystem;
 
+    private string lastDetectedTerrain = "Unknown";
+
     public PokemonData CurrentPokemonData => currentPokemonData;
     public GameObject CurrentWildPokemon => currentWildPokemon;
+    public string LastDetectedTerrain => lastDetectedTerrain;
 
     private void OnEnable()
     {
@@ -49,26 +52,12 @@ public class PokemonSpawner : MonoBehaviour
             GameStateManager.Instance.OnPhaseChanged -= HandlePhaseChanged;
     }
 
-    private bool hasLoggedUpdate = false;
-    private bool hasLoggedNull = false;
-
     private void Update()
     {
-        if (!hasLoggedUpdate)
-        {
-            Debug.Log($"[Spawner] Update() is running. Phase: {GameStateManager.Instance?.CurrentPhase}, Time: {Time.time}, LastSpawn: {lastSpawnTime}, Cooldown: {spawnCooldown}");
-            Debug.Log($"[Spawner] DefaultPool: {(defaultPool != null ? defaultPool.Length.ToString() : "null")} entries");
-            hasLoggedUpdate = true;
-        }
-        if (GameStateManager.Instance == null)
-        {
-            if (!hasLoggedNull) { Debug.LogWarning("[Spawner] GameStateManager.Instance is null"); hasLoggedNull = true; }
-            return;
-        }
+        if (GameStateManager.Instance == null) return;
         if (GameStateManager.Instance.CurrentPhase != GamePhase.Idle) return;
         if (Time.time - lastSpawnTime < spawnCooldown) return;
 
-        Debug.Log("[Spawner] Attempting to spawn...");
         TrySpawnWildPokemon();
     }
 
@@ -124,18 +113,30 @@ public class PokemonSpawner : MonoBehaviour
     private PokemonData PickPokemonByTerrain(Vector3 worldPosition)
     {
         if (!TryAcquireSubsystem() || !_segmentationSubsystem.running)
+        {
+            lastDetectedTerrain = "Default (no segmentation)";
             return PickFromPool(defaultPool);
+        }
 
-        // Try to sample the Grass channel at the spawn point
         if (TryCheckChannel(SceneSegmentationChannel.Grass, worldPosition) && grassPool.Length > 0)
+        {
+            lastDetectedTerrain = "Grass";
             return PickFromPool(grassPool);
+        }
 
         if (TryCheckChannel(SceneSegmentationChannel.NaturalGround, worldPosition) && grassPool.Length > 0)
+        {
+            lastDetectedTerrain = "Natural Ground";
             return PickFromPool(grassPool);
+        }
 
         if (TryCheckChannel(SceneSegmentationChannel.Sky, worldPosition) && skyPool.Length > 0)
+        {
+            lastDetectedTerrain = "Sky";
             return PickFromPool(skyPool);
+        }
 
+        lastDetectedTerrain = "Default";
         return PickFromPool(defaultPool);
     }
 
