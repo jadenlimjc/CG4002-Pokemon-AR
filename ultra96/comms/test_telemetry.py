@@ -1,4 +1,6 @@
 import os
+import logging
+import shutil
 import sys
 import time
 import struct
@@ -7,6 +9,7 @@ import select
 import termios
 import tty
 from datetime import datetime
+from contextlib import contextmanager
 
 from main import (
     TelemetryProcessor,
@@ -21,6 +24,17 @@ LOG_DIR = os.path.abspath(os.path.dirname(__file__))
 LOG_FILE = os.path.join(LOG_DIR, "telemetry_bench.csv")
 
 
+class DashboardLogFilter(logging.Filter):
+    def __init__(self, benchmark):
+        super().__init__()
+        self.benchmark = benchmark
+
+    def filter(self, record):
+        self.benchmark.last_log_msg = f"[{record.levelname}] {record.getMessage()}"
+        # The UI thread renders logs; MQTT callbacks must not move the cursor.
+        return False
+
+
 class TelemetryBenchmark:
     def __init__(self, processor: TelemetryProcessor):
         self.processor = processor
@@ -32,6 +46,24 @@ class TelemetryBenchmark:
         self.first_packet_time = None
         self.is_first_print = True
         self.last_action_msg = "Ready (Press key options below)"
+        self.last_log_msg = "No messages yet"
+
+    @contextmanager
+    def dashboard_logging(self):
+        log_filter = DashboardLogFilter(self)
+        console_handlers = [
+            handler for handler in logging.getLogger().handlers
+            if isinstance(handler, logging.StreamHandler)
+            and not isinstance(handler, logging.FileHandler)
+            and handler.stream in (sys.stdout, sys.stderr)
+        ]
+        for handler in console_handlers:
+            handler.addFilter(log_filter)
+        try:
+            yield
+        finally:
+            for handler in console_handlers:
+                handler.removeFilter(log_filter)
 
     def on_message(self, client, userdata, msg):
         now_ms = time.time() * 1000
@@ -106,6 +138,7 @@ class TelemetryBenchmark:
             f" Max Latency     : {max_lat:.2f} ms",
             "-" * 44,
             f" Last Action     : {self.last_action_msg}",
+            f" Last Log        : {self.last_log_msg}",
             "-" * 44,
             " [1 / c] Trigger Config via Main",
             " [2 / h] Trigger Haptic via Main",
@@ -118,8 +151,13 @@ class TelemetryBenchmark:
 
         self.is_first_print = False
 
+        # Leave one column unused to avoid terminal auto-wrapping. Keep log
+        # messages on one physical row, including messages with control codes.
+        width = max(1, shutil.get_terminal_size().columns - 1)
         for line in lines:
-            sys.stdout.write(f"{line}\033[K\n")
+            line = "".join(char if char.isprintable() else " " for char in line)
+            line = line.encode("ascii", errors="replace").decode("ascii")
+            sys.stdout.write(f"\r{line[:width]}\033[K\n")
 
         sys.stdout.flush()
 
@@ -171,20 +209,21 @@ if __name__ == "__main__":
             tty.setcbreak(sys.stdin.fileno())
 
             try:
-                while True:
-                    key = get_key_non_blocking()
+                with benchmark.dashboard_logging():
+                    while True:
+                        key = get_key_non_blocking()
 
-                    if key in ("1", "c"):
-                        processor.send_config()
-                        benchmark.last_action_msg = "Sent Config via main processor"
-                    elif key in ("2", "h"):
-                        processor.trigger_haptic("1")
-                        benchmark.last_action_msg = "Sent Haptic via main processor"
-                    elif key == "q":
-                        break
+                        if key in ("1", "c"):
+                            processor.send_config()
+                            benchmark.last_action_msg = "Sent Config via main processor"
+                        elif key in ("2", "h"):
+                            processor.trigger_haptic("1")
+                            benchmark.last_action_msg = "Sent Haptic via main processor"
+                        elif key == "q":
+                            break
 
-                    benchmark.print_live_stats()
-                    time.sleep(0.1)
+                        benchmark.print_live_stats()
+                        time.sleep(0.1)
 
             finally:
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
