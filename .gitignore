@@ -94,3 +94,5 @@ visualiser/*.idb
 # OS X / Unity builds
 visualiser/*.app/
 /ultra96/.python-version
+
+!ultra96/comms/tests/telemetry.log

@@ -1,0 +1,17 @@
+[2026-09-11T09:08:31] +0.014s broker_connection: Success
+[2026-09-11T09:08:31] +0.018s mqtt_presence: online (retained snapshot)
+[2026-09-11T09:08:31] +0.097s first_telemetry: First sample received
+[2026-09-11T09:08:31] +0.389s clock_synced: Offset=1789117601186.95ms
+[2026-09-11T09:08:31] +51.511s telemetry_timeout: No samples for 2.041s
+[2026-09-11T09:08:31] +56.504s mqtt_presence: offline (live broker message)
+[2026-09-11T09:08:31] +56.530s mqtt_presence: online (live broker message)
+[2026-09-11T09:08:31] +56.599s telemetry_resumed: Gap between samples: 7.129s
+[2026-09-11T09:08:31] +56.599s clock_restart_suspected: Sample index and device clock moved backwards
+[2026-09-11T09:08:31] +56.952s clock_synced: Offset=1789117662072.82ms
+[2026-09-11T09:08:31] +73.816s telemetry_timeout: No samples for 2.093s
+[2026-09-11T09:08:31] +78.923s mqtt_presence: offline (live broker message)
+[2026-09-11T09:08:31] +78.961s mqtt_presence: online (live broker message)
+[2026-09-11T09:08:31] +79.024s telemetry_resumed: Gap between samples: 7.301s
+[2026-09-11T09:08:31] +79.024s clock_restart_suspected: Sample index and device clock moved backwards
+[2026-09-11T09:08:31] +79.343s clock_synced: Offset=1789117684208.55ms
+[2026-09-11T09:08:31] +100.077s broker_disconnected: Normal disconnection
