@@ -60,7 +60,7 @@ public class MockInputController : MonoBehaviour
             }
         }
 
-        GUILayout.BeginArea(new Rect(10, 10, 300, 250));
+        GUILayout.BeginArea(new Rect(Screen.width - 310, Screen.height - 260, 300, 250));
         GUILayout.Label("=== MOCK INPUT (Debug) ===");
         GUILayout.Label($"State: {GameStateManager.Instance?.CurrentPhase}");
         GUILayout.Label($"Aiming: {(CatchManager.Instance?.IsAiming == true ? "YES" : "no")}");
