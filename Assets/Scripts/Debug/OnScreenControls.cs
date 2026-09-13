@@ -25,25 +25,25 @@ public class OnScreenControls : MonoBehaviour
 
     private void CreateEncounterButtons()
     {
-        float startY = -100f;
-        float x = -buttonWidth / 2f - spacing;
+        float y = buttonHeight + spacing;
+        float leftX = -buttonWidth - spacing / 2f;
 
-        CreateButton("Aim", x, startY, () =>
+        CreateButton("Aim", leftX, y, () =>
         {
             GestureEvents.RaiseGestureReceived(GestureAction.ARM_PULLBACK, mockConfidence);
         });
 
-        CreateButton("Catch Throw", x, startY - (buttonHeight + spacing), () =>
+        CreateButton("Catch Throw", leftX, y + (buttonHeight + spacing), () =>
         {
             GestureEvents.RaiseGestureReceived(GestureAction.CATCH_THROW, mockConfidence);
         });
 
-        CreateButton("Battle Entry", x, startY - (buttonHeight + spacing) * 2, () =>
+        CreateButton("Battle Entry", leftX, y + (buttonHeight + spacing) * 2, () =>
         {
             GestureEvents.RaiseGestureReceived(GestureAction.POKEBALL_THROW, mockConfidence);
         });
 
-        CreateButton("Cancel", x, startY - (buttonHeight + spacing) * 3, () =>
+        CreateButton("Cancel", leftX, y + (buttonHeight + spacing) * 3, () =>
         {
             GestureEvents.RaiseGestureReceived(GestureAction.CANCEL, mockConfidence);
         });
@@ -51,25 +51,25 @@ public class OnScreenControls : MonoBehaviour
 
     private void CreateBattleButtons()
     {
-        float startY = -100f;
-        float x = buttonWidth / 2f + spacing;
+        float y = buttonHeight + spacing;
+        float rightX = spacing / 2f;
 
-        CreateButton("Move 1", x, startY, () =>
+        CreateButton("Move 1", rightX, y, () =>
         {
             GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_1, mockConfidence);
         });
 
-        CreateButton("Move 2", x, startY - (buttonHeight + spacing), () =>
+        CreateButton("Move 2", rightX, y + (buttonHeight + spacing), () =>
         {
             GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_2, mockConfidence);
         });
 
-        CreateButton("Move 3", x, startY - (buttonHeight + spacing) * 2, () =>
+        CreateButton("Move 3", rightX, y + (buttonHeight + spacing) * 2, () =>
         {
             GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_3, mockConfidence);
         });
 
-        CreateButton("Move 4", x, startY - (buttonHeight + spacing) * 3, () =>
+        CreateButton("Move 4", rightX, y + (buttonHeight + spacing) * 3, () =>
         {
             GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_4, mockConfidence);
         });
@@ -77,7 +77,8 @@ public class OnScreenControls : MonoBehaviour
 
     private void CreateUtilityButtons()
     {
-        CreateButton("Reset", 0f, -100f - (buttonHeight + spacing) * 4, () =>
+        float y = buttonHeight + spacing + (buttonHeight + spacing) * 4;
+        CreateButton("Reset", -buttonWidth / 2f, y, () =>
         {
             if (GameStateManager.Instance != null)
                 GameStateManager.Instance.ResetToIdle();
@@ -90,9 +91,9 @@ public class OnScreenControls : MonoBehaviour
         buttonObj.transform.SetParent(transform, false);
 
         RectTransform rect = buttonObj.AddComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0.5f, 1f);
-        rect.anchorMax = new Vector2(0.5f, 1f);
-        rect.pivot = new Vector2(0.5f, 1f);
+        rect.anchorMin = new Vector2(0.5f, 0f);
+        rect.anchorMax = new Vector2(0.5f, 0f);
+        rect.pivot = new Vector2(0f, 0f);
         rect.anchoredPosition = new Vector2(x, y);
         rect.sizeDelta = new Vector2(buttonWidth, buttonHeight);
 
