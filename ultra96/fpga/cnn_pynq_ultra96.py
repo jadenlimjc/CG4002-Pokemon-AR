@@ -62,6 +62,67 @@ def get_cnn_instance(ol):
     print(f"Using detected CNN instance: {cnn_names[0]}")
     return get_overlay_ip(ol, cnn_names[0])
 
+
+class GestureCNNAccelerator:
+    """Reusable single-window inference interface for the FPGA CNN."""
+
+    def __init__(self, overlay_path=OVERLAY_PATH):
+        hwh_path = os.path.splitext(overlay_path)[0] + ".hwh"
+        if not os.path.exists(overlay_path):
+            raise FileNotFoundError(f"Bitstream not found: {overlay_path}")
+        if not os.path.exists(hwh_path):
+            raise FileNotFoundError(
+                f"Hardware handoff not found: {hwh_path}. The .bit and .hwh "
+                "files must have the same basename."
+            )
+
+        self.overlay = Overlay(overlay_path)
+        self.dma = get_dma_instance(self.overlay)
+        self.cnn = get_cnn_instance(self.overlay)
+        self.in_buf = allocate(shape=(INPUT_DATA_SIZE,), dtype=np.float32)
+        self.out_buf = allocate(shape=(OUTPUT_DATA_SIZE,), dtype=np.float32)
+        self._closed = False
+
+    def predict_logits(self, window):
+        """Run one [6, 128] channel-major window and return seven logits."""
+        if self._closed:
+            raise RuntimeError("Accelerator has already been closed")
+
+        window = np.asarray(window, dtype=np.float32)
+        if window.shape != (IN_CHANNELS, IN_LENGTH):
+            raise ValueError(
+                f"Expected input shape {(IN_CHANNELS, IN_LENGTH)}, "
+                f"received {window.shape}"
+            )
+
+        # The HLS stream consumes every channel for a timestep before moving
+        # to the next timestep, unlike the channel-major model/data format.
+        self.in_buf[:] = np.ascontiguousarray(window.T).reshape(-1)
+        self.out_buf.fill(0)
+
+        # Arm receive first to avoid output backpressure, then start the IP.
+        self.dma.recvchannel.transfer(self.out_buf)
+        self.cnn.write(0x00, 0x01)
+        self.dma.sendchannel.transfer(self.in_buf)
+        self.dma.sendchannel.wait()
+        self.dma.recvchannel.wait()
+        return np.array(self.out_buf, dtype=np.float32, copy=True)
+
+    def predict(self, window):
+        return int(np.argmax(self.predict_logits(window)))
+
+    def close(self):
+        if not self._closed:
+            self.in_buf.freebuffer()
+            self.out_buf.freebuffer()
+            self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
 def main():
     hwh_path = os.path.splitext(OVERLAY_PATH)[0] + ".hwh"
     if not os.path.exists(OVERLAY_PATH):
