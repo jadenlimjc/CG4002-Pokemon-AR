@@ -85,7 +85,15 @@ public class PokemonSpawner : MonoBehaviour
         }
         else
         {
+#if UNITY_EDITOR
+            Transform cam = Camera.main.transform;
+            spawnPosition = cam.position + cam.forward * spawnDistance;
+            spawnPosition.y = cam.position.y - 1f;
+            Debug.Log("[Spawner] Editor fallback spawn");
+            SpawnPokemon(spawnPosition);
+#else
             Debug.Log("[Spawner] No mesh hit, skipping spawn (waiting for AR mesh)");
+#endif
         }
     }
 
