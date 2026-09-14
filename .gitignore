@@ -9,6 +9,10 @@ Thumbs.db
 *.pem
 *.key
 
+# Local credentials at any depth, including after files are moved or renamed.
+# Explicitly allow safe files with a later !path/to/file exception.
+*secrets*
+
 # IDE Settings
 .vscode/
 .idea/
@@ -34,10 +38,6 @@ esp32/.vscode/
 # Arduino IDE build artifacts
 esp32/build/
 esp32/out/
-
-# Local Wifi Credentials / Secrets
-esp32/include/secrets.h
-
 
 # ==========================================
 # 3. Ultra96 (/ultra96)
