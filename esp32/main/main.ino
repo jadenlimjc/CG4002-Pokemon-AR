@@ -9,35 +9,40 @@
 #include "libssh_esp32.h"
 #include "ssh_client.h"
 #include "secrets.h"
+#include "telemetry_packet.h"
 
 // ==========================================
 // CONFIGURATION
 // ==========================================
 
-// Shared topics
-const char* TOPIC_TELEMETRY = "esp32/telemetry";
-// TODO: add haptic topic
+// Stable per-board identity. All boards run the same firmware.
+char model_id[13];
+char mqtt_client_id[24];
+char topic_telemetry[64];
+char topic_status[64];
+char topic_ping[64];
+char topic_pong[64];
+char topic_config[64];
+char topic_haptic[64];
+char topic_inference[64];
+
+void initialiseMqttIdentity() {
+    snprintf(model_id, sizeof(model_id), "%012llx",
+             static_cast<unsigned long long>(ESP.getEfuseMac()));
+    snprintf(mqtt_client_id, sizeof(mqtt_client_id), "firebeetle-%s", model_id);
+    snprintf(topic_telemetry, sizeof(topic_telemetry), "esp32/%s/telemetry", model_id);
+    snprintf(topic_status, sizeof(topic_status), "esp32/%s/status", model_id);
+    snprintf(topic_ping, sizeof(topic_ping), "esp32/%s/ping", model_id);
+    snprintf(topic_pong, sizeof(topic_pong), "esp32/%s/pong", model_id);
+    snprintf(topic_config, sizeof(topic_config), "esp32/%s/config", model_id);
+    snprintf(topic_haptic, sizeof(topic_haptic), "esp32/%s/haptic/cmd", model_id);
+    snprintf(topic_inference, sizeof(topic_inference), "ultra96/%s/inference", model_id);
+    Serial.printf("[BOOT] Model ID: %s | MQTT client: %s\n", model_id, mqtt_client_id);
+}
 
 // MQTT / SSH forwarding destination
 char mqtt_server[128] = "makerslab-fpga-38.ddns.comp.nus.edu.sg";
 uint16_t mqtt_port = 1883;
-
-// ==========================================
-// Packet format
-// ==========================================
-
-struct __attribute__((packed)) TelemetryPacket {
-    uint32_t sample_index; // 4 bytes
-    uint32_t timestamp_us; // 4 bytes
-    int16_t accel_x;       // 2 bytes
-    int16_t accel_y;       // 2 bytes
-    int16_t accel_z;       // 2 bytes
-    int16_t gyro_x;        // 2 bytes
-    int16_t gyro_y;        // 2 bytes
-    int16_t gyro_z;        // 2 bytes
-    uint16_t hall_raw;     // 2 bytes
-    uint8_t flags;         // 1 byte
-};
 
 // ==========================================
 // Global state
@@ -71,7 +76,7 @@ void connectMQTT();
 void SensorSampleTask(void* pvParameters);
 void NetworkTask(void* pvParameters);
 
-void pingCallback(char* topic, byte* payload, unsigned int length);
+void mqttCallback(char* topic, byte* payload, unsigned int length);
 
 // ==========================================
 // SETUP
@@ -120,6 +125,14 @@ void setup() {
     // Initialise MQTT client
     // --------------------------------------
 
+    initialiseMqttIdentity();
+    // Includes MQTT headers/topics and the JSON inference response.
+    if (!client.setBufferSize(1024)) {
+        Serial.println("[ERROR] Failed to allocate MQTT packet buffer!");
+        while (true) {
+            delay(1000);
+        }
+    }
     client.setServer(mqtt_server, mqtt_port);
 
     Serial.printf("[BOOT] MQTT destination: %s:%u\n", mqtt_server, mqtt_port);
@@ -192,7 +205,7 @@ void SensorSampleTask(void* pvParameters) {
         TelemetryPacket packet;
 
         packet.sample_index = current_index++;
-        packet.timestamp_us = millis();
+        packet.timestamp_ms = millis();
 
         // TODO:
         // Replace these mock values with actual
@@ -209,6 +222,9 @@ void SensorSampleTask(void* pvParameters) {
         // Bit 0 = local hall trigger.
         uint8_t local_haptic_trigger = (packet.hall_raw > 2500) ? 1 : 0;
         packet.flags = local_haptic_trigger & 0x01;
+        packet.crc32 = telemetryCrc32(
+            reinterpret_cast<const uint8_t*>(&packet), offsetof(TelemetryPacket, crc32)
+        );
 
         // ----------------------------------
         // Push into queue
@@ -291,7 +307,7 @@ void NetworkTask(void* pvParameters) {
         if (xQueueReceive(telemetryQueue, &packet, pdMS_TO_TICKS(5)) == pdTRUE) {
             if (WiFi.status() == WL_CONNECTED && client.connected()) {
                 const uint8_t* payload = reinterpret_cast<const uint8_t*>(&packet);
-                bool success = client.publish(TOPIC_TELEMETRY, payload, sizeof(TelemetryPacket));
+                bool success = client.publish(topic_telemetry, payload, sizeof(TelemetryPacket));
 
                 if (!success) {
                     Serial.println("[NetworkTask] MQTT publish failed.");
@@ -447,13 +463,11 @@ void connectMQTT() {
 
     while (!client.connected() && retries < 3) {
         Serial.printf("[NetworkTask] Connecting to broker at %s:%u...\n", mqtt_server, mqtt_port);
-        String client_id = "ESP32";
 
         // ----------------------------------
         // Last Will
         // ----------------------------------
 
-        const char* lwt_topic = "glove/status";
         const char* lwt_payload = "{\"state\":\"offline\"}";
         uint8_t lwt_qos = 1;
         bool lwt_retain = true;
@@ -462,7 +476,7 @@ void connectMQTT() {
         // MQTT connection
         // ----------------------------------
 
-        if (client.connect(client_id.c_str(), MQTT_USER, MQTT_PASSWORD, lwt_topic, lwt_qos, lwt_retain, lwt_payload)) {
+        if (client.connect(mqtt_client_id, MQTT_USER, MQTT_PASSWORD, topic_status, lwt_qos, lwt_retain, lwt_payload)) {
             Serial.println("[NetworkTask] Connected to MQTT broker successfully!");
 
             client.setCallback(mqttCallback);
@@ -472,12 +486,13 @@ void connectMQTT() {
             // --------------------------------
 
             String online_payload = "{\"state\":\"online\",\"rssi\":" + String(WiFi.RSSI()) + "}";
-            client.publish("glove/status", online_payload.c_str(), true);
+            client.publish(topic_status, online_payload.c_str(), true);
             mqtt_connection_failures = 0;
 
-            client.subscribe("esp32/ping");
-            client.subscribe("esp32/config");
-            client.subscribe("esp32/haptic/cmd");
+            client.subscribe(topic_ping);
+            client.subscribe(topic_config);
+            client.subscribe(topic_haptic);
+            client.subscribe(topic_inference);
         } else {
             Serial.printf("[NetworkTask] MQTT connection failed. " "RC state: %d\n", client.state());
             Serial.println("[NetworkTask] Retrying in 1.5 seconds...");
@@ -491,10 +506,10 @@ void connectMQTT() {
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-    if (strcmp(topic, "esp32/ping") == 0) {
+    if (strcmp(topic, topic_ping) == 0) {
         uint32_t current_time = millis();
         // Send the 4-byte time back immediately
-        client.publish("esp32/pong", (uint8_t*)&current_time, sizeof(current_time));
+        client.publish(topic_pong, (uint8_t*)&current_time, sizeof(current_time));
         return;
     }
 
@@ -502,11 +517,14 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     memcpy(message, payload, length);
     message[length] = '\0';
 
-    if (strcmp(topic, "esp32/config") == 0) {
+    if (strcmp(topic, topic_config) == 0) {
         Serial.printf("[MQTT Rx] Topic: %s | Config Payload: %s\n", topic, message);
     }
-    else if (strcmp(topic, "esp32/haptic/cmd") == 0) {
+    else if (strcmp(topic, topic_haptic) == 0) {
         Serial.printf("[MQTT Rx] Topic: %s | Haptic Command Received: %s (Simulating motor trigger)\n", topic, message);
+    }
+    else if (strcmp(topic, topic_inference) == 0) {
+        Serial.printf("[MQTT Rx] Model %s | Inference: %s\n", model_id, message);
     }
     else {
         Serial.printf("[MQTT Rx] Topic: %s | Raw Payload: %s\n", topic, message);
