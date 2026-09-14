@@ -10,7 +10,7 @@ public class PokemonSpawner : MonoBehaviour
     [Header("Spawn Settings")]
     [SerializeField] private float spawnDistance = 3f;
     [SerializeField] private float spawnCooldown = 10f;
-    [SerializeField] private float encounterRadius = 2f;
+    [SerializeField] private float encounterRadius = 0.5f;
     [SerializeField] private float meshRaycastDistance = 10f;
 
     [Header("Pokemon Pools")]
@@ -80,15 +80,12 @@ public class PokemonSpawner : MonoBehaviour
 
         if (TryGetMeshSpawnPosition(out spawnPosition))
         {
+            Debug.Log($"[Spawner] Mesh hit at {spawnPosition}");
             SpawnPokemon(spawnPosition);
         }
         else
         {
-            // Fallback: spawn in front of camera (editor testing without AR)
-            Transform cam = Camera.main.transform;
-            spawnPosition = cam.position + cam.forward * spawnDistance;
-            spawnPosition.y = cam.position.y - 1f;
-            SpawnPokemon(spawnPosition);
+            Debug.Log("[Spawner] No mesh hit, skipping spawn (waiting for AR mesh)");
         }
     }
 
@@ -96,14 +93,21 @@ public class PokemonSpawner : MonoBehaviour
     {
         position = Vector3.zero;
 
-        // Raycast from screen center onto Lightship-generated mesh
         Ray ray = Camera.main.ScreenPointToRay(
             new Vector3(Screen.width / 2f, Screen.height / 2f, 0));
 
         if (Physics.Raycast(ray, out RaycastHit hit, meshRaycastDistance))
         {
+            Debug.Log($"[Spawner] Raycast hit: {hit.collider.name} at {hit.point}");
             Vector2 randomOffset = Random.insideUnitCircle * encounterRadius;
-            position = hit.point + new Vector3(randomOffset.x, 0, randomOffset.y);
+            Vector3 candidate = hit.point + new Vector3(randomOffset.x, 0, randomOffset.y);
+
+            // Snap offset position back onto mesh surface
+            if (Physics.Raycast(candidate + Vector3.up * 2f, Vector3.down, out RaycastHit snapHit, 5f))
+                position = snapHit.point;
+            else
+                position = hit.point;
+
             return true;
         }
 
