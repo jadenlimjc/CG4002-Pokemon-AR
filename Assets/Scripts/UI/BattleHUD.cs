@@ -7,7 +7,6 @@ public class BattleHUD : MonoBehaviour
 {
     [Header("HUD Root")]
     [SerializeField] private GameObject battleHUDPanel;
-    [SerializeField] private GameObject encounterPanel;
 
     [Header("Player HP")]
     [SerializeField] private Slider playerHPBar;
@@ -29,10 +28,6 @@ public class BattleHUD : MonoBehaviour
     [Header("Battle Messages")]
     [SerializeField] private TextMeshProUGUI messageText;
     [SerializeField] private float messageDisplayTime = 2f;
-
-    [Header("Encounter UI")]
-    [SerializeField] private TextMeshProUGUI encounterText;
-    [SerializeField] private GameObject actionPrompt; // "Overhead throw = Catch | Underhand throw = Battle"
 
     [Header("Reticle")]
     [SerializeField] private GameObject reticleObject; // Crosshair image centered on screen

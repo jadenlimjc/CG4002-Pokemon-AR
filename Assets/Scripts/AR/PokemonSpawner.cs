@@ -101,22 +101,25 @@ public class PokemonSpawner : MonoBehaviour
     {
         position = Vector3.zero;
 
-        Ray ray = Camera.main.ScreenPointToRay(
-            new Vector3(Screen.width / 2f, Screen.height / 2f, 0));
-
-        if (Physics.Raycast(ray, out RaycastHit hit, meshRaycastDistance))
+        // Try multiple random screen positions to find a valid surface
+        int maxAttempts = 5;
+        for (int i = 0; i < maxAttempts; i++)
         {
-            Debug.Log($"[Spawner] Raycast hit: {hit.collider.name} at {hit.point}");
-            Vector2 randomOffset = Random.insideUnitCircle * encounterRadius;
-            Vector3 candidate = hit.point + new Vector3(randomOffset.x, 0, randomOffset.y);
+            float screenX = Random.Range(Screen.width * 0.2f, Screen.width * 0.8f);
+            float screenY = Random.Range(Screen.height * 0.2f, Screen.height * 0.8f);
 
-            // Snap offset position back onto mesh surface
-            if (Physics.Raycast(candidate + Vector3.up * 2f, Vector3.down, out RaycastHit snapHit, 5f))
-                position = snapHit.point;
-            else
+            Ray ray = Camera.main.ScreenPointToRay(new Vector3(screenX, screenY, 0));
+
+            if (Physics.Raycast(ray, out RaycastHit hit, meshRaycastDistance))
+            {
+                // Check the hit is within a reasonable distance
+                float dist = Vector3.Distance(Camera.main.transform.position, hit.point);
+                if (dist < 1f || dist > meshRaycastDistance) continue;
+
+                Debug.Log($"[Spawner] Raycast hit: {hit.collider.name} at {hit.point} (dist: {dist:F1}m)");
                 position = hit.point;
-
-            return true;
+                return true;
+            }
         }
 
         return false;
@@ -154,7 +157,11 @@ public class PokemonSpawner : MonoBehaviour
 
     private bool TryCheckChannel(SceneSegmentationChannel channel, Vector3 worldPosition)
     {
-        if (_segmentationSubsystem == null) return false;
+        if (_segmentationSubsystem == null)
+        {
+            Debug.Log($"[Terrain] {channel}: subsystem null");
+            return false;
+        }
 
         if (!_segmentationSubsystem.TryAcquireSceneSegmentationChannelCpuImage(
                 channel: channel,
@@ -162,25 +169,27 @@ public class PokemonSpawner : MonoBehaviour
                 cpuImage: out var cpuImage,
                 samplerMatrix: out _))
         {
+            Debug.Log($"[Terrain] {channel}: failed to acquire image");
             return false;
         }
 
-        // Convert world position to screen position
         Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPosition);
         if (screenPos.z <= 0)
         {
+            Debug.Log($"[Terrain] {channel}: position behind camera");
             cpuImage.Dispose();
             return false;
         }
 
-        // Map screen coords to image coords
         int x = Mathf.Clamp((int)(screenPos.x / Screen.width * cpuImage.width), 0, cpuImage.width - 1);
         int y = Mathf.Clamp((int)(screenPos.y / Screen.height * cpuImage.height), 0, cpuImage.height - 1);
 
-        // Convert to NativeArray and sample
         var plane = cpuImage.GetPlane(0);
         int index = y * cpuImage.width + x;
         bool isPresent = index < plane.data.Length && plane.data[index] > 128;
+        int pixelValue = (index < plane.data.Length) ? plane.data[index] : -1;
+
+        Debug.Log($"[Terrain] {channel}: pixel({x},{y}) value={pixelValue} present={isPresent}");
 
         cpuImage.Dispose();
         return isPresent;
