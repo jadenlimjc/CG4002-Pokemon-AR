@@ -1,6 +1,8 @@
 from pynq import Overlay, allocate
 import numpy as np
 import os
+from dataclasses import asdict, dataclass
+from time import perf_counter_ns
 
 # Keep all deployment artifacts beside this script so the directory can be
 # copied to the board as one self-contained bundle.
@@ -24,6 +26,28 @@ REFERENCE_OUTPUT_PATH = os.path.join(SCRIPT_DIR, "golden_output.dat")
 # tolerances measure quantization error rather than bit-exact equivalence.
 REFERENCE_RTOL = 0.10
 REFERENCE_ATOL = 0.50
+ACCELERATOR_TIMEOUT_S = 10.0
+
+
+@dataclass(frozen=True)
+class InferenceTiming:
+    """Host-observed timings for one inference, expressed in seconds.
+
+    The DMA channels and accelerator operate concurrently, so ``dma_s``,
+    ``dma_send_s``, ``dma_receive_s`` and ``accelerator_s`` overlap and must
+    not be added together. ``total_s`` is the complete user-visible latency.
+    """
+
+    total_s: float
+    input_preparation_s: float
+    dma_s: float
+    dma_send_s: float
+    dma_receive_s: float
+    accelerator_s: float
+    output_copy_s: float
+
+    def as_dict(self):
+        return asdict(self)
 
 
 def get_overlay_ip(overlay, name):
@@ -82,12 +106,38 @@ class GestureCNNAccelerator:
         self.in_buf = allocate(shape=(INPUT_DATA_SIZE,), dtype=np.float32)
         self.out_buf = allocate(shape=(OUTPUT_DATA_SIZE,), dtype=np.float32)
         self._closed = False
+        self.last_timing = None
+
+    def configured_clock_mhz(self):
+        """Return runtime PL clock(s) reported by PYNQ, when available."""
+        clocks = getattr(self.overlay, "clock_dict", None) or {}
+        result = {}
+        for name, description in clocks.items():
+            value = description.get("frequency") if isinstance(description, dict) else None
+            if value is not None:
+                # PYNQ releases have represented this value in either Hz or MHz.
+                value = float(value)
+                result[name] = value / 1e6 if value > 1e5 else value
+        return result
 
     def predict_logits(self, window):
         """Run one [6, 128] channel-major window and return seven logits."""
+        logits, timing = self.predict_logits_timed(window)
+        self.last_timing = timing
+        return logits
+
+    def predict_logits_timed(self, window):
+        """Run one window and return ``(logits, InferenceTiming)``.
+
+        ``accelerator_s`` is measured from ``ap_start`` until ``ap_done`` is
+        observed. It includes any time the core is stalled by its AXI streams.
+        DMA timings are host-observed channel intervals and include overlap.
+        """
         if self._closed:
             raise RuntimeError("Accelerator has already been closed")
 
+        total_start = perf_counter_ns()
+        preparation_start = total_start
         window = np.asarray(window, dtype=np.float32)
         if window.shape != (IN_CHANNELS, IN_LENGTH):
             raise ValueError(
@@ -99,14 +149,48 @@ class GestureCNNAccelerator:
         # to the next timestep, unlike the channel-major model/data format.
         self.in_buf[:] = np.ascontiguousarray(window.T).reshape(-1)
         self.out_buf.fill(0)
+        preparation_end = perf_counter_ns()
 
-        # Arm receive first to avoid output backpressure, then start the IP.
+        # Arm both streams before ap_start. Transfers execute asynchronously.
+        receive_start = perf_counter_ns()
         self.dma.recvchannel.transfer(self.out_buf)
-        self.cnn.write(0x00, 0x01)
+        send_start = perf_counter_ns()
         self.dma.sendchannel.transfer(self.in_buf)
+        accelerator_start = perf_counter_ns()
+        self.cnn.write(0x00, 0x01)
+
+        # The send wait gives an accurate host-observed input-channel interval.
+        # Input must finish before this finite-input accelerator can assert done.
         self.dma.sendchannel.wait()
+        send_end = perf_counter_ns()
+
+        # ap_done is bit 1 of the standard HLS AXI-Lite control register.
+        timeout_ns = int(ACCELERATOR_TIMEOUT_S * 1e9)
+        while not (self.cnn.read(0x00) & 0x02):
+            if perf_counter_ns() - accelerator_start > timeout_ns:
+                raise TimeoutError(
+                    f"Accelerator did not assert ap_done within "
+                    f"{ACCELERATOR_TIMEOUT_S:g} seconds"
+                )
+        accelerator_end = perf_counter_ns()
         self.dma.recvchannel.wait()
-        return np.array(self.out_buf, dtype=np.float32, copy=True)
+        receive_end = perf_counter_ns()
+
+        copy_start = perf_counter_ns()
+        logits = np.array(self.out_buf, dtype=np.float32, copy=True)
+        total_end = perf_counter_ns()
+        scale = 1e-9
+        timing = InferenceTiming(
+            total_s=(total_end - total_start) * scale,
+            input_preparation_s=(preparation_end - preparation_start) * scale,
+            dma_s=(receive_end - receive_start) * scale,
+            dma_send_s=(send_end - send_start) * scale,
+            dma_receive_s=(receive_end - receive_start) * scale,
+            accelerator_s=(accelerator_end - accelerator_start) * scale,
+            output_copy_s=(total_end - copy_start) * scale,
+        )
+        self.last_timing = timing
+        return logits, timing
 
     def predict(self, window):
         return int(np.argmax(self.predict_logits(window)))

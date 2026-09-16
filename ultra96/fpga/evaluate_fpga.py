@@ -1,6 +1,7 @@
 """Evaluate the FPGA accelerator and save its confusion matrix."""
 
 import argparse
+import csv
 import os
 
 import numpy as np
@@ -20,15 +21,19 @@ CLASS_NAMES = [
 ]
 
 
-def evaluate(accelerator, data_source):
-    """Return a [true, predicted] confusion matrix for any iterable source."""
+def evaluate(accelerator, data_source, warmup=10):
+    """Return a confusion matrix and timed post-warm-up inference records."""
     matrix = np.zeros((NUM_CLASSES, NUM_CLASSES), dtype=np.int64)
+    timings = []
     count = 0
     for count, (window, target) in enumerate(data_source, start=1):
         target = int(target)
         if not 0 <= target < NUM_CLASSES:
             raise ValueError(f"Invalid label {target} at sample {count}")
-        prediction = accelerator.predict(window)
+        logits, timing = accelerator.predict_logits_timed(window)
+        prediction = int(np.argmax(logits))
+        if count > warmup:
+            timings.append(timing.as_dict())
         matrix[target, prediction] += 1
         print(
             f"\rProcessed {count} samples; latest true={target}, pred={prediction}",
@@ -37,7 +42,46 @@ def evaluate(accelerator, data_source):
     print()
     if count == 0:
         raise ValueError("The data source did not produce any samples")
-    return matrix
+    if not timings:
+        raise ValueError("Samples must exceed --warmup to produce benchmark data")
+    return matrix, timings
+
+
+def report_performance(timings, configured_clocks, csv_path=None):
+    """Print benchmark statistics and optionally save every timed sample."""
+    keys = list(timings[0])
+    values = {key: np.asarray([row[key] for row in timings]) for key in keys}
+    print(f"\nFPGA performance ({len(timings)} measured windows):")
+    labels = {
+        "total_s": "Total inference",
+        "input_preparation_s": "Input preparation",
+        "dma_s": "DMA send/receive (overlapped)",
+        "dma_send_s": "DMA send channel",
+        "dma_receive_s": "DMA receive channel",
+        "accelerator_s": "Accelerator execution",
+        "output_copy_s": "Output copy",
+    }
+    for key in keys:
+        samples_ms = values[key] * 1e3
+        print(f"  {labels[key]:31s} mean={samples_ms.mean():9.3f} ms  "
+              f"median={np.median(samples_ms):9.3f} ms  "
+              f"p95={np.percentile(samples_ms, 95):9.3f} ms")
+    total_time = values["total_s"].sum()
+    print(f"  Throughput: {len(timings) / total_time:.2f} windows/s")
+    print("  Note: DMA and accelerator intervals overlap; do not sum them.")
+    if configured_clocks:
+        clocks = ", ".join(f"{name}={mhz:.3f} MHz"
+                           for name, mhz in configured_clocks.items())
+        print(f"  Configured PL clock(s): {clocks}")
+    else:
+        print("  Configured PL clock(s): unavailable from overlay metadata")
+    if csv_path:
+        with open(csv_path, "w", newline="") as output:
+            writer = csv.DictWriter(output, fieldnames=["sample"] + keys)
+            writer.writeheader()
+            for sample, row in enumerate(timings, start=1):
+                writer.writerow({"sample": sample, **row})
+        print(f"  Saved raw performance data to {csv_path}")
 
 
 def save_confusion_matrix(matrix, path, class_names=CLASS_NAMES):
@@ -87,16 +131,23 @@ def parse_args():
     )
     parser.add_argument("--samples", type=int, default=300)
     parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--warmup", type=int, default=10,
+                        help="initial inferences excluded from performance results")
+    parser.add_argument("--performance-csv", default="fpga_performance.csv")
     parser.add_argument("--output", default="fpga_confusion_matrix.png")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    if args.warmup < 0:
+        raise ValueError("--warmup must be non-negative")
     source = (NPZIMUDataSource(args.data) if args.data else
               SyntheticIMUDataSource(num_samples=args.samples, seed=args.seed))
     with GestureCNNAccelerator(args.overlay) as accelerator:
-        matrix = evaluate(accelerator, source)
+        matrix, timings = evaluate(accelerator, source, args.warmup)
+        report_performance(timings, accelerator.configured_clock_mhz(),
+                           args.performance_csv)
     accuracy = 100.0 * np.trace(matrix) / matrix.sum()
     print(f"Overall FPGA accuracy: {accuracy:.2f}% ({np.trace(matrix)}/{matrix.sum()})")
     print(matrix)
