@@ -24,7 +24,6 @@ char topic_ping[64];
 char topic_pong[64];
 char topic_config[64];
 char topic_haptic[64];
-char topic_inference[64];
 
 void initialiseMqttIdentity() {
     snprintf(model_id, sizeof(model_id), "%012llx",
@@ -36,13 +35,15 @@ void initialiseMqttIdentity() {
     snprintf(topic_pong, sizeof(topic_pong), "esp32/%s/pong", model_id);
     snprintf(topic_config, sizeof(topic_config), "esp32/%s/config", model_id);
     snprintf(topic_haptic, sizeof(topic_haptic), "esp32/%s/haptic/cmd", model_id);
-    snprintf(topic_inference, sizeof(topic_inference), "ultra96/%s/inference", model_id);
     Serial.printf("[BOOT] Model ID: %s | MQTT client: %s\n", model_id, mqtt_client_id);
 }
 
 // MQTT / SSH forwarding destination
 char mqtt_server[128] = "makerslab-fpga-38.ddns.comp.nus.edu.sg";
 uint16_t mqtt_port = 1883;
+// Broker inactivity timeout is 1.5x this interval (~4.5 s).
+// Measured from its last received MQTT packet, not from physical power loss.
+constexpr uint16_t MQTT_KEEPALIVE_SECONDS = 3;
 
 // ==========================================
 // Global state
@@ -126,7 +127,7 @@ void setup() {
     // --------------------------------------
 
     initialiseMqttIdentity();
-    // Includes MQTT headers/topics and the JSON inference response.
+    // Includes MQTT headers/topics and incoming configuration commands.
     if (!client.setBufferSize(1024)) {
         Serial.println("[ERROR] Failed to allocate MQTT packet buffer!");
         while (true) {
@@ -134,6 +135,7 @@ void setup() {
         }
     }
     client.setServer(mqtt_server, mqtt_port);
+    client.setKeepAlive(MQTT_KEEPALIVE_SECONDS);
 
     Serial.printf("[BOOT] MQTT destination: %s:%u\n", mqtt_server, mqtt_port);
 
@@ -492,7 +494,7 @@ void connectMQTT() {
             client.subscribe(topic_ping);
             client.subscribe(topic_config);
             client.subscribe(topic_haptic);
-            client.subscribe(topic_inference);
+            // Inference results are consumed by downstream applications.
         } else {
             Serial.printf("[NetworkTask] MQTT connection failed. " "RC state: %d\n", client.state());
             Serial.println("[NetworkTask] Retrying in 1.5 seconds...");
@@ -522,9 +524,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     }
     else if (strcmp(topic, topic_haptic) == 0) {
         Serial.printf("[MQTT Rx] Topic: %s | Haptic Command Received: %s (Simulating motor trigger)\n", topic, message);
-    }
-    else if (strcmp(topic, topic_inference) == 0) {
-        Serial.printf("[MQTT Rx] Model %s | Inference: %s\n", model_id, message);
     }
     else {
         Serial.printf("[MQTT Rx] Topic: %s | Raw Payload: %s\n", topic, message);

@@ -1,20 +1,3 @@
-"""Real ESP32/FireBeetle <-> Ultra96 telemetry and command test.
-
-Run on the Ultra96 with the broker and ESP32 firmware running:
-    python3 ultra96/comms/tests/test_telemetry.py --model-id ID1 ID2 --require-crc
-
-Read each board's model ID from its boot serial output. Run this test instead
-of main.py to avoid duplicate inference. All selected boards are monitored
-concurrently; Tab changes the board targeted by the dashboard and commands.
-Uses main.py's broker settings and MQTT credentials. The dashboard measures
-packet integrity, rate, latency, silence and recovery; c sends configuration,
-h sends a haptic command, and q saves results and exits. Verify the commands
-on the physical ESP32. The main pipeline's inference is still a placeholder.
-
-Appends one summary per board per run to telemetry_results.csv and connection/clock
-events to telemetry.log beside this script. Unsynced latency stays blank.
-"""
-
 import os
 import argparse
 import csv
@@ -165,12 +148,12 @@ class RunningLatency:
 
 
 class DashboardLogFilter(logging.Filter):
-    def __init__(self, benchmark):
+    def __init__(self, dashboard):
         super().__init__()
-        self.benchmark = benchmark
+        self.dashboard = dashboard
 
     def filter(self, record):
-        self.benchmark.last_log_msg = f"[{record.levelname}] {record.getMessage()}"
+        self.dashboard.last_log_msg = f"[{record.levelname}] {record.getMessage()}"
         # The UI thread renders logs; MQTT callbacks must not move the cursor.
         return False
 
@@ -199,26 +182,8 @@ class TelemetryBenchmark:
 
         self.first_packet_time = None
         self.first_packet_monotonic = None
-        self.is_first_print = True
         self.last_action_msg = "Ready (Press key options below)"
         self.last_log_msg = "No messages yet"
-
-    @contextmanager
-    def dashboard_logging(self):
-        log_filter = DashboardLogFilter(self)
-        console_handlers = [
-            handler for handler in logging.getLogger().handlers
-            if isinstance(handler, logging.StreamHandler)
-            and not isinstance(handler, logging.FileHandler)
-            and handler.stream in (sys.stdout, sys.stderr)
-        ]
-        for handler in console_handlers:
-            handler.addFilter(log_filter)
-        try:
-            yield
-        finally:
-            for handler in console_handlers:
-                handler.removeFilter(log_filter)
 
     def on_message(self, client, userdata, msg):
         with self.lock:
@@ -236,10 +201,6 @@ class TelemetryBenchmark:
         with self.lock:
             self.broker_online = reason_code == 0
             self.health.event(time.monotonic(), "broker_connection", str(reason_code))
-            if self.broker_online:
-                # Re-subscribe after broker reconnection as well as startup.
-                for topic in (self.topics["pong"], self.topics["telemetry"], self.topics["status"]):
-                    client.subscribe(topic)
 
     def on_disconnect(self, client, userdata, flags, reason_code, properties):
         with self.lock:
@@ -325,7 +286,7 @@ class TelemetryBenchmark:
                 self.invalidate_clock()
             state, _, _ = self.health.snapshot(now)
             if (not self.broker_online or self.clock_offset is not None
-                    or state == "NO DATA"):
+                    or state != "RECEIVING"):
                 return
             if (self.ping_sent_monotonic is not None
                     and now - self.ping_sent_monotonic < 1.0):
@@ -333,21 +294,6 @@ class TelemetryBenchmark:
             self.ping_sent_time = time.time() * 1000
             self.ping_sent_monotonic = now
             client.publish(self.topics["ping"], "sync")
-
-    def print_live_stats(self):
-        with self.lock:
-            lines = self._stats_lines()
-
-        # Terminal I/O must not block the MQTT thread from updating statistics.
-        if not self.is_first_print:
-            sys.stdout.write(f"\033[{len(lines)}A")
-        self.is_first_print = False
-        width = max(1, shutil.get_terminal_size().columns - 1)
-        for line in lines:
-            line = "".join(char if char.isprintable() else " " for char in line)
-            line = line.encode("ascii", errors="replace").decode("ascii")
-            sys.stdout.write(f"\r{line[:width]}\033[K\n")
-        sys.stdout.flush()
 
     def _stats_lines(self):
         avg_lat = self.latency.mean
@@ -368,29 +314,23 @@ class TelemetryBenchmark:
         rate_prefix = ">=" if current_hz == self.health.arrivals.maxlen else ""
 
         lines = [
-            "=" * 44,
             f" FireBeetle: {self.processor.model_id} | Tab: next device",
             f" Telemetry: {state} | Last: {age_text}",
             f" Broker: {broker} | Device status: {self.health.presence}",
             f" Silences: {self.health.outages} | Returns: {self.health.recoveries} | Last gap: {gap}",
             f" Rate (last 1s): {rate_prefix}{current_hz} Hz | Average: {hz:.1f} Hz",
             f" Total Packets: {self.packet_count} | Clock: {clock}",
-            "-" * 44,
             f" Latency ms: avg {avg_lat:.2f} | min {min_lat:.2f} | max {max_lat:.2f}",
             f" Latency samples : {self.latency.count} (synced only)",
             f" CRC checked: {self.checked_packets} | Unchecked: {self.unchecked_packets}",
             f" Bad CRC: {self.bad_crc} | Length: {self.bad_length} | Missing CRC: {self.missing_crc}",
             f" Gap slots: {self.sequences.gap_slots} | Repeats: {self.sequences.duplicates}",
             f" Backwards/reset: {self.sequences.backwards} | Retained ignored: {self.retained_packets}",
-            "-" * 44,
             f" Last Action     : {self.last_action_msg}",
             f" Last Log        : {self.last_log_msg}",
-            "-" * 44,
             f" Skipped inference windows: {self.processor.skipped_windows}",
-            " [1 / c] Send config to this device",
-            " [2 / h] Send haptic to this device",
+            " [c / 1] Config | [h / 2] Haptic | [Tab] Next device",
             " [q / ^C] Stop Test & Save Log",
-            "=" * 44,
         ]
 
         return lines
@@ -453,6 +393,142 @@ class TelemetryBenchmark:
         print(f"\n[+] Run summary: {LOG_FILE}\n[+] Connection events: {EVENT_FILE}")
 
 
+class TelemetryDashboard:
+    """Discover and monitor boards while the UI reads stable registry snapshots."""
+
+    SUBSCRIPTIONS = ("esp32/+/telemetry", "esp32/+/status", "esp32/+/pong")
+
+    def __init__(self, client, worker, silence_timeout=2.0, require_crc=False,
+                 max_devices=64):
+        self.client = client
+        self.worker = worker
+        self.silence_timeout = silence_timeout
+        self.require_crc = require_crc
+        self.max_devices = max_devices
+        self.lock = RLock()
+        self.benchmarks = {}
+        self.broker_online = False
+        self.selected = 0
+        self.last_log_msg = "Waiting for devices"
+
+    def boards(self):
+        with self.lock:
+            return list(self.benchmarks.values())
+
+    def on_connect(self, client, userdata, flags, reason_code, properties):
+        self.broker_online = reason_code == 0
+        if self.broker_online:
+            for topic in self.SUBSCRIPTIONS:
+                client.subscribe(topic)
+        for benchmark in self.boards():
+            benchmark.on_connect(client, userdata, flags, reason_code, properties)
+
+    def on_disconnect(self, client, userdata, flags, reason_code, properties):
+        self.broker_online = False
+        for benchmark in self.boards():
+            benchmark.on_disconnect(client, userdata, flags, reason_code, properties)
+
+    def on_message(self, client, userdata, msg):
+        parts = msg.topic.split("/")
+        if len(parts) != 3 or parts[0] != "esp32" or parts[2] not in ("telemetry", "status", "pong"):
+            return
+        try:
+            model_id = validate_model_id(parts[1])
+        except ValueError:
+            return
+        with self.lock:
+            benchmark = self.benchmarks.get(model_id)
+            if benchmark is None:
+                # Old telemetry and unsolicited pongs must not invent live boards.
+                if parts[2] == "pong" or (parts[2] == "telemetry" and msg.retain):
+                    return
+                if parts[2] == "status":
+                    try:
+                        if json.loads(msg.payload).get("state") not in ("online", "offline"):
+                            return
+                    except (ValueError, AttributeError, UnicodeError):
+                        return
+                if len(self.benchmarks) >= self.max_devices:
+                    logging.warning("Device limit reached; ignoring %s", model_id)
+                    return
+                processor = TelemetryProcessor(client, model_id, self.worker)
+                benchmark = TelemetryBenchmark(processor, self.silence_timeout, self.require_crc)
+                benchmark.broker_online = self.broker_online
+                benchmark.health.event(time.monotonic(), "device_discovered", msg.topic)
+                self.benchmarks[model_id] = benchmark
+                logging.info("Discovered FireBeetle %s", model_id)
+        benchmark.on_message(client, userdata, msg)
+
+    def handle_key(self, key):
+        if key == "q":
+            return False
+        boards = self.boards()
+        if not boards:
+            return True
+        if key == "\t":
+            self.selected = (self.selected + 1) % len(boards)
+        benchmark = boards[self.selected]
+        if key in ("1", "c"):
+            benchmark.processor.send_config()
+            benchmark.last_action_msg = "Sent config to this device"
+        elif key in ("2", "h"):
+            benchmark.processor.trigger_haptic("1")
+            benchmark.last_action_msg = "Sent haptic to this device"
+        return True
+
+    def stats_lines(self, terminal_height=24):
+        boards = self.boards()
+        broker = "connected" if self.broker_online else "DISCONNECTED"
+        lines = [f" Broker: {broker} | Discovered devices: {len(boards)}"]
+        if not boards:
+            return lines + [" Waiting for ESP32 telemetry or status...", " [q / ^C] Stop Test"]
+        benchmark = boards[self.selected]
+        with benchmark.lock:
+            benchmark.last_log_msg = self.last_log_msg
+            details = benchmark._stats_lines()
+        # Keep the selected ID and controls visible even with many boards.
+        visible = max(1, terminal_height - len(details) - 3)
+        start = (self.selected // visible) * visible
+        for index in range(start, min(start + visible, len(boards))):
+            marker = ">" if index == self.selected else " "
+            board = boards[index]
+            with board.lock:
+                state, _, _ = board.health.snapshot(time.monotonic())
+                lines.append(f" {marker} {index + 1}. {board.processor.model_id} | {state} | status: {board.health.presence}")
+        if len(boards) > visible:
+            lines.append(f" Showing {start + 1}-{min(start + visible, len(boards))} of {len(boards)}; Tab cycles all IDs")
+        return lines + details
+
+    def print_live_stats(self):
+        size = shutil.get_terminal_size()
+        lines = self.stats_lines(size.lines)
+        # The alternate screen handles a changing number of discovered boards.
+        sys.stdout.write("\033[H")
+        for line in lines:
+            line = "".join(char if char.isprintable() else " " for char in line)
+            line = line.encode("ascii", errors="replace").decode("ascii")
+            sys.stdout.write(f"\r{line[:max(1, size.columns - 1)]}\033[K\n")
+        sys.stdout.write("\033[J")
+        sys.stdout.flush()
+
+    @contextmanager
+    def dashboard_logging(self):
+        log_filter = DashboardLogFilter(self)
+        console_handlers = [
+            handler for handler in logging.getLogger().handlers
+            if isinstance(handler, logging.StreamHandler)
+            and not isinstance(handler, logging.FileHandler)
+            and handler.stream in (sys.stdout, sys.stderr)
+        ]
+        for handler in console_handlers:
+            handler.addFilter(log_filter)
+        try:
+            yield
+        finally:
+            for handler in console_handlers:
+                handler.removeFilter(log_filter)
+
+
 def get_key_non_blocking():
     if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
         return sys.stdin.read(1)
@@ -468,8 +544,6 @@ def positive_seconds(value):
 
 def main():
     parser = argparse.ArgumentParser(description="Real multi-FireBeetle to Ultra96 telemetry, config and haptic test")
-    parser.add_argument("--model-id", nargs="+", required=True, type=validate_model_id,
-                        help="board IDs printed at boot; monitor all, Tab switches command target")
     parser.add_argument("--silence-timeout", type=positive_seconds, default=2.0,
                         help="seconds without telemetry before NO DATA (default: 2)")
     parser.add_argument("--require-crc", action="store_true",
@@ -479,62 +553,25 @@ def main():
         parser.error("the live device dashboard requires an interactive terminal")
     client = create_mqtt_client("telemetry-test-" + uuid4().hex[:8])
     worker = InferenceWorker()
-    benchmarks = {
-        model_id: TelemetryBenchmark(TelemetryProcessor(client, model_id, worker),
-                                     args.silence_timeout, args.require_crc)
-        for model_id in dict.fromkeys(args.model_id)
-    }
-    boards = list(benchmarks.values())
-
-    def on_connect(*callback_args):
-        for benchmark in boards:
-            benchmark.on_connect(*callback_args)
-
-    def on_disconnect(*callback_args):
-        for benchmark in boards:
-            benchmark.on_disconnect(*callback_args)
-
-    def on_message(cli, userdata, msg):
-        parts = msg.topic.split("/")
-        if len(parts) == 3 and parts[0] == "esp32":
-            benchmark = benchmarks.get(parts[1])
-            if benchmark is not None:
-                benchmark.on_message(cli, userdata, msg)
-
-    client.on_message = on_message
-    client.on_connect = on_connect
-    client.on_disconnect = on_disconnect
+    dashboard = TelemetryDashboard(client, worker, args.silence_timeout, args.require_crc)
+    client.on_message = dashboard.on_message
+    client.on_connect = dashboard.on_connect
+    client.on_disconnect = dashboard.on_disconnect
     old_settings = termios.tcgetattr(sys.stdin)
-    selected = 0
-    printed = False
     try:
         connect_with_retry(client, BROKER_HOST, BROKER_PORT)
         tty.setcbreak(sys.stdin.fileno())
-        # A common log line includes the source model ID when inference runs.
-        with boards[0].dashboard_logging():
+        sys.stdout.write("\033[?1049h\033[2J\033[H")
+        with dashboard.dashboard_logging():
             worker.start()
             client.loop_start()
             try:
                 while True:
-                    for benchmark in boards:
+                    for benchmark in dashboard.boards():
                         benchmark.tick(client)
-                    key = get_key_non_blocking()
-                    if key == "\t":
-                        selected = (selected + 1) % len(boards)
-                    benchmark = boards[selected]
-                    if key in ("1", "c"):
-                        benchmark.processor.send_config()
-                        benchmark.last_action_msg = "Sent config to this device"
-                    elif key in ("2", "h"):
-                        benchmark.processor.trigger_haptic("1")
-                        benchmark.last_action_msg = "Sent haptic to this device"
-                    elif key == "q":
+                    if not dashboard.handle_key(get_key_non_blocking()):
                         break
-
-                    benchmark.last_log_msg = boards[0].last_log_msg
-                    benchmark.is_first_print = not printed
-                    benchmark.print_live_stats()
-                    printed = True
+                    dashboard.print_live_stats()
                     time.sleep(0.1)
             finally:
                 client.loop_stop()
@@ -543,12 +580,15 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        client.loop_stop()
         worker.close()
         client.disconnect()
+        sys.stdout.write("\033[?1049l")
+        sys.stdout.flush()
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
         print("\n\n[!] Benchmark stopped.")
         ended = datetime.now().isoformat(timespec="microseconds")
-        for benchmark in boards:
+        for benchmark in dashboard.boards():
             benchmark.log_final_metrics(ended)
 
 
