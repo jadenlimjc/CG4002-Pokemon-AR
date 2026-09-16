@@ -1,7 +1,17 @@
 import numpy as np
 import torch
+import argparse
 import os
 from model import Gesture1DCNN  # Import from the dedicated model file
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_CHECKPOINT = os.path.join(
+    SCRIPT_DIR, "saved_checkpoints", "gesture_1dcnn_utd_mhad_best.pth"
+)
+DEFAULT_TEST_DATA = os.path.normpath(os.path.join(
+    SCRIPT_DIR, "..", "online_data", "UTD-MHAD_HumanActionRecognitionDataset",
+    "utd_mhad_processed", "utd_mhad_test.npz"
+))
 
 # --- This dictionary is the key to the solution ---
 # It maps the complex PyTorch names to the simple C++ names.
@@ -35,21 +45,22 @@ NAME_MAP = {
 }
 
 
-def export_weights_and_vectors():
+def export_weights_and_vectors(
+    model_path=DEFAULT_CHECKPOINT,
+    test_data_path=DEFAULT_TEST_DATA,
+    output_dir=None,
+):
     """
     Loads the trained PyTorch model and exports its weights to a C-compatible
     header file and generates golden test vectors.
     """
     # Define output directory for HLS export files
-    output_dir = r'.\hls_export'
+    output_dir = output_dir or os.path.join(SCRIPT_DIR, "hls_export")
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output files will be saved to '{os.path.abspath(output_dir)}'")
 
     # 1. Load trained model
     device = torch.device('cpu')
-    # Use the checkpoint file saved by train_baseline.py
-    model_path = r'.\saved_checkpoints\gesture_1dcnn_best.pth'
-    
     model = Gesture1DCNN()
     try:
         model.load_state_dict(torch.load(model_path, map_location=device))
@@ -88,10 +99,13 @@ def export_weights_and_vectors():
         print(f"An error occurred while writing {weights_path}: {e}")
 
 
-    # 3. Export Golden Input and Output for HLS C-Simulation Testbench
-    # Use a fixed seed for the dummy input to make the test reproducible
-    torch.manual_seed(123)
-    dummy_input = torch.randn(1, 6, 128)
+    # 3. Export a real, normalized held-out window and its PyTorch logits for
+    # HLS C-simulation and board-level numerical comparison.
+    with np.load(test_data_path) as dataset:
+        test_windows = np.asarray(dataset["X"], dtype=np.float32)
+    if test_windows.ndim != 3 or test_windows.shape[1:] != (6, 128):
+        raise ValueError(f"{test_data_path}: X must have shape [N, 6, 128]")
+    dummy_input = torch.from_numpy(test_windows[:1].copy())
     with torch.no_grad():
         dummy_output = model(dummy_input)
 
@@ -103,5 +117,14 @@ def export_weights_and_vectors():
     print(f'Successfully generated {golden_input_path} and {golden_output_path} for testbench.')
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT)
+    parser.add_argument("--test-data", default=DEFAULT_TEST_DATA)
+    parser.add_argument("--output-dir", default=os.path.join(SCRIPT_DIR, "hls_export"))
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
-    export_weights_and_vectors()
+    args = parse_args()
+    export_weights_and_vectors(args.checkpoint, args.test_data, args.output_dir)

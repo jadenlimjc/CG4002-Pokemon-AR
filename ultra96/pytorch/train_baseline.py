@@ -3,8 +3,15 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
+import argparse
 import os, numpy as np
 from model import Gesture1DCNN # Import the model from its dedicated file
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+UTD_DATA_DIR = os.path.normpath(os.path.join(
+    SCRIPT_DIR, "..", "online_data", "UTD-MHAD_HumanActionRecognitionDataset",
+    "utd_mhad_processed"
+))
 
 def set_seed(seed=42):
     """Sets the seed for reproducibility."""
@@ -151,6 +158,30 @@ class DummyIMUDataset(Dataset):
         return self.data[idx], self.labels[idx]
 
 
+class NPZIMUDataset(Dataset):
+    """CNN-ready IMU windows loaded from an NPZ containing X and y."""
+
+    def __init__(self, path):
+        with np.load(path) as dataset:
+            self.data = torch.from_numpy(
+                np.asarray(dataset["X"], dtype=np.float32).copy()
+            )
+            self.labels = torch.from_numpy(
+                np.asarray(dataset["y"], dtype=np.int64).copy()
+            )
+            self.class_names = dataset["class_names"].tolist()
+        if self.data.ndim != 3 or tuple(self.data.shape[1:]) != (6, 128):
+            raise ValueError(f"{path}: X must have shape [N, 6, 128]")
+        if self.labels.shape != (len(self.data),):
+            raise ValueError(f"{path}: y must have one label per window")
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx], self.labels[idx]
+
+
 # =====================================================================
 # 3. REAL-TIME POST-PROCESSING (CONFIDENCE & DEBOUNCE FILTER)
 # =====================================================================
@@ -202,7 +233,7 @@ class RealTimeGesturePredictor:
 # =====================================================================
 # 4. TRAINING & VALIDATION PIPELINE
 # =====================================================================
-def run_pipeline():
+def run_pipeline(dataset_name="utd", num_epochs=30):
     # Set seed for deterministic results
     set_seed(42)
 
@@ -210,32 +241,45 @@ def run_pipeline():
     print(f"Using device: {device}")
 
     # Define and create the output directory for model checkpoints
-    checkpoint_dir = "saved_checkpoints"
+    checkpoint_dir = os.path.join(SCRIPT_DIR, "saved_checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Datasets and Loaders
-    train_dataset = DummyIMUDataset(num_samples=1200, window_size=128, num_classes=7, seed=42)
-    val_dataset = DummyIMUDataset(num_samples=300, window_size=128, num_classes=7, seed=123)
+    if dataset_name == "utd":
+        train_dataset = NPZIMUDataset(os.path.join(UTD_DATA_DIR, "utd_mhad_train.npz"))
+        val_dataset = NPZIMUDataset(os.path.join(UTD_DATA_DIR, "utd_mhad_val.npz"))
+        gesture_map = dict(enumerate(train_dataset.class_names))
+        checkpoint_name = "gesture_1dcnn_utd_mhad_best.pth"
+    else:
+        train_dataset = DummyIMUDataset(num_samples=1200, window_size=128, num_classes=7, seed=42)
+        val_dataset = DummyIMUDataset(num_samples=300, window_size=128, num_classes=7, seed=123)
+        gesture_map = {
+            0: "Neutral", 1: "Aim", 2: "Throw", 3: "Stop Aim",
+            4: "Punch", 5: "Downward Swipe", 6: "Guard"
+        }
+        checkpoint_name = "gesture_1dcnn_best.pth"
 
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
-    # Gesture mapping for readable output and visualization
-    gesture_map = {
-        0: "Neutral", 1: "Aim", 2: "Throw", 3: "Stop Aim",
-        4: "Punch", 5: "Downward Swipe", 6: "Guard"
-    }
+    print("Classes:", gesture_map)
 
     model = Gesture1DCNN(in_channels=6, num_classes=7).to(device)
-    criterion = nn.CrossEntropyLoss()
+    if dataset_name == "utd":
+        counts = torch.bincount(train_dataset.labels, minlength=7).float()
+        class_weights = len(train_dataset) / (7.0 * counts)
+        criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+        print("Class counts:", counts.to(torch.int64).tolist())
+        print("Loss weights:", [round(value, 4) for value in class_weights.tolist()])
+    else:
+        criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
 
-    best_val_acc = 0.0
+    best_val_balanced_acc = 0.0
     best_val_loss = float('inf')
-    best_model_path = os.path.join(checkpoint_dir, "gesture_1dcnn_best.pth")
+    best_model_path = os.path.join(checkpoint_dir, checkpoint_name)
 
     print("\n--- Starting Model Training ---")
-    num_epochs = 10
     for epoch in range(1, num_epochs + 1):
         # Training Phase
         model.train()
@@ -260,6 +304,7 @@ def run_pipeline():
         # Validation Phase
         model.eval()
         val_loss, val_correct, val_total = 0.0, 0, 0
+        val_cm = torch.zeros((7, 7), dtype=torch.int64)
         with torch.no_grad():
             for inputs, targets in val_loader:
                 inputs, targets = inputs.to(device), targets.to(device)
@@ -269,23 +314,38 @@ def run_pipeline():
                 _, predicted = outputs.max(1)
                 val_total += targets.size(0)
                 val_correct += predicted.eq(targets).sum().item()
+                for target, prediction in zip(targets.cpu(), predicted.cpu()):
+                    val_cm[target, prediction] += 1
 
         val_acc = 100.0 * val_correct / val_total
+        val_recall = val_cm.diag().float() / val_cm.sum(dim=1).clamp_min(1)
+        val_balanced_acc = 100.0 * val_recall.mean().item()
         avg_val_loss = val_loss / val_total
-        print(f"Epoch [{epoch:02d}/{num_epochs:02d}] | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | Val Loss: {avg_val_loss:.4f} | Val Acc: {val_acc:.2f}%", end="")
+        print(f"Epoch [{epoch:02d}/{num_epochs:02d}] | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | Val Loss: {avg_val_loss:.4f} | Val Acc: {val_acc:.2f}% | Val Balanced Acc: {val_balanced_acc:.2f}%", end="")
 
-        # Save the model if validation accuracy improves, or if accuracy is the same but loss decreases
-        if val_acc > best_val_acc or (val_acc == best_val_acc and avg_val_loss < best_val_loss):
-            best_val_acc = val_acc
+        # The UTD negative class is much larger, so select checkpoints using
+        # mean per-class recall rather than imbalance-sensitive raw accuracy.
+        if (val_balanced_acc > best_val_balanced_acc or
+                (val_balanced_acc == best_val_balanced_acc and
+                 avg_val_loss < best_val_loss)):
+            best_val_balanced_acc = val_balanced_acc
             best_val_loss = avg_val_loss
             torch.save(model.state_dict(), best_model_path)
-            print(f"  -> New best model saved to {best_model_path} (Val Acc: {best_val_acc:.2f}%, Val Loss: {best_val_loss:.4f})")
+            print(f"  -> New best model saved to {best_model_path} (Val Balanced Acc: {best_val_balanced_acc:.2f}%, Val Loss: {best_val_loss:.4f})")
         else:
             print() # Newline if no model was saved
 
     print("\n--- Training Complete ---")
-    print(f"Best model saved to '{best_model_path}' with Validation Accuracy: {best_val_acc:.2f}%")
+    print(f"Best model saved to '{best_model_path}' with Validation Balanced Accuracy: {best_val_balanced_acc:.2f}%")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train the gesture 1D CNN")
+    parser.add_argument("--dataset", choices=("utd", "synthetic"), default="utd")
+    parser.add_argument("--epochs", type=int, default=30)
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    run_pipeline()
+    args = parse_args()
+    run_pipeline(args.dataset, args.epochs)

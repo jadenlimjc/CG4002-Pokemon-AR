@@ -5,8 +5,14 @@ import os
 
 import numpy as np
 
-from ultra96.fpga.cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, OVERLAY_PATH
-from ultra96.fpga.evaluation_data import NPZIMUDataSource, SyntheticIMUDataSource
+if __package__:
+    from .cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, OVERLAY_PATH
+    from .evaluation_data import NPZIMUDataSource, SyntheticIMUDataSource
+else:
+    # Support copying these scripts to one directory on the Ultra96 and
+    # invoking this file directly with ``python3 evaluate_fpga.py``.
+    from cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, OVERLAY_PATH
+    from evaluation_data import NPZIMUDataSource, SyntheticIMUDataSource
 
 
 CLASS_NAMES = [
@@ -71,9 +77,16 @@ def save_confusion_matrix(matrix, path, class_names=CLASS_NAMES):
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--overlay", default=OVERLAY_PATH)
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument(
+        "--data", help="NPZ with X [N,6,128], y [N], and optional class_names"
+    )
+    source_group.add_argument(
+        "--synthetic", action="store_true",
+        help="Explicitly use the legacy synthetic dataset"
+    )
     parser.add_argument("--samples", type=int, default=300)
     parser.add_argument("--seed", type=int, default=123)
-    parser.add_argument("--data", help="Optional NPZ with X [N,6,128] and y [N]")
     parser.add_argument("--output", default="fpga_confusion_matrix.png")
     return parser.parse_args()
 

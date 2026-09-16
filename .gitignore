@@ -62,6 +62,8 @@ ultra96/pytorch/hls_export/
 # will likely remove once start training with real data to save checkpoints
 ultra96/pytorch/saved_checkpoints/ 
 ultra96/pytorch/*.png
+ultra96/online_data/UTD-MHAD_HumanActionRecognitionDataset/Inertial/
+ultra96/online_data/UTD-MHAD_HumanActionRecognitionDataset/utd_mhad_processed/
 
 
 # ==========================================
