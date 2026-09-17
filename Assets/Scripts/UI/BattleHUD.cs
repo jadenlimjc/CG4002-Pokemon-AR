@@ -90,13 +90,8 @@ public class BattleHUD : MonoBehaviour
             newPhase == GamePhase.BattleEntry
         );
 
-        encounterPanel?.SetActive(newPhase == GamePhase.Encounter);
-
         switch (newPhase)
         {
-            case GamePhase.Encounter:
-                ShowEncounterUI();
-                break;
             case GamePhase.BattleActive:
                 ShowBattleUI();
                 break;
@@ -110,20 +105,6 @@ public class BattleHUD : MonoBehaviour
                 HideAll();
                 break;
         }
-    }
-
-    private void ShowEncounterUI()
-    {
-        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
-        if (spawner != null && spawner.CurrentPokemonData != null)
-        {
-            string pokeName = spawner.CurrentPokemonData.pokemonName;
-            if (encounterText != null)
-                encounterText.text = $"Wild {pokeName} appeared!";
-        }
-
-        if (actionPrompt != null)
-            actionPrompt.SetActive(true);
     }
 
     private void ShowBattleUI()
@@ -211,7 +192,6 @@ public class BattleHUD : MonoBehaviour
     private void HideAll()
     {
         battleHUDPanel?.SetActive(false);
-        encounterPanel?.SetActive(false);
         reticleObject?.SetActive(false);
         if (messageText != null) messageText.text = "";
     }
