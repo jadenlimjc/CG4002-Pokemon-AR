@@ -101,22 +101,29 @@ public class PokemonSpawner : MonoBehaviour
     {
         position = Vector3.zero;
 
-        // Try multiple random screen positions to find a valid surface
-        int maxAttempts = 5;
+        // Try multiple random screen positions to find a horizontal (ground) surface
+        int maxAttempts = 10;
         for (int i = 0; i < maxAttempts; i++)
         {
-            float screenX = Random.Range(Screen.width * 0.2f, Screen.width * 0.8f);
-            float screenY = Random.Range(Screen.height * 0.2f, Screen.height * 0.8f);
+            float screenX = Random.Range(Screen.width * 0.15f, Screen.width * 0.85f);
+            float screenY = Random.Range(Screen.height * 0.3f, Screen.height * 0.8f);
 
             Ray ray = Camera.main.ScreenPointToRay(new Vector3(screenX, screenY, 0));
 
             if (Physics.Raycast(ray, out RaycastHit hit, meshRaycastDistance))
             {
-                // Check the hit is within a reasonable distance
                 float dist = Vector3.Distance(Camera.main.transform.position, hit.point);
                 if (dist < 1f || dist > meshRaycastDistance) continue;
 
-                Debug.Log($"[Spawner] Raycast hit: {hit.collider.name} at {hit.point} (dist: {dist:F1}m)");
+                // Only accept roughly horizontal surfaces (ground/floor)
+                float upDot = Vector3.Dot(hit.normal, Vector3.up);
+                if (upDot < 0.7f)
+                {
+                    Debug.Log($"[Spawner] Skipping non-ground surface (normal dot: {upDot:F2})");
+                    continue;
+                }
+
+                Debug.Log($"[Spawner] Ground hit: {hit.collider.name} at {hit.point} (dist: {dist:F1}m, normal dot: {upDot:F2})");
                 position = hit.point;
                 return true;
             }
