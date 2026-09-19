@@ -91,7 +91,7 @@ def main(dataset_name="utd"):
         return
 
     print(f"Loading best model from '{best_model_path}' for evaluation...")
-    model = Gesture1DCNN(in_channels=6, num_classes=7).to(device)
+    model = Gesture1DCNN(in_channels=6, num_classes=len(gesture_map)).to(device)
     model.load_state_dict(torch.load(best_model_path, map_location=device))
 
     # --- Evaluate ---

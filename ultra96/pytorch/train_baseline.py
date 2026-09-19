@@ -259,15 +259,21 @@ def run_pipeline(dataset_name="utd", num_epochs=30):
         }
         checkpoint_name = "gesture_1dcnn_best.pth"
 
+    num_classes = len(gesture_map)
+    if dataset_name == "utd" and val_dataset.class_names != train_dataset.class_names:
+        raise ValueError("Training and validation datasets have different classes")
+
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
     print("Classes:", gesture_map)
 
-    model = Gesture1DCNN(in_channels=6, num_classes=7).to(device)
+    model = Gesture1DCNN(in_channels=6, num_classes=num_classes).to(device)
     if dataset_name == "utd":
-        counts = torch.bincount(train_dataset.labels, minlength=7).float()
-        class_weights = len(train_dataset) / (7.0 * counts)
+        counts = torch.bincount(train_dataset.labels, minlength=num_classes).float()
+        if torch.any(counts == 0):
+            raise ValueError(f"Training data is missing a class: {counts.tolist()}")
+        class_weights = len(train_dataset) / (num_classes * counts)
         criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
         print("Class counts:", counts.to(torch.int64).tolist())
         print("Loss weights:", [round(value, 4) for value in class_weights.tolist()])
@@ -304,7 +310,7 @@ def run_pipeline(dataset_name="utd", num_epochs=30):
         # Validation Phase
         model.eval()
         val_loss, val_correct, val_total = 0.0, 0, 0
-        val_cm = torch.zeros((7, 7), dtype=torch.int64)
+        val_cm = torch.zeros((num_classes, num_classes), dtype=torch.int64)
         with torch.no_grad():
             for inputs, targets in val_loader:
                 inputs, targets = inputs.to(device), targets.to(device)

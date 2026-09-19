@@ -1,8 +1,12 @@
-"""Convert selected UTD-MHAD inertial trials into CNN-ready NPZ splits.
+"""Convert selected UTD-MHAD inertial trials into game-gesture NPZ splits.
 
 The output arrays use X=[samples, channels, timesteps] and y=[samples].
 Splitting is participant-based to prevent recordings from the same person
 appearing in both training and evaluation data.
+
+UTD-MHAD does not contain the project's exact gestures, so whole actions are
+used as motion proxies. Neutral is intentionally omitted because UTD-MHAD has
+no true idle recording.
 """
 
 import argparse
@@ -18,19 +22,17 @@ CHANNEL_NAMES = np.array(
     ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]
 )
 
-# Class zero combines deliberate, non-target wrist movements. It is a proxy
-# negative class, not genuine stationary/idle data. Actions 22-27 are excluded
-# because UTD-MHAD recorded those with the sensor on the thigh.
-OTHER_ACTIONS = {3, 4, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21}
-TARGET_ACTIONS = {
-    1: "Swipe Left",
-    2: "Swipe Right",
-    5: "Right-arm Throw",
-    6: "Cross Arms",
-    7: "Basketball Shoot",
-    13: "Front Boxing",
-}
-CLASS_NAMES = np.array(["Other / Non-target", *TARGET_ACTIONS.values()])
+# (project class, UTD action ID, start fraction, end fraction, rationale)
+GESTURE_SOURCES = (
+    ("Punch", 13, 0.00, 1.00, "Boxing"),
+    ("Downward Swipe", 12, 0.00, 1.00, "Bowling"),
+    ("Guard", 6, 0.00, 1.00, "Arm cross"),
+    ("Flee / U-turn", 14, 0.00, 1.00, "Baseball swing"),
+    ("Switch Pokemon / Back-pocket reach", 15, 0.00, 1.00, "Tennis swing"),
+    ("Use Item / Front-pocket reach", 16, 0.00, 1.00, "Arm curl"),
+    ("Throw", 5, 0.00, 1.00, "Right-arm throw"),
+)
+CLASS_NAMES = np.array([source[0] for source in GESTURE_SOURCES])
 
 SPLIT_SUBJECTS = {
     "train": {1, 2, 3, 4, 5, 6},
@@ -58,8 +60,8 @@ def resample_linear(signal, output_length=WINDOW_SIZE):
     return result
 
 
-def load_window(path):
-    """Load, validate, normalize and resample one UTD-MHAD trial."""
+def load_signal(path):
+    """Load, validate, and normalize one UTD-MHAD trial."""
     contents = loadmat(path)
     if "d_iner" not in contents:
         raise ValueError(f"{path.name} does not contain 'd_iner'")
@@ -80,8 +82,22 @@ def load_window(path):
     signal[:, :3] /= 8.0
     signal[:, 3:] /= 1000.0
 
+    return signal
+
+
+def extract_window(signal, start_fraction=0.0, end_fraction=1.0):
+    """Crop a normalized temporal phase and return channel-major [6, 128]."""
+    if not 0.0 <= start_fraction < end_fraction <= 1.0:
+        raise ValueError("Phase fractions must satisfy 0 <= start < end <= 1")
+    start = int(np.floor(start_fraction * signal.shape[0]))
+    end = int(np.ceil(end_fraction * signal.shape[0]))
+    phase = signal[start:end]
+    if phase.shape[0] < 2:
+        raise ValueError(
+            f"Phase [{start_fraction}, {end_fraction}] has too few timesteps"
+        )
     # Model/HLS convention is channel-major [6, 128].
-    return resample_linear(signal).T
+    return resample_linear(phase).T
 
 
 def find_split(subject):
@@ -92,10 +108,9 @@ def find_split(subject):
 
 
 def convert(input_dir, output_dir):
-    action_to_label = {action_id: 0 for action_id in OTHER_ACTIONS}
-    action_to_label.update(
-        {action_id: label for label, action_id in enumerate(TARGET_ACTIONS, start=1)}
-    )
+    action_to_sources = {}
+    for label, (_, action, start, end, proxy) in enumerate(GESTURE_SOURCES):
+        action_to_sources.setdefault(action, []).append((label, start, end, proxy))
     records = {name: [] for name in SPLIT_SUBJECTS}
 
     for path in sorted(input_dir.glob("*.mat")):
@@ -104,14 +119,16 @@ def convert(input_dir, output_dir):
             print(f"Skipping unrecognized filename: {path.name}")
             continue
         action = int(match.group("action"))
-        if action not in action_to_label:
+        if action not in action_to_sources:
             continue
         subject = int(match.group("subject"))
         trial = int(match.group("trial"))
         split = find_split(subject)
-        records[split].append(
-            (load_window(path), action_to_label[action], subject, trial, path.name)
-        )
+        signal = load_signal(path)
+        for label, start, end, _ in action_to_sources[action]:
+            records[split].append(
+                (extract_window(signal, start, end), label, subject, trial, path.name)
+            )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     for split, split_records in records.items():
@@ -130,9 +147,15 @@ def convert(input_dir, output_dir):
             filenames=np.asarray(filenames),
             class_names=CLASS_NAMES,
             # String metadata avoids object arrays that require allow_pickle.
-            source_action_ids=np.array(
-                [",".join(map(str, sorted(OTHER_ACTIONS))),
-                 *[str(action) for action in TARGET_ACTIONS]]
+            source_action_ids=np.asarray(
+                [str(source[1]) for source in GESTURE_SOURCES]
+            ),
+            source_action_names=np.asarray(
+                [source[4] for source in GESTURE_SOURCES]
+            ),
+            source_time_ranges=np.asarray(
+                [[source[2], source[3]] for source in GESTURE_SOURCES],
+                dtype=np.float32,
             ),
             channel_names=CHANNEL_NAMES,
         )
