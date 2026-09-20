@@ -149,7 +149,7 @@ class DummyIMUDataset(Dataset):
         final_sample = np.zeros_like(sample)
         for i in range(6):
             final_sample[i] = np.interp(time_points, warped_time_points, sample[i])
-        return final_sample # BUG FIX: Return the time-warped sample
+        return final_sample
 
     def __len__(self):
         return self.num_samples
