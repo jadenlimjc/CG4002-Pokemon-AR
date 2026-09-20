@@ -18,7 +18,7 @@ class Gesture1DCNN(nn.Module):
             nn.Conv1d(in_channels=in_channels, out_channels=32, kernel_size=7, stride=1, padding=3),
             nn.BatchNorm1d(32),
             nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2)  # 128 -> 64
+            nn.MaxPool1d(kernel_size=2, stride=2)  # 256 -> 128
         )
 
         # Conv Block 2: Medium receptive field (kernel=5)
@@ -26,7 +26,7 @@ class Gesture1DCNN(nn.Module):
             nn.Conv1d(in_channels=32, out_channels=64, kernel_size=5, stride=1, padding=2),
             nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2)  # 64 -> 32
+            nn.MaxPool1d(kernel_size=2, stride=2)  # 128 -> 64
         )
 
         # Conv Block 3: Fine feature extraction (kernel=3)
@@ -46,7 +46,7 @@ class Gesture1DCNN(nn.Module):
         )
 
     def forward(self, x):
-        # Expected input shape: (Batch, 6, 128)
+        # Expected input shape: (Batch, 6, 256)
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)

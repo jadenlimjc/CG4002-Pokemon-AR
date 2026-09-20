@@ -18,8 +18,10 @@ using result_t = ap_fixed<24, 12>; // Final output logits
 using axis_t = ap_axis<32, 0, 0, 0>; // 32-bit floating-point AXI-Stream packet
 
 constexpr int IN_CHANNELS = 6;
-constexpr int IN_LENGTH = 128;
-constexpr int TOTAL_INPUT_SIZE = IN_CHANNELS * IN_LENGTH; // 768 floats
+constexpr int IN_LENGTH = 256;
+constexpr int BLOCK1_LENGTH = IN_LENGTH / 2;
+constexpr int BLOCK2_LENGTH = BLOCK1_LENGTH / 2;
+constexpr int TOTAL_INPUT_SIZE = IN_CHANNELS * IN_LENGTH; // 1536 floats
 constexpr int NUM_CLASSES = 7;
 
 void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_stream);

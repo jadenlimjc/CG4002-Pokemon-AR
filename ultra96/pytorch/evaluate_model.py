@@ -65,7 +65,7 @@ def main(dataset_name="utd"):
     checkpoint_dir = os.path.join(SCRIPT_DIR, "saved_checkpoints")
     if dataset_name == "utd":
         best_model_path = os.path.join(
-            checkpoint_dir, "gesture_1dcnn_utd_mhad_best.pth"
+            checkpoint_dir, "gesture_1dcnn_utd_mhad_100hz_256_best.pth"
         )
         test_dataset = NPZIMUDataset(
             os.path.join(UTD_DATA_DIR, "utd_mhad_test.npz")
@@ -73,9 +73,11 @@ def main(dataset_name="utd"):
         gesture_map = dict(enumerate(test_dataset.class_names))
         output_path = os.path.join(SCRIPT_DIR, "utd_mhad_confusion_matrix.png")
     else:
-        best_model_path = os.path.join(checkpoint_dir, "gesture_1dcnn_best.pth")
+        best_model_path = os.path.join(
+            checkpoint_dir, "gesture_1dcnn_100hz_256_best.pth"
+        )
         test_dataset = DummyIMUDataset(
-            num_samples=300, window_size=128, num_classes=7, seed=123
+            num_samples=300, window_size=256, num_classes=7, seed=123
         )
         gesture_map = {
             0: "Neutral", 1: "Aim", 2: "Throw", 3: "Stop Aim",

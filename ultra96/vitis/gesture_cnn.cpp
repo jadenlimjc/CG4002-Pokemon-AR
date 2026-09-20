@@ -29,14 +29,14 @@ void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_st
     data_t fc1_out[64];
     result_t final_logits[NUM_CLASSES];
 
-    #pragma HLS STREAM variable=s_in depth=768
-    #pragma HLS STREAM variable=s_b1_conv depth=256
-    #pragma HLS STREAM variable=s_b1_pool depth=256
-    #pragma HLS STREAM variable=s_b2_conv depth=128
-    #pragma HLS STREAM variable=s_b2_pool depth=128
-    #pragma HLS STREAM variable=s_b3_conv depth=64
+    #pragma HLS STREAM variable=s_in depth=1536
+    #pragma HLS STREAM variable=s_b1_conv depth=512
+    #pragma HLS STREAM variable=s_b1_pool depth=512
+    #pragma HLS STREAM variable=s_b2_conv depth=256
+    #pragma HLS STREAM variable=s_b2_pool depth=256
+    #pragma HLS STREAM variable=s_b3_conv depth=128
 
-    // 1. Ingest 768 floats (6 channels * 128 timesteps) from AXI DMA
+    // 1. Ingest 1536 floats (6 channels * 256 timesteps) from AXI DMA
     for (int i = 0; i < IN_CHANNELS * IN_LENGTH; ++i) {
         #pragma HLS PIPELINE II=1
         axis_t pkt = in_stream.read();
@@ -52,23 +52,23 @@ void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_st
         conv1_weight, conv1_bias,
         bn1_weight, bn1_bias, bn1_running_mean, bn1_running_var
     );
-    max_pool2<32, IN_LENGTH, 64>(s_b1_conv, s_b1_pool);
+    max_pool2<32, IN_LENGTH, BLOCK1_LENGTH>(s_b1_conv, s_b1_pool);
 
     // 3. Block 2: Conv1D (32->64, k=5, pad=2) -> MaxPool(2)
-    conv_bn_relu<32, 64, 64, 5, 2>(
+    conv_bn_relu<32, 64, BLOCK1_LENGTH, 5, 2>(
         s_b1_pool, s_b2_conv,
         conv2_weight, conv2_bias,
         bn2_weight, bn2_bias, bn2_running_mean, bn2_running_var
     );
-    max_pool2<64, 64, 32>(s_b2_conv, s_b2_pool);
+    max_pool2<64, BLOCK1_LENGTH, BLOCK2_LENGTH>(s_b2_conv, s_b2_pool);
 
     // 4. Block 3: Conv1D (64->128, k=3, pad=1) -> AdaptiveAvgPool
-    conv_bn_relu<64, 128, 32, 3, 1>(
+    conv_bn_relu<64, 128, BLOCK2_LENGTH, 3, 1>(
         s_b2_pool, s_b3_conv,
         conv3_weight, conv3_bias,
         bn3_weight, bn3_bias, bn3_running_mean, bn3_running_var
     );
-    adaptive_avg_pool<128, 32>(s_b3_conv, pooled_vec);
+    adaptive_avg_pool<128, BLOCK2_LENGTH>(s_b3_conv, pooled_vec);
 
     // 5. Classifier: FC1 (128 -> 64) -> ReLU -> FC2 (64 -> 7)
     linear_layer<128, 64, data_t>(pooled_vec, fc1_out, fc1_weight, fc1_bias, true);

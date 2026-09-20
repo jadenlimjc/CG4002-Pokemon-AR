@@ -17,7 +17,8 @@ import numpy as np
 from scipy.io import loadmat
 
 
-WINDOW_SIZE = 128
+SAMPLE_RATE_HZ = 100
+WINDOW_SIZE = 256
 CHANNEL_NAMES = np.array(
     ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]
 )
@@ -86,7 +87,7 @@ def load_signal(path):
 
 
 def extract_window(signal, start_fraction=0.0, end_fraction=1.0):
-    """Crop a normalized temporal phase and return channel-major [6, 128]."""
+    """Crop a normalized temporal phase and return channel-major [6, 256]."""
     if not 0.0 <= start_fraction < end_fraction <= 1.0:
         raise ValueError("Phase fractions must satisfy 0 <= start < end <= 1")
     start = int(np.floor(start_fraction * signal.shape[0]))
@@ -96,7 +97,7 @@ def extract_window(signal, start_fraction=0.0, end_fraction=1.0):
         raise ValueError(
             f"Phase [{start_fraction}, {end_fraction}] has too few timesteps"
         )
-    # Model/HLS convention is channel-major [6, 128].
+    # Model/HLS convention is channel-major [6, 256].
     return resample_linear(phase).T
 
 
@@ -158,6 +159,8 @@ def convert(input_dir, output_dir):
                 dtype=np.float32,
             ),
             channel_names=CHANNEL_NAMES,
+            target_sample_rate_hz=np.asarray(SAMPLE_RATE_HZ, dtype=np.int64),
+            window_size=np.asarray(WINDOW_SIZE, dtype=np.int64),
         )
 
         counts = np.bincount(y, minlength=len(CLASS_NAMES))

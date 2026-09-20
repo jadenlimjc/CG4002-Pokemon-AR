@@ -14,10 +14,10 @@ void gesture_cnn_ref(
 ) {
     // Use standard arrays for the reference implementation
     data_t b1_conv[32][IN_LENGTH];
-    data_t b1_pool[32][64];
-    data_t b2_conv[64][64];
-    data_t b2_pool[64][32];
-    data_t b3_conv[128][32];
+    data_t b1_pool[32][BLOCK1_LENGTH];
+    data_t b2_conv[64][BLOCK1_LENGTH];
+    data_t b2_pool[64][BLOCK2_LENGTH];
+    data_t b3_conv[128][BLOCK2_LENGTH];
     data_t pooled_vec[128];
     data_t fc1_out[64];
 
@@ -29,12 +29,12 @@ void gesture_cnn_ref(
         accum_t scale1 = accum_t(bn1_weight[oc]) * inv_std1;
         accum_t shift1 = accum_t(bn1_bias[oc]) -
             (accum_t(bn1_running_mean[oc]) * accum_t(bn1_weight[oc]) * inv_std1);
-        for (int l = 0; l < 128; ++l) {
+        for (int l = 0; l < IN_LENGTH; ++l) {
             accum_t acc = accum_t(conv1_bias[oc]);
             for (int ic = 0; ic < 6; ++ic) {
                 for (int k = 0; k < 7; ++k) {
                     int in_idx = l + k - 3;
-                    if (in_idx >= 0 && in_idx < 128) {
+                    if (in_idx >= 0 && in_idx < IN_LENGTH) {
                         acc += accum_t(in_buf[ic][in_idx]) * accum_t(conv1_weight[oc*6*7 + ic*7 + k]);
                     }
                 }
@@ -43,7 +43,7 @@ void gesture_cnn_ref(
             b1_conv[oc][l] = (bn_out > 0) ? data_t(bn_out) : data_t(0);
         }
     }
-    for (int c = 0; c < 32; ++c) for (int l = 0; l < 64; ++l) b1_pool[c][l] = (b1_conv[c][l*2] > b1_conv[c][l*2+1]) ? b1_conv[c][l*2] : b1_conv[c][l*2+1];
+    for (int c = 0; c < 32; ++c) for (int l = 0; l < BLOCK1_LENGTH; ++l) b1_pool[c][l] = (b1_conv[c][l*2] > b1_conv[c][l*2+1]) ? b1_conv[c][l*2] : b1_conv[c][l*2+1];
 
     // --- Block 2 ---
     const accum_t eps2 = accum_t(1e-5);
@@ -53,12 +53,12 @@ void gesture_cnn_ref(
         accum_t scale2 = accum_t(bn2_weight[oc]) * inv_std2;
         accum_t shift2 = accum_t(bn2_bias[oc]) -
             (accum_t(bn2_running_mean[oc]) * accum_t(bn2_weight[oc]) * inv_std2);
-        for (int l = 0; l < 64; ++l) {
+        for (int l = 0; l < BLOCK1_LENGTH; ++l) {
             accum_t acc = accum_t(conv2_bias[oc]);
             for (int ic = 0; ic < 32; ++ic) {
                 for (int k = 0; k < 5; ++k) {
                     int in_idx = l + k - 2;
-                    if (in_idx >= 0 && in_idx < 64) {
+                    if (in_idx >= 0 && in_idx < BLOCK1_LENGTH) {
                         acc += accum_t(b1_pool[ic][in_idx]) * accum_t(conv2_weight[oc*32*5 + ic*5 + k]);
                     }
                 }
@@ -67,7 +67,7 @@ void gesture_cnn_ref(
             b2_conv[oc][l] = (bn_out > 0) ? data_t(bn_out) : data_t(0);
         }
     }
-    for (int c = 0; c < 64; ++c) for (int l = 0; l < 32; ++l) b2_pool[c][l] = (b2_conv[c][l*2] > b2_conv[c][l*2+1]) ? b2_conv[c][l*2] : b2_conv[c][l*2+1];
+    for (int c = 0; c < 64; ++c) for (int l = 0; l < BLOCK2_LENGTH; ++l) b2_pool[c][l] = (b2_conv[c][l*2] > b2_conv[c][l*2+1]) ? b2_conv[c][l*2] : b2_conv[c][l*2+1];
 
     // --- Block 3 ---
     const accum_t eps3 = accum_t(1e-5);
@@ -77,12 +77,12 @@ void gesture_cnn_ref(
         accum_t scale3 = accum_t(bn3_weight[oc]) * inv_std3;
         accum_t shift3 = accum_t(bn3_bias[oc]) -
             (accum_t(bn3_running_mean[oc]) * accum_t(bn3_weight[oc]) * inv_std3);
-        for (int l = 0; l < 32; ++l) {
+        for (int l = 0; l < BLOCK2_LENGTH; ++l) {
             accum_t acc = accum_t(conv3_bias[oc]);
             for (int ic = 0; ic < 64; ++ic) {
                 for (int k = 0; k < 3; ++k) {
                     int in_idx = l + k - 1;
-                    if (in_idx >= 0 && in_idx < 32) {
+                    if (in_idx >= 0 && in_idx < BLOCK2_LENGTH) {
                         acc += accum_t(b2_pool[ic][in_idx]) * accum_t(conv3_weight[oc*64*3 + ic*3 + k]);
                     }
                 }
@@ -93,8 +93,8 @@ void gesture_cnn_ref(
     }
     for (int c = 0; c < 128; ++c) {
         accum_t sum = accum_t(0);
-        for (int l = 0; l < 32; ++l) sum += accum_t(b3_conv[c][l]);
-        pooled_vec[c] = data_t(sum / accum_t(32));
+        for (int l = 0; l < BLOCK2_LENGTH; ++l) sum += accum_t(b3_conv[c][l]);
+        pooled_vec[c] = data_t(sum / accum_t(BLOCK2_LENGTH));
     }
 
     // --- Classifier ---

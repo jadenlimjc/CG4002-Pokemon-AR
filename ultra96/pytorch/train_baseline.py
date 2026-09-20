@@ -31,9 +31,9 @@ class DummyIMUDataset(Dataset):
     """
     Generates synthetic 6-channel IMU time-series data:
     Channels: [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
-    Tensor Shape: (Channels=6, Window_Length=128)
+    Tensor Shape: (Channels=6, Window_Length=256)
     """
-    def __init__(self, num_samples=1000, window_size=128, num_classes=7, seed=None):
+    def __init__(self, num_samples=1000, window_size=256, num_classes=7, seed=None):
         # Gesture Mapping:
         # 0: Neutral (Idle)
         # 1: Aim
@@ -92,17 +92,17 @@ class DummyIMUDataset(Dataset):
             num_spikes = np.random.randint(1, 4)
             for _ in range(num_spikes):
                 channel = np.random.randint(0, 6)
-                position = np.random.randint(20, self.window_size - 20)
+                position = np.random.randint(40, self.window_size - 40)
                 width = np.random.uniform(0.1, 0.4)
                 amplitude = np.random.uniform(1.0, 3.0) * (1 if np.random.rand() > 0.5 else -1)
-                sample[channel, :] += amplitude * np.exp(-((np.arange(self.window_size) - position) / (width * 20))**2)
+                sample[channel, :] += amplitude * np.exp(-((np.arange(self.window_size) - position) / (width * 40))**2)
             return sample
 
         # Define a time axis for the gesture event
         # --- ADDING REALISM: Random time shift for the gesture ---
         time_shift = np.random.randint(-self.window_size // 3, self.window_size // 3)
         # --- ADDING REALISM: Variable gesture duration ---
-        duration = np.random.randint(50, 80)
+        duration = np.random.randint(100, 160)
         start_idx = max(0, self.window_size // 2 - duration // 2 + time_shift)
         end_idx = min(self.window_size, start_idx + duration)
         gesture_len = end_idx - start_idx
@@ -170,8 +170,8 @@ class NPZIMUDataset(Dataset):
                 np.asarray(dataset["y"], dtype=np.int64).copy()
             )
             self.class_names = dataset["class_names"].tolist()
-        if self.data.ndim != 3 or tuple(self.data.shape[1:]) != (6, 128):
-            raise ValueError(f"{path}: X must have shape [N, 6, 128]")
+        if self.data.ndim != 3 or tuple(self.data.shape[1:]) != (6, 256):
+            raise ValueError(f"{path}: X must have shape [N, 6, 256]")
         if self.labels.shape != (len(self.data),):
             raise ValueError(f"{path}: y must have one label per window")
 
@@ -207,7 +207,7 @@ class RealTimeGesturePredictor:
     @torch.no_grad()
     def predict_window(self, window_tensor):
         """
-        window_tensor shape: (1, 6, 128)
+        window_tensor shape: (1, 6, 256)
         """
         if self.cooldown_counter > 0:
             self.cooldown_counter -= 1
@@ -249,15 +249,15 @@ def run_pipeline(dataset_name="utd", num_epochs=30):
         train_dataset = NPZIMUDataset(os.path.join(UTD_DATA_DIR, "utd_mhad_train.npz"))
         val_dataset = NPZIMUDataset(os.path.join(UTD_DATA_DIR, "utd_mhad_val.npz"))
         gesture_map = dict(enumerate(train_dataset.class_names))
-        checkpoint_name = "gesture_1dcnn_utd_mhad_best.pth"
+        checkpoint_name = "gesture_1dcnn_utd_mhad_100hz_256_best.pth"
     else:
-        train_dataset = DummyIMUDataset(num_samples=1200, window_size=128, num_classes=7, seed=42)
-        val_dataset = DummyIMUDataset(num_samples=300, window_size=128, num_classes=7, seed=123)
+        train_dataset = DummyIMUDataset(num_samples=1200, window_size=256, num_classes=7, seed=42)
+        val_dataset = DummyIMUDataset(num_samples=300, window_size=256, num_classes=7, seed=123)
         gesture_map = {
             0: "Neutral", 1: "Aim", 2: "Throw", 3: "Stop Aim",
             4: "Punch", 5: "Downward Swipe", 6: "Guard"
         }
-        checkpoint_name = "gesture_1dcnn_best.pth"
+        checkpoint_name = "gesture_1dcnn_100hz_256_best.pth"
 
     num_classes = len(gesture_map)
     if dataset_name == "utd" and val_dataset.class_names != train_dataset.class_names:

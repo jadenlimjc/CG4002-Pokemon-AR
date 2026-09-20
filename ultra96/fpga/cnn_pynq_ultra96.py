@@ -10,10 +10,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --- Configuration for the Gesture CNN ---
 IN_CHANNELS = 6
-IN_LENGTH = 128
+IN_LENGTH = 256
 NUM_CLASSES = 7
 
-INPUT_DATA_SIZE = IN_CHANNELS * IN_LENGTH  # 6 * 128 = 768 floats
+INPUT_DATA_SIZE = IN_CHANNELS * IN_LENGTH  # 6 * 256 = 1536 floats
 OUTPUT_DATA_SIZE = NUM_CLASSES             # 7 floats (logits)
 
 # PYNQ loads the Vivado-generated .bit file and parses a same-named .hwh file.
@@ -121,7 +121,7 @@ class GestureCNNAccelerator:
         return result
 
     def predict_logits(self, window):
-        """Run one [6, 128] channel-major window and return seven logits."""
+        """Run one [6, 256] channel-major window and return seven logits."""
         logits, timing = self.predict_logits_timed(window)
         self.last_timing = timing
         return logits

@@ -1,6 +1,6 @@
 """Replaceable data sources for FPGA model evaluation.
 
-Every source yields ``(window, label)`` where window has shape [6, 128].
+Every source yields ``(window, label)`` where window has shape [6, 256].
 To add live sensor data later, implement the same ``__iter__`` contract; the
 FPGA evaluator itself does not need to change.
 """
@@ -11,7 +11,7 @@ import numpy as np
 class SyntheticIMUDataSource:
     """NumPy equivalent of the synthetic dataset used for model validation."""
 
-    def __init__(self, num_samples=300, window_size=128, num_classes=7, seed=123):
+    def __init__(self, num_samples=300, window_size=256, num_classes=7, seed=123):
         self.num_samples = num_samples
         self.window_size = window_size
         self.num_classes = num_classes
@@ -46,18 +46,18 @@ class SyntheticIMUDataSource:
         if label == -1:
             for _ in range(self.rng.randint(1, 4)):
                 channel = self.rng.randint(0, 6)
-                position = self.rng.randint(20, self.window_size - 20)
+                position = self.rng.randint(40, self.window_size - 40)
                 width = self.rng.uniform(0.1, 0.4)
                 sign = 1 if self.rng.rand() > 0.5 else -1
                 amplitude = self.rng.uniform(1.0, 3.0) * sign
                 points = np.arange(self.window_size)
                 sample[channel] += amplitude * np.exp(
-                    -((points - position) / (width * 20)) ** 2
+                    -((points - position) / (width * 40)) ** 2
                 )
             return sample
 
         time_shift = self.rng.randint(-self.window_size // 3, self.window_size // 3)
-        duration = self.rng.randint(50, 80)
+        duration = self.rng.randint(100, 160)
         start = max(0, self.window_size // 2 - duration // 2 + time_shift)
         end = min(self.window_size, start + duration)
         t = np.linspace(-5, 5, end - start)
@@ -118,8 +118,8 @@ class NPZIMUDataSource:
                 dataset["class_names"].tolist()
                 if "class_names" in dataset else [str(index) for index in range(7)]
             )
-        if self.windows.ndim != 3 or self.windows.shape[1:] != (6, 128):
-            raise ValueError("X must have shape [number_of_samples, 6, 128]")
+        if self.windows.ndim != 3 or self.windows.shape[1:] != (6, 256):
+            raise ValueError("X must have shape [number_of_samples, 6, 256]")
         if self.labels.shape != (len(self.windows),):
             raise ValueError("y must have one label per window")
         if len(self.class_names) != 7:

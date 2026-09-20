@@ -123,7 +123,7 @@ def parse_args():
     parser.add_argument("--overlay", default=OVERLAY_PATH)
     source_group = parser.add_mutually_exclusive_group(required=True)
     source_group.add_argument(
-        "--data", help="NPZ with X [N,6,128], y [N], and optional class_names"
+        "--data", help="NPZ with X [N,6,256], y [N], and optional class_names"
     )
     source_group.add_argument(
         "--synthetic", action="store_true",
