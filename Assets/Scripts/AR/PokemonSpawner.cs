@@ -174,7 +174,7 @@ public class PokemonSpawner : MonoBehaviour
                 channel: channel,
                 cameraParams: null,
                 cpuImage: out var cpuImage,
-                samplerMatrix: out _))
+                samplerMatrix: out var samplerMatrix))
         {
             Debug.Log($"[Terrain] {channel}: failed to acquire image");
             return false;
@@ -188,8 +188,15 @@ public class PokemonSpawner : MonoBehaviour
             return false;
         }
 
-        int x = Mathf.Clamp((int)(screenPos.x / Screen.width * cpuImage.width), 0, cpuImage.width - 1);
-        int y = Mathf.Clamp((int)(screenPos.y / Screen.height * cpuImage.height), 0, cpuImage.height - 1);
+        // Normalize screen position to 0-1 range
+        Vector2 normalizedScreen = new Vector2(screenPos.x / Screen.width, screenPos.y / Screen.height);
+
+        // Apply the sampler matrix to get correct image coordinates
+        Vector3 transformed = samplerMatrix.MultiplyPoint(new Vector3(normalizedScreen.x, normalizedScreen.y, 1f));
+
+        int x = Mathf.Clamp((int)(transformed.x * cpuImage.width), 0, cpuImage.width - 1);
+        // Flip Y axis — image coordinates are top-down, screen coordinates are bottom-up
+        int y = Mathf.Clamp((int)((1f - transformed.y) * cpuImage.height), 0, cpuImage.height - 1);
 
         var plane = cpuImage.GetPlane(0);
         int index = y * cpuImage.width + x;
