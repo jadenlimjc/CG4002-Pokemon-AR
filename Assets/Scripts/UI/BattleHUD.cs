@@ -25,6 +25,9 @@ public class BattleHUD : MonoBehaviour
     [SerializeField] private TextMeshProUGUI move3Text;
     [SerializeField] private TextMeshProUGUI move4Text;
 
+    [Header("Action Indicators")]
+    [SerializeField] private TextMeshProUGUI actionLabelsText;
+
     [Header("Battle Messages")]
     [SerializeField] private TextMeshProUGUI messageText;
     [SerializeField] private float messageDisplayTime = 2f;
@@ -129,6 +132,9 @@ public class BattleHUD : MonoBehaviour
             if (move3Text != null && moves.Length > 2) move3Text.text = $"3: {moves[2].moveName}";
             if (move4Text != null && moves.Length > 3) move4Text.text = $"4: {moves[3].moveName}";
         }
+
+        if (actionLabelsText != null)
+            actionLabelsText.text = "5: Run  |  6: Switch  |  7: Item  |  8: Catch";
 
         // Initialize HP bars
         UpdateHP(battle.PlayerHP, battle.WildHP);

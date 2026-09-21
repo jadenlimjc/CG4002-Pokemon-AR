@@ -32,9 +32,20 @@ public class BattleManager : MonoBehaviour
     public delegate void HPChangedHandler(int playerHP, int wildHP);
     public event HPChangedHandler OnHPChanged;
 
+    [Header("Catch in Battle")]
+    [SerializeField] private GameObject pokeballPrefab;
+    [SerializeField] private GameObject reticleUI;
+    [SerializeField] private float throwArc = 2f;
+    [SerializeField] private int maxJiggles = 3;
+    [SerializeField] private float jiggleInterval = 1f;
+
     private Animator playerAnimator;
     private Animator wildAnimator;
     private PokemonData wildPokemonData;
+    private bool isBattleCatching = false;
+    private bool isBattleAiming = false;
+    private bool isWaitingRunConfirm = false;
+    private GameObject activePokeball;
 
     private void Awake()
     {
@@ -87,18 +98,80 @@ public class BattleManager : MonoBehaviour
         if (isProcessingMove) return;
         if (!isPlayerTurn) return;
 
-        int moveIndex = action switch
+        if (isWaitingRunConfirm)
         {
-            GestureAction.BATTLE_MOVE_1 => 0,
-            GestureAction.BATTLE_MOVE_2 => 1,
-            GestureAction.BATTLE_MOVE_3 => 2,
-            GestureAction.BATTLE_MOVE_4 => 3,
-            _ => -1
-        };
+            if (action == GestureAction.BATTLE_RUN)
+            {
+                isWaitingRunConfirm = false;
+                StartCoroutine(ExecuteRun());
+            }
+            else if (action == GestureAction.CANCEL)
+            {
+                isWaitingRunConfirm = false;
+                OnBattleMessage?.Invoke("Stayed in battle!");
+            }
+            return;
+        }
 
-        if (moveIndex >= 0 && moveIndex < playerPokemon.moves.Length)
+        if (isBattleCatching)
         {
-            StartCoroutine(ExecutePlayerMove(moveIndex));
+            HandleBattleCatchGesture(action);
+            return;
+        }
+
+        switch (action)
+        {
+            case GestureAction.BATTLE_MOVE_1:
+            case GestureAction.BATTLE_MOVE_2:
+            case GestureAction.BATTLE_MOVE_3:
+            case GestureAction.BATTLE_MOVE_4:
+                int moveIndex = action - GestureAction.BATTLE_MOVE_1;
+                if (moveIndex < playerPokemon.moves.Length)
+                    StartCoroutine(ExecutePlayerMove(moveIndex));
+                break;
+
+            case GestureAction.BATTLE_RUN:
+                isWaitingRunConfirm = true;
+                OnBattleMessage?.Invoke("Flee? Press Run again to confirm, Cancel to stay.");
+                break;
+
+            case GestureAction.BATTLE_SWITCH:
+                OnBattleMessage?.Invoke("Switch Pokemon — Coming Soon!");
+                break;
+
+            case GestureAction.BATTLE_ITEM:
+                OnBattleMessage?.Invoke("Use Item — Coming Soon!");
+                break;
+
+            case GestureAction.BATTLE_CATCH:
+                isBattleCatching = true;
+                OnBattleMessage?.Invoke("Catch mode! Aim then throw!");
+                break;
+        }
+    }
+
+    private void HandleBattleCatchGesture(GestureAction action)
+    {
+        switch (action)
+        {
+            case GestureAction.ARM_PULLBACK:
+                isBattleAiming = true;
+                if (reticleUI != null) reticleUI.SetActive(true);
+                break;
+
+            case GestureAction.CATCH_THROW when isBattleAiming:
+                isBattleAiming = false;
+                isBattleCatching = false;
+                if (reticleUI != null) reticleUI.SetActive(false);
+                StartCoroutine(ExecuteBattleCatch());
+                break;
+
+            case GestureAction.CANCEL:
+                isBattleAiming = false;
+                isBattleCatching = false;
+                if (reticleUI != null) reticleUI.SetActive(false);
+                OnBattleMessage?.Invoke("Catch cancelled.");
+                break;
         }
     }
 
@@ -256,6 +329,118 @@ public class BattleManager : MonoBehaviour
         OnBattleMessage?.Invoke("Your turn! Perform a move gesture!");
     }
 
+    private IEnumerator ExecuteRun()
+    {
+        isProcessingMove = true;
+        OnBattleMessage?.Invoke("Got away safely!");
+        yield return new WaitForSeconds(1.5f);
+
+        CleanupBattle();
+        GameStateManager.Instance.TransitionTo(GamePhase.Encounter);
+        isProcessingMove = false;
+    }
+
+    private IEnumerator ExecuteBattleCatch()
+    {
+        isProcessingMove = true;
+        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
+        if (spawner == null || spawner.CurrentWildPokemon == null)
+        {
+            isProcessingMove = false;
+            yield break;
+        }
+
+        Vector3 startPos = Camera.main.transform.position + Camera.main.transform.forward * 0.5f;
+        Vector3 targetPos = spawner.CurrentWildPokemon.transform.position;
+
+        if (pokeballPrefab != null)
+            activePokeball = Instantiate(pokeballPrefab, startPos, Quaternion.identity);
+        else
+        {
+            activePokeball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            activePokeball.transform.position = startPos;
+            activePokeball.transform.localScale = Vector3.one * 0.1f;
+        }
+
+        float duration = 0.8f;
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / duration;
+            Vector3 pos = Vector3.Lerp(startPos, targetPos, t);
+            pos.y += throwArc * Mathf.Sin(t * Mathf.PI);
+            activePokeball.transform.position = pos;
+            activePokeball.transform.Rotate(Vector3.right * 720 * Time.deltaTime);
+            yield return null;
+        }
+
+        spawner.CurrentWildPokemon.SetActive(false);
+        activePokeball.transform.position = targetPos;
+
+        float catchRate = wildPokemonData.baseCatchRate;
+        float hpRatio = (float)wildHP / wildPokemonData.maxHP;
+        catchRate = Mathf.Clamp01(catchRate + (1f - hpRatio) * 0.3f);
+
+        bool caught = true;
+        for (int i = 0; i < maxJiggles; i++)
+        {
+            yield return new WaitForSeconds(jiggleInterval);
+            yield return StartCoroutine(JigglePokeball());
+
+            if (Random.value > catchRate)
+            {
+                caught = false;
+                break;
+            }
+        }
+
+        yield return new WaitForSeconds(0.5f);
+
+        if (caught)
+        {
+            OnBattleMessage?.Invoke($"Gotcha! {wildPokemonData.pokemonName} was caught!");
+            Destroy(activePokeball);
+            yield return new WaitForSeconds(2f);
+            GameStateManager.Instance.TransitionTo(GamePhase.BattleResult);
+            yield return new WaitForSeconds(1f);
+            GameStateManager.Instance.TransitionTo(GamePhase.Idle);
+        }
+        else
+        {
+            OnBattleMessage?.Invoke($"{wildPokemonData.pokemonName} broke free!");
+            Destroy(activePokeball);
+            spawner.CurrentWildPokemon.SetActive(true);
+
+            if (wildAnimator != null)
+                wildAnimator.SetTrigger("breakFree");
+
+            yield return new WaitForSeconds(1f);
+            yield return StartCoroutine(ExecuteWildMove());
+        }
+
+        isProcessingMove = false;
+    }
+
+    private IEnumerator JigglePokeball()
+    {
+        if (activePokeball == null) yield break;
+
+        Quaternion originalRot = activePokeball.transform.rotation;
+        float jiggleDuration = 0.4f;
+        float elapsed = 0f;
+
+        while (elapsed < jiggleDuration)
+        {
+            elapsed += Time.deltaTime;
+            float angle = Mathf.Sin(elapsed * 30f) * 15f * (1f - elapsed / jiggleDuration);
+            activePokeball.transform.rotation = originalRot * Quaternion.Euler(0, 0, angle);
+            yield return null;
+        }
+
+        activePokeball.transform.rotation = originalRot;
+    }
+
     private int CalculateDamage(int power, int attack, int defense)
     {
         // Simplified Pokemon damage formula
@@ -272,6 +457,14 @@ public class BattleManager : MonoBehaviour
             Destroy(playerPokemonInstance);
             playerPokemonInstance = null;
         }
+        if (activePokeball != null)
+        {
+            Destroy(activePokeball);
+            activePokeball = null;
+        }
+        isBattleCatching = false;
+        isBattleAiming = false;
+        isWaitingRunConfirm = false;
     }
 
     private IEnumerator DelayedTransition(GamePhase phase, float delay)

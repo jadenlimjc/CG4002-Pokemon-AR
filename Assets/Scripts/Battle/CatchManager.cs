@@ -53,15 +53,6 @@ public class CatchManager : MonoBehaviour
 
     private void HandleGesture(GestureAction action, float confidence)
     {
-        if (action == GestureAction.POKEBALL_THROW &&
-            GameStateManager.Instance.CurrentPhase == GamePhase.Encounter)
-        {
-            if (isAiming)
-                HideReticle();
-            GameStateManager.Instance.TransitionTo(GamePhase.BattleEntry);
-            return;
-        }
-
         if (GameStateManager.Instance.CurrentPhase != GamePhase.Encounter) return;
 
         switch (action)
@@ -79,6 +70,12 @@ public class CatchManager : MonoBehaviour
                     StartCoroutine(ThrowPokeball(true));
                 else
                     StartCoroutine(ThrowPokeball(false));
+                break;
+
+            case GestureAction.POKEBALL_THROW when isAiming:
+                isAiming = false;
+                HideReticle();
+                GameStateManager.Instance.TransitionTo(GamePhase.BattleEntry);
                 break;
 
             case GestureAction.CANCEL when isAiming:
@@ -103,25 +100,39 @@ public class CatchManager : MonoBehaviour
     private bool IsPokemonInReticle()
     {
         PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
-        if (spawner == null || spawner.CurrentWildPokemon == null) return false;
+        if (spawner == null || spawner.CurrentWildPokemon == null)
+        {
+            Debug.Log("[Catch] No spawner or wild pokemon found");
+            return false;
+        }
 
         Vector3 screenPos = Camera.main.WorldToScreenPoint(
             spawner.CurrentWildPokemon.transform.position);
 
-        if (screenPos.z <= 0) return false;
+        if (screenPos.z <= 0)
+        {
+            Debug.Log("[Catch] Pokemon is behind camera");
+            return false;
+        }
 
         Vector2 screenCenter = new Vector2(Screen.width / 2f, Screen.height / 2f);
         float distance = Vector2.Distance(
             screenCenter,
             new Vector2(screenPos.x, screenPos.y));
 
+        Debug.Log($"[Catch] Pokemon screen distance from center: {distance:F0}px, reticleRadius: {reticleRadius}px, hit: {distance <= reticleRadius}");
         return distance <= reticleRadius;
     }
 
     private IEnumerator ThrowPokeball(bool hit)
     {
+        Debug.Log($"[Catch] ThrowPokeball called, hit={hit}");
         PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
-        if (spawner == null || spawner.CurrentWildPokemon == null) yield break;
+        if (spawner == null || spawner.CurrentWildPokemon == null)
+        {
+            Debug.Log("[Catch] ThrowPokeball aborted — no spawner or wild pokemon");
+            yield break;
+        }
 
         Vector3 startPos = Camera.main.transform.position + Camera.main.transform.forward * 0.5f;
         Vector3 targetPos;
@@ -180,16 +191,17 @@ public class CatchManager : MonoBehaviour
 
     private IEnumerator MissSequence()
     {
-        // Fizzle out
         if (fizzleVFX != null)
             Instantiate(fizzleVFX, activePokeball.transform.position, Quaternion.identity);
 
         Destroy(activePokeball);
         activePokeball = null;
 
-        yield return new WaitForSeconds(1f);
+        OnCatchResult?.Invoke(false, FindFirstObjectByType<PokemonSpawner>()?.CurrentPokemonData?.pokemonName ?? "???");
+        GameStateManager.Instance.TransitionTo(GamePhase.CatchResult);
 
-        // Return to encounter - Pokemon is still there
+        yield return new WaitForSeconds(2f);
+
         GameStateManager.Instance.TransitionTo(GamePhase.Encounter);
     }
 

@@ -6,11 +6,15 @@ public enum GestureAction
     NONE,
     ARM_PULLBACK,       // Arm draws back -> show reticle, enter aiming
     CATCH_THROW,        // Overhead throw release -> fire pokeball (check aim)
-    POKEBALL_THROW,     // Underhand throw motion -> send out own pokemon for battle
+    POKEBALL_THROW,     // Overhead throw with button click -> send out own pokemon for battle
     BATTLE_MOVE_1,      // Many punches -> Close Combat
     BATTLE_MOVE_2,      // Block stance -> Protect
     BATTLE_MOVE_3,      // Up-to-down motion -> Brick Break
     BATTLE_MOVE_4,      // Single punch -> Drain Punch / Mach Punch
+    BATTLE_RUN,         // Flee from battle
+    BATTLE_SWITCH,      // Switch active pokemon
+    BATTLE_ITEM,        // Use an item
+    BATTLE_CATCH,       // Initiate catch sequence mid-battle
     CANCEL              // Cancel current action / hand drops without throw
 }
 
@@ -35,6 +39,14 @@ public class GesturePayload
                 2 => GestureAction.BATTLE_MOVE_2,
                 3 => GestureAction.BATTLE_MOVE_3,
                 4 => GestureAction.BATTLE_MOVE_4,
+                _ => GestureAction.NONE
+            },
+            "BATTLE_ACTION" => gesture_id switch
+            {
+                1 => GestureAction.BATTLE_RUN,
+                2 => GestureAction.BATTLE_SWITCH,
+                3 => GestureAction.BATTLE_ITEM,
+                4 => GestureAction.BATTLE_CATCH,
                 _ => GestureAction.NONE
             },
             "CANCEL" => GestureAction.CANCEL,

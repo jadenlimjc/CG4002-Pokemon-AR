@@ -62,6 +62,7 @@ public class GameStateManager : MonoBehaviour
             (GamePhase.CatchResult, GamePhase.Encounter) => true,  // catch failed, pokemon still there
             (GamePhase.BattleEntry, GamePhase.BattleActive) => true,
             (GamePhase.BattleActive, GamePhase.BattleResult) => true,
+            (GamePhase.BattleActive, GamePhase.Encounter) => true, // flee from battle
             (GamePhase.BattleResult, GamePhase.Idle) => true,
             // Allow reset to Idle from any state (for debug/error recovery)
             (_, GamePhase.Idle) => true,

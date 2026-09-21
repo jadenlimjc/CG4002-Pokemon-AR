@@ -20,6 +20,7 @@ public class OnScreenControls : MonoBehaviour
 
         CreateEncounterButtons();
         CreateBattleButtons();
+        CreateBattleActionButtons();
         CreateUtilityButtons();
     }
 
@@ -38,7 +39,7 @@ public class OnScreenControls : MonoBehaviour
             GestureEvents.RaiseGestureReceived(GestureAction.CATCH_THROW, mockConfidence);
         });
 
-        CreateButton("Battle Entry", leftX, y + (buttonHeight + spacing) * 2, () =>
+        CreateButton("Battle Throw", leftX, y + (buttonHeight + spacing) * 2, () =>
         {
             GestureEvents.RaiseGestureReceived(GestureAction.POKEBALL_THROW, mockConfidence);
         });
@@ -72,6 +73,32 @@ public class OnScreenControls : MonoBehaviour
         CreateButton("Move 4", rightX, y + (buttonHeight + spacing) * 3, () =>
         {
             GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_4, mockConfidence);
+        });
+    }
+
+    private void CreateBattleActionButtons()
+    {
+        float y = buttonHeight + spacing;
+        float farRightX = buttonWidth + spacing * 1.5f;
+
+        CreateButton("Run", farRightX, y, () =>
+        {
+            GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_RUN, mockConfidence);
+        });
+
+        CreateButton("Switch", farRightX, y + (buttonHeight + spacing), () =>
+        {
+            GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_SWITCH, mockConfidence);
+        });
+
+        CreateButton("Item", farRightX, y + (buttonHeight + spacing) * 2, () =>
+        {
+            GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_ITEM, mockConfidence);
+        });
+
+        CreateButton("Catch", farRightX, y + (buttonHeight + spacing) * 3, () =>
+        {
+            GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_CATCH, mockConfidence);
         });
     }
 
