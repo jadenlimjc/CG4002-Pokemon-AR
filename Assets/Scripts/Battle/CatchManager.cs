@@ -106,22 +106,48 @@ public class CatchManager : MonoBehaviour
             return false;
         }
 
-        Vector3 screenPos = Camera.main.WorldToScreenPoint(
-            spawner.CurrentWildPokemon.transform.position);
-
-        if (screenPos.z <= 0)
+        Renderer renderer = spawner.CurrentWildPokemon.GetComponentInChildren<Renderer>();
+        if (renderer == null)
         {
-            Debug.Log("[Catch] Pokemon is behind camera");
+            Debug.Log("[Catch] No renderer on wild pokemon");
             return false;
         }
 
+        // Project the Pokemon's bounding box corners to screen space
+        Bounds bounds = renderer.bounds;
         Vector2 screenCenter = new Vector2(Screen.width / 2f, Screen.height / 2f);
-        float distance = Vector2.Distance(
-            screenCenter,
-            new Vector2(screenPos.x, screenPos.y));
 
-        Debug.Log($"[Catch] Pokemon screen distance from center: {distance:F0}px, reticleRadius: {reticleRadius}px, hit: {distance <= reticleRadius}");
-        return distance <= reticleRadius;
+        Vector3[] corners = new Vector3[8];
+        corners[0] = new Vector3(bounds.min.x, bounds.min.y, bounds.min.z);
+        corners[1] = new Vector3(bounds.max.x, bounds.min.y, bounds.min.z);
+        corners[2] = new Vector3(bounds.min.x, bounds.max.y, bounds.min.z);
+        corners[3] = new Vector3(bounds.max.x, bounds.max.y, bounds.min.z);
+        corners[4] = new Vector3(bounds.min.x, bounds.min.y, bounds.max.z);
+        corners[5] = new Vector3(bounds.max.x, bounds.min.y, bounds.max.z);
+        corners[6] = new Vector3(bounds.min.x, bounds.max.y, bounds.max.z);
+        corners[7] = new Vector3(bounds.max.x, bounds.max.y, bounds.max.z);
+
+        float minX = float.MaxValue, maxX = float.MinValue;
+        float minY = float.MaxValue, maxY = float.MinValue;
+
+        for (int i = 0; i < 8; i++)
+        {
+            Vector3 sp = Camera.main.WorldToScreenPoint(corners[i]);
+            if (sp.z <= 0) continue;
+            minX = Mathf.Min(minX, sp.x);
+            maxX = Mathf.Max(maxX, sp.x);
+            minY = Mathf.Min(minY, sp.y);
+            maxY = Mathf.Max(maxY, sp.y);
+        }
+
+        // Check if reticle circle overlaps with Pokemon's screen rect
+        float closestX = Mathf.Clamp(screenCenter.x, minX, maxX);
+        float closestY = Mathf.Clamp(screenCenter.y, minY, maxY);
+        float dist = Vector2.Distance(screenCenter, new Vector2(closestX, closestY));
+
+        bool hit = dist <= reticleRadius;
+        Debug.Log($"[Catch] Pokemon screen rect: ({minX:F0},{minY:F0})-({maxX:F0},{maxY:F0}), reticle dist to rect: {dist:F0}px, hit: {hit}");
+        return hit;
     }
 
     private IEnumerator ThrowPokeball(bool hit)

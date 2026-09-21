@@ -381,6 +381,7 @@ public class BattleManager : MonoBehaviour
         float catchRate = wildPokemonData.baseCatchRate;
         float hpRatio = (float)wildHP / wildPokemonData.maxHP;
         catchRate = Mathf.Clamp01(catchRate + (1f - hpRatio) * 0.3f);
+        Debug.Log($"[BattleCatch] baseCatchRate={wildPokemonData.baseCatchRate}, hpRatio={hpRatio:F2}, finalCatchRate={catchRate:F2}");
 
         bool caught = true;
         for (int i = 0; i < maxJiggles; i++)
@@ -388,7 +389,9 @@ public class BattleManager : MonoBehaviour
             yield return new WaitForSeconds(jiggleInterval);
             yield return StartCoroutine(JigglePokeball());
 
-            if (Random.value > catchRate)
+            float roll = Random.value;
+            Debug.Log($"[BattleCatch] Jiggle {i + 1}: roll={roll:F2}, catchRate={catchRate:F2}, pass={roll <= catchRate}");
+            if (roll > catchRate)
             {
                 caught = false;
                 break;
