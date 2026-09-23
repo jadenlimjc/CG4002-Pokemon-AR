@@ -24,140 +24,6 @@ def set_seed(seed=42):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-# =====================================================================
-# 1. SYNTHETIC IMU DATASET GENERATOR
-# =====================================================================
-class DummyIMUDataset(Dataset):
-    """
-    Generates synthetic 6-channel IMU time-series data:
-    Channels: [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
-    Tensor Shape: (Channels=6, Window_Length=256)
-    """
-    def __init__(self, num_samples=1000, window_size=256, num_classes=7, seed=None):
-        # Gesture Mapping:
-        # 0: Neutral (Idle)
-        # 1: Aim
-        # 2: Throw
-        # 3: Stop Aim
-        # 4: Punch
-        # 5: Downward Swipe
-        # 6: Guard
-
-        self.num_samples = num_samples
-        self.window_size = window_size
-        self.num_classes = num_classes
-        if seed is not None:
-            np.random.seed(seed)
-
-        self.data = []
-        self.labels = []
-
-        for i in range(num_samples):
-            label = np.random.randint(0, num_classes)
-            
-            # --- Introduce "confounder" gestures ---
-            # 25% of the time that a "Neutral" sample is generated, replace it
-            # with a random, sharp, non-classifiable movement.
-            if label == 0 and np.random.rand() < 0.25:
-                label = -1 # Use a temporary label for confounder gestures
-            
-            sample = self._generate_gesture_sample(label)
-            self.data.append(sample)
-            # Map the temporary confounder label (-1) back to the Neutral class (0) for training.
-            self.labels.append(0 if label == -1 else label)
-
-        self.data = torch.tensor(np.array(self.data), dtype=torch.float32)
-        self.labels = torch.tensor(self.labels, dtype=torch.long)
-
-    def _generate_gesture_sample(self, label):
-        """Helper to generate a sample for a specific gesture label."""
-        sample = np.zeros((6, self.window_size), dtype=np.float32)
-
-        # --- ENHANCEMENT: Add realistic sensor bias and drift ---
-        for i in range(6):
-            # 1. Add random gaussian noise
-            noise_level = np.random.uniform(0.05, 0.2)
-            sample[i] = np.random.normal(0, noise_level, self.window_size)
-            # 2. Add a random DC offset (bias)
-            bias = np.random.normal(0, 0.05)
-            sample[i] += bias
-            # 3. Add a slight linear drift
-            drift = np.linspace(0, np.random.normal(0, 0.03), self.window_size)
-            sample[i] += drift
-
-        if label == 0: # Neutral / Idle (pure noise)
-            return sample
-
-        if label == -1: # Confounder Gesture (random spikes)
-            num_spikes = np.random.randint(1, 4)
-            for _ in range(num_spikes):
-                channel = np.random.randint(0, 6)
-                position = np.random.randint(40, self.window_size - 40)
-                width = np.random.uniform(0.1, 0.4)
-                amplitude = np.random.uniform(1.0, 3.0) * (1 if np.random.rand() > 0.5 else -1)
-                sample[channel, :] += amplitude * np.exp(-((np.arange(self.window_size) - position) / (width * 40))**2)
-            return sample
-
-        # Define a time axis for the gesture event
-        # --- ADDING REALISM: Random time shift for the gesture ---
-        time_shift = np.random.randint(-self.window_size // 3, self.window_size // 3)
-        # --- ADDING REALISM: Variable gesture duration ---
-        duration = np.random.randint(100, 160)
-        start_idx = max(0, self.window_size // 2 - duration // 2 + time_shift)
-        end_idx = min(self.window_size, start_idx + duration)
-        gesture_len = end_idx - start_idx
-
-        # --- Define Gesture Profiles ---
-        std_variation = np.random.uniform(0.8, 1.2)
-        spike = lambda amp, std: amp * np.exp(-t**2 / (2 * (std * std_variation)**2))
-        smooth_curve = lambda amp, period: amp * np.sin(t / (period * std_variation)) * (t > 0) * (t < np.pi * period * std_variation)
-        
-        # --- ENHANCEMENT: More complex punch profile with recoil ---
-        punch_recoil = lambda amp, std: (amp * np.exp(-t**2 / (2 * (std * std_variation)**2))) - (amp*0.4 * np.exp(-(t-std*2)**2 / (2 * (std*0.8 * std_variation)**2)))
-
-        # --- ADDING REALISM: Random amplitude scaling ---
-        amp_scale = np.random.uniform(0.8, 1.2)
-
-        # Apply gesture to a slice of the warped time points
-        t = np.linspace(-5, 5, gesture_len)
-
-        if label == 1: # Aim: Arm back and up
-            sample[0, start_idx:end_idx] -= spike(1.5 * amp_scale, 0.8)  # Accel X (back)
-            sample[2, start_idx:end_idx] += spike(1.2 * amp_scale, 0.8)  # Accel Z (up)
-        elif label == 2: # Throw: Forward propulsion after Aim
-            sample[0, start_idx:end_idx] += spike(2.5 * amp_scale, 0.4)  # Strong Accel X (forward)
-            sample[4, start_idx:end_idx] += spike(2.0 * amp_scale, 0.4)  # Gyro Y (rotation)
-            sample[2, start_idx:end_idx] += spike(0.5 * amp_scale, 0.8)  # Minor upward accel
-        elif label == 3: # Stop Aim: Return to neutral
-            sample[0, start_idx:end_idx] += spike(1.0 * amp_scale, 1.0)  # Accel X (forward to neutral)
-            sample[2, start_idx:end_idx] -= spike(1.0 * amp_scale, 1.0)  # Accel Z (down to neutral)
-        elif label == 4: # Punch: Fast forward fist
-            sample[0, start_idx:end_idx] += punch_recoil(3.0 * amp_scale, 0.3)  # Sharp Accel X with recoil
-            sample[4, start_idx:end_idx] += spike(0.4 * amp_scale, 0.5)  # Minor rotational element
-        elif label == 5: # Downward Swipe: Rapid downward hand movement
-            sample[2, start_idx:end_idx] -= spike(2.8 * amp_scale, 0.4)  # Strong Accel Z (downward)
-        elif label == 6: # Guard: Arm crosses chest
-            sample[1, start_idx:end_idx] += smooth_curve(1.8 * amp_scale, 2.0)  # Accel Y (lateral)
-            sample[5, start_idx:end_idx] += smooth_curve(1.5 * amp_scale, 2.0)  # Gyro Z (twist)
-
-        # --- Augmentation: Time Warping ---
-        time_points = np.linspace(-5, 5, self.window_size)
-        time_warp_factor = np.random.uniform(0.8, 1.2)
-        warped_time_points = time_points * time_warp_factor
-
-        # Interpolate the gesture onto the warped time grid to create the final sample
-        final_sample = np.zeros_like(sample)
-        for i in range(6):
-            final_sample[i] = np.interp(time_points, warped_time_points, sample[i])
-        return final_sample
-
-    def __len__(self):
-        return self.num_samples
-
-    def __getitem__(self, idx):
-        return self.data[idx], self.labels[idx]
-
-
 class NPZIMUDataset(Dataset):
     """CNN-ready IMU windows loaded from an NPZ containing X and y."""
 
@@ -183,7 +49,7 @@ class NPZIMUDataset(Dataset):
 
 
 # =====================================================================
-# 3. REAL-TIME POST-PROCESSING (CONFIDENCE & DEBOUNCE FILTER)
+# 2. REAL-TIME POST-PROCESSING (CONFIDENCE & DEBOUNCE FILTER)
 # =====================================================================
 class RealTimeGesturePredictor:
     """
@@ -231,9 +97,9 @@ class RealTimeGesturePredictor:
         return self._get_class_name(pred_class), confidence, "TRIGGERED"
 
 # =====================================================================
-# 4. TRAINING & VALIDATION PIPELINE
+# 3. TRAINING & VALIDATION PIPELINE
 # =====================================================================
-def run_pipeline(dataset_name="utd", num_epochs=30):
+def run_pipeline(num_epochs=30):
     # Set seed for deterministic results
     set_seed(42)
 
@@ -245,22 +111,13 @@ def run_pipeline(dataset_name="utd", num_epochs=30):
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Datasets and Loaders
-    if dataset_name == "utd":
-        train_dataset = NPZIMUDataset(os.path.join(UTD_DATA_DIR, "utd_mhad_train.npz"))
-        val_dataset = NPZIMUDataset(os.path.join(UTD_DATA_DIR, "utd_mhad_val.npz"))
-        gesture_map = dict(enumerate(train_dataset.class_names))
-        checkpoint_name = "gesture_1dcnn_utd_mhad_100hz_256_best.pth"
-    else:
-        train_dataset = DummyIMUDataset(num_samples=1200, window_size=256, num_classes=7, seed=42)
-        val_dataset = DummyIMUDataset(num_samples=300, window_size=256, num_classes=7, seed=123)
-        gesture_map = {
-            0: "Neutral", 1: "Aim", 2: "Throw", 3: "Stop Aim",
-            4: "Punch", 5: "Downward Swipe", 6: "Guard"
-        }
-        checkpoint_name = "gesture_1dcnn_100hz_256_best.pth"
+    train_dataset = NPZIMUDataset(os.path.join(UTD_DATA_DIR, "utd_mhad_train.npz"))
+    val_dataset = NPZIMUDataset(os.path.join(UTD_DATA_DIR, "utd_mhad_val.npz"))
+    gesture_map = dict(enumerate(train_dataset.class_names))
+    checkpoint_name = "gesture_1dcnn_utd_mhad_100hz_256_best.pth"
 
     num_classes = len(gesture_map)
-    if dataset_name == "utd" and val_dataset.class_names != train_dataset.class_names:
+    if val_dataset.class_names != train_dataset.class_names:
         raise ValueError("Training and validation datasets have different classes")
 
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
@@ -269,16 +126,13 @@ def run_pipeline(dataset_name="utd", num_epochs=30):
     print("Classes:", gesture_map)
 
     model = Gesture1DCNN(in_channels=6, num_classes=num_classes).to(device)
-    if dataset_name == "utd":
-        counts = torch.bincount(train_dataset.labels, minlength=num_classes).float()
-        if torch.any(counts == 0):
-            raise ValueError(f"Training data is missing a class: {counts.tolist()}")
-        class_weights = len(train_dataset) / (num_classes * counts)
-        criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
-        print("Class counts:", counts.to(torch.int64).tolist())
-        print("Loss weights:", [round(value, 4) for value in class_weights.tolist()])
-    else:
-        criterion = nn.CrossEntropyLoss()
+    counts = torch.bincount(train_dataset.labels, minlength=num_classes).float()
+    if torch.any(counts == 0):
+        raise ValueError(f"Training data is missing a class: {counts.tolist()}")
+    class_weights = len(train_dataset) / (num_classes * counts)
+    criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+    print("Class counts:", counts.to(torch.int64).tolist())
+    print("Loss weights:", [round(value, 4) for value in class_weights.tolist()])
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
 
     best_val_balanced_acc = 0.0
@@ -347,11 +201,10 @@ def run_pipeline(dataset_name="utd", num_epochs=30):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train the gesture 1D CNN")
-    parser.add_argument("--dataset", choices=("utd", "synthetic"), default="utd")
     parser.add_argument("--epochs", type=int, default=30)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    run_pipeline(args.dataset, args.epochs)
+    run_pipeline(args.epochs)

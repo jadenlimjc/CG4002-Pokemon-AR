@@ -8,12 +8,12 @@ import numpy as np
 
 if __package__:
     from .cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, OVERLAY_PATH
-    from .evaluation_data import NPZIMUDataSource, SyntheticIMUDataSource
+    from .evaluation_data import NPZIMUDataSource
 else:
     # Support copying these scripts to one directory on the Ultra96 and
     # invoking this file directly with ``python3 evaluate_fpga.py``.
     from cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, OVERLAY_PATH
-    from evaluation_data import NPZIMUDataSource, SyntheticIMUDataSource
+    from evaluation_data import NPZIMUDataSource
 
 
 CLASS_NAMES = [
@@ -121,16 +121,10 @@ def save_confusion_matrix(matrix, path, class_names=CLASS_NAMES):
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--overlay", default=OVERLAY_PATH)
-    source_group = parser.add_mutually_exclusive_group(required=True)
-    source_group.add_argument(
-        "--data", help="NPZ with X [N,6,256], y [N], and optional class_names"
+    parser.add_argument(
+        "--data", required=True,
+        help="NPZ with X [N,6,256], y [N], and optional class_names"
     )
-    source_group.add_argument(
-        "--synthetic", action="store_true",
-        help="Explicitly use the legacy synthetic dataset"
-    )
-    parser.add_argument("--samples", type=int, default=300)
-    parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--warmup", type=int, default=10,
                         help="initial inferences excluded from performance results")
     parser.add_argument("--performance-csv", default="fpga_performance.csv")
@@ -142,8 +136,7 @@ def main():
     args = parse_args()
     if args.warmup < 0:
         raise ValueError("--warmup must be non-negative")
-    source = (NPZIMUDataSource(args.data) if args.data else
-              SyntheticIMUDataSource(num_samples=args.samples, seed=args.seed))
+    source = NPZIMUDataSource(args.data)
     with GestureCNNAccelerator(args.overlay) as accelerator:
         matrix, timings = evaluate(accelerator, source, args.warmup)
         report_performance(timings, accelerator.configured_clock_mhz(),
