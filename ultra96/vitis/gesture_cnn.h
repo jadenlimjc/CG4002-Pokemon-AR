@@ -36,7 +36,7 @@ template<int IN_CH, int OUT_CH, int IN_LEN, int K_SIZE, int PAD>
 void conv_bn_relu(
     hls::stream<data_t>& in_stream,
     hls::stream<data_t>& out_stream,
-    const data_t* weight,
+    const data_t (&weight)[OUT_CH * IN_CH * K_SIZE],
     const data_t* bias,
     const data_t* bn_w,
     const data_t* bn_b,
@@ -45,6 +45,11 @@ void conv_bn_relu(
 ) {
     // Line buffer to implement a sliding window of size K_SIZE
     data_t line_buf[IN_CH][K_SIZE];
+    // Supply every tap in a convolution window in parallel. The flattened
+    // weights are laid out [..., K_SIZE], so cyclic banks map one tap to each
+    // bank and match the fully-unrolled kernel loop below.
+    #pragma HLS ARRAY_PARTITION variable=line_buf complete dim=2
+    #pragma HLS ARRAY_PARTITION variable=weight cyclic factor=K_SIZE dim=1
 
     // The stream is time-major: all channels for timestep 0, then timestep 1,
     // and so on.  Seed the line buffer with zeros for the left padding.
@@ -88,16 +93,30 @@ void conv_bn_relu(
         // 3. Perform convolution, batchnorm, and ReLU if the window is valid
         if (l >= PAD) {
             for (int oc = 0; oc < OUT_CH; ++oc) {
-                accum_t acc = accum_t(bias[oc]);
+                accum_t tap_acc[K_SIZE];
+                #pragma HLS ARRAY_PARTITION variable=tap_acc complete dim=1
+
+                for (int k = 0; k < K_SIZE; ++k) {
+                    #pragma HLS UNROLL
+                    tap_acc[k] = accum_t(0);
+                }
+
                 for (int ic = 0; ic < IN_CH; ++ic) {
+                    // Each tap has an independent recurrence, allowing the
+                    // input-channel loop to start a new iteration each cycle.
+                    #pragma HLS PIPELINE II=1
                     for (int k = 0; k < K_SIZE; ++k) {
-                        // Schedule one MAC at a time. Pipelining the enclosing
-                        // timestep/channel loops would replicate this entire
-                        // convolution body and make synthesis intractable.
-                        #pragma HLS PIPELINE II=1
+                        #pragma HLS UNROLL
                         int w_idx = (oc * IN_CH * K_SIZE) + (ic * K_SIZE) + k;
-                        acc += accum_t(line_buf[ic][k]) * accum_t(weight[w_idx]);
+                        tap_acc[k] += accum_t(line_buf[ic][k]) *
+                                      accum_t(weight[w_idx]);
                     }
+                }
+
+                accum_t acc = accum_t(bias[oc]);
+                for (int k = 0; k < K_SIZE; ++k) {
+                    #pragma HLS UNROLL
+                    acc += tap_acc[k];
                 }
                 // Apply BatchNorm and ReLU immediately and stream out
                 accum_t bn_out = acc * scale_buf[oc] + shift_buf[oc];
