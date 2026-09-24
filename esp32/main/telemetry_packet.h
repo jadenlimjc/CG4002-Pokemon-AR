@@ -33,3 +33,29 @@ inline uint32_t telemetryCrc32(const uint8_t* bytes, size_t length) {
     }
     return crc ^ 0xffffffffu;
 }
+
+// Bit 7 asks U96 to acknowledge this one telemetry packet. Bit 0 retains its
+// hall-trigger meaning, so the existing phone and inference format is unchanged.
+constexpr uint8_t TELEMETRY_RTT_REQUEST = 0x80;
+
+struct __attribute__((packed)) TelemetryAck {
+    uint32_t sample_index;
+    uint32_t timestamp_ms;
+    uint32_t packet_crc32; // match the exact packet, including after a reboot
+};
+static_assert(sizeof(TelemetryAck) == 12, "Unexpected telemetry ACK layout");
+
+// Cumulative snapshot for this MQTT connection. A later snapshot recovers
+// aggregate statistics if an earlier one is lost.
+struct __attribute__((packed)) RttReport {
+    char magic[4]; // RTT1
+    uint32_t session;
+    uint32_t report_index;
+    uint32_t samples;
+    uint64_t total_us;
+    uint32_t minimum_us, maximum_us;
+    uint32_t timeouts, cancelled, publish_failures, late_acks;
+    uint32_t pending;
+    uint32_t crc32;
+};
+static_assert(sizeof(RttReport) == 56, "Unexpected RTT report layout");

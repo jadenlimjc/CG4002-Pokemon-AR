@@ -14,6 +14,8 @@ echo "-- STARTING PUSH DRY RUN (Computer -> Ultra96) --"
     --exclude='__pycache__' \
     --exclude='.git' \
     --exclude='*secrets*' \
+    --exclude='*.log' \
+    --exclude='*.csv' \
     "$PROJECT_ROOT" \
     "xilinx@makerslab-fpga-38.ddns.comp.nus.edu.sg:~/cg4002/"
 echo "--------------------------------------------"
@@ -28,6 +30,8 @@ if [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]]; then
     --exclude='__pycache__' \
     --exclude='.git' \
     --exclude='*secrets*' \
+    --exclude='*.log' \
+    --exclude='*.csv' \
     "$PROJECT_ROOT" \
     "xilinx@makerslab-fpga-38.ddns.comp.nus.edu.sg:~/cg4002/"
     echo "Push Complete!"
