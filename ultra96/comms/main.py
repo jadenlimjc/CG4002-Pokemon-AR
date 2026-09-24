@@ -36,8 +36,8 @@ def validate_model_id(value):
 def device_topics(model_id):
     validate_model_id(model_id)
     topics = {name: f"esp32/{model_id}/{suffix}" for name, suffix in (
-        ("telemetry", "telemetry"), ("status", "status"), ("ping", "ping"),
-        ("pong", "pong"), ("config", "config"), ("haptic", "haptic/cmd"),
+        ("telemetry", "telemetry"), ("status", "status"), ("ack", "telemetry_ack"),
+        ("rtt", "rtt"), ("config", "config"), ("haptic", "haptic/cmd"),
     )}
     topics["inference"] = f"ultra96/{model_id}/inference"
     return topics

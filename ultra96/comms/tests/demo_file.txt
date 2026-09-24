@@ -1,0 +1,16 @@
+CG4002 live file transfer
+Route: Ultra96 -> FireBeetle RAM -> Ultra96 -> Android visualiser
+Challenge: change this line to a phrase chosen by the examiner, save, then press Send.
+The complete returned file must match the original byte for byte.
+
+This is a real file opened from disk on each keypress. The sender reads its
+bytes, divides them into numbered chunks, and sends those chunks over MQTT
+inside the existing SSH connection. The FireBeetle stores the bytes in RAM.
+It returns the stored bytes and a CRC of the complete file. Ultra96 saves the
+returned copy and compares it with the original. No file receipt is inferred
+from a successful publish alone.
+
+For the live demo, ask for a new phrase, replace the challenge above, save,
+and send again. The transfer ID and SHA-256 will change. The same received
+contents can then be read on the Android screen. This sample spans multiple
+512-byte chunks, making retries and ordering part of the demonstration.

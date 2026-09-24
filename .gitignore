@@ -98,3 +98,8 @@ visualiser/*.app/
 /ultra96/.python-version
 
 !ultra96/comms/tests/telemetry.log
+
+# Live demo readback artifacts and metrics
+ultra96/comms/tests/received_files/
+ultra96/comms/tests/telemetry_demo_results.csv
+ultra96/comms/tests/telemetry_rtt_results.csv
