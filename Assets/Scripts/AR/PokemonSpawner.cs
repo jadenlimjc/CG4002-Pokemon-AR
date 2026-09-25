@@ -180,30 +180,30 @@ public class PokemonSpawner : MonoBehaviour
             return false;
         }
 
-        Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPosition);
-        if (screenPos.z <= 0)
+        var plane = cpuImage.GetPlane(0);
+        int imgW = cpuImage.width;
+        int imgH = cpuImage.height;
+
+        // Scan the entire image for any non-zero pixels
+        int nonZeroCount = 0;
+        int maxVal = 0;
+        for (int i = 0; i < Mathf.Min(plane.data.Length, imgW * imgH); i++)
         {
-            Debug.Log($"[Terrain] {channel}: position behind camera");
-            cpuImage.Dispose();
-            return false;
+            if (plane.data[i] > 0) nonZeroCount++;
+            if (plane.data[i] > maxVal) maxVal = plane.data[i];
         }
 
-        // Normalize screen position to 0-1 range
+        Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPosition);
         Vector2 normalizedScreen = new Vector2(screenPos.x / Screen.width, screenPos.y / Screen.height);
-
-        // Apply the sampler matrix to get correct image coordinates
         Vector3 transformed = samplerMatrix.MultiplyPoint(new Vector3(normalizedScreen.x, normalizedScreen.y, 1f));
 
-        int x = Mathf.Clamp((int)(transformed.x * cpuImage.width), 0, cpuImage.width - 1);
-        // Flip Y axis — image coordinates are top-down, screen coordinates are bottom-up
-        int y = Mathf.Clamp((int)((1f - transformed.y) * cpuImage.height), 0, cpuImage.height - 1);
+        int x = Mathf.Clamp((int)(transformed.x * imgW), 0, imgW - 1);
+        int y = Mathf.Clamp((int)((1f - transformed.y) * imgH), 0, imgH - 1);
+        int index = y * imgW + x;
+        int pixelValue = (index >= 0 && index < plane.data.Length) ? plane.data[index] : -1;
+        bool isPresent = pixelValue > 128;
 
-        var plane = cpuImage.GetPlane(0);
-        int index = y * cpuImage.width + x;
-        bool isPresent = index < plane.data.Length && plane.data[index] > 128;
-        int pixelValue = (index < plane.data.Length) ? plane.data[index] : -1;
-
-        Debug.Log($"[Terrain] {channel}: pixel({x},{y}) value={pixelValue} present={isPresent}");
+        Debug.Log($"[Terrain] {channel}: img={imgW}x{imgH}, nonZero={nonZeroCount}/{imgW * imgH}, maxVal={maxVal}, screen=({normalizedScreen.x:F2},{normalizedScreen.y:F2}), transformed=({transformed.x:F2},{transformed.y:F2}), pixel({x},{y})={pixelValue}, hit={isPresent}");
 
         cpuImage.Dispose();
         return isPresent;
