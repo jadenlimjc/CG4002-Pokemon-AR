@@ -158,52 +158,51 @@ public class PokemonSpawner : MonoBehaviour
             return PickFromPool(skyPool);
         }
 
+        if (TryCheckChannel(SceneSegmentationChannel.ArtificialGround, worldPosition))
+        {
+            lastDetectedTerrain = "Artificial Ground";
+            return PickFromPool(defaultPool);
+        }
+
+        if (TryCheckChannel(SceneSegmentationChannel.Ground, worldPosition))
+        {
+            lastDetectedTerrain = "Ground";
+            return PickFromPool(defaultPool);
+        }
+
         lastDetectedTerrain = "Default";
         return PickFromPool(defaultPool);
     }
 
+    [SerializeField] private float terrainDetectionThreshold = 0.05f;
+
     private bool TryCheckChannel(SceneSegmentationChannel channel, Vector3 worldPosition)
     {
-        if (_segmentationSubsystem == null)
-        {
-            Debug.Log($"[Terrain] {channel}: subsystem null");
-            return false;
-        }
+        if (_segmentationSubsystem == null) return false;
 
         if (!_segmentationSubsystem.TryAcquireSceneSegmentationChannelCpuImage(
                 channel: channel,
                 cameraParams: null,
                 cpuImage: out var cpuImage,
-                samplerMatrix: out var samplerMatrix))
+                samplerMatrix: out _))
         {
-            Debug.Log($"[Terrain] {channel}: failed to acquire image");
             return false;
         }
 
         var plane = cpuImage.GetPlane(0);
-        int imgW = cpuImage.width;
-        int imgH = cpuImage.height;
+        int totalPixels = cpuImage.width * cpuImage.height;
+        int pixelCount = Mathf.Min(plane.data.Length, totalPixels);
 
-        // Scan the entire image for any non-zero pixels
-        int nonZeroCount = 0;
-        int maxVal = 0;
-        for (int i = 0; i < Mathf.Min(plane.data.Length, imgW * imgH); i++)
+        int aboveThreshold = 0;
+        for (int i = 0; i < pixelCount; i++)
         {
-            if (plane.data[i] > 0) nonZeroCount++;
-            if (plane.data[i] > maxVal) maxVal = plane.data[i];
+            if (plane.data[i] > 128) aboveThreshold++;
         }
 
-        Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPosition);
-        Vector2 normalizedScreen = new Vector2(screenPos.x / Screen.width, screenPos.y / Screen.height);
-        Vector3 transformed = samplerMatrix.MultiplyPoint(new Vector3(normalizedScreen.x, normalizedScreen.y, 1f));
+        float coverage = (float)aboveThreshold / pixelCount;
+        bool isPresent = coverage > terrainDetectionThreshold;
 
-        int x = Mathf.Clamp((int)(transformed.x * imgW), 0, imgW - 1);
-        int y = Mathf.Clamp((int)((1f - transformed.y) * imgH), 0, imgH - 1);
-        int index = y * imgW + x;
-        int pixelValue = (index >= 0 && index < plane.data.Length) ? plane.data[index] : -1;
-        bool isPresent = pixelValue > 128;
-
-        Debug.Log($"[Terrain] {channel}: img={imgW}x{imgH}, nonZero={nonZeroCount}/{imgW * imgH}, maxVal={maxVal}, screen=({normalizedScreen.x:F2},{normalizedScreen.y:F2}), transformed=({transformed.x:F2},{transformed.y:F2}), pixel({x},{y})={pixelValue}, hit={isPresent}");
+        Debug.Log($"[Terrain] {channel}: {aboveThreshold}/{pixelCount} pixels ({coverage:P1}), threshold={terrainDetectionThreshold:P0}, detected={isPresent}");
 
         cpuImage.Dispose();
         return isPresent;
