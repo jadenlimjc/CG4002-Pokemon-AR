@@ -239,7 +239,7 @@ public class PokemonSpawner : MonoBehaviour
         currentWildPokemon = Instantiate(
             currentPokemonData.modelPrefab,
             position,
-            Quaternion.identity
+            currentPokemonData.modelPrefab.transform.rotation
         );
         currentWildPokemon.transform.localScale = Vector3.one * currentPokemonData.spawnScale;
         currentWildPokemon.transform.rotation = currentWildPokemon.transform.rotation * Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
