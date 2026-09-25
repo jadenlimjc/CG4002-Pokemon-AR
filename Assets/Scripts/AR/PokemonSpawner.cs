@@ -242,7 +242,7 @@ public class PokemonSpawner : MonoBehaviour
             Quaternion.identity
         );
         currentWildPokemon.transform.localScale = Vector3.one * currentPokemonData.spawnScale;
-        currentWildPokemon.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+        currentWildPokemon.transform.rotation = currentWildPokemon.transform.rotation * Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
 
         currentAnimator = currentWildPokemon.GetComponent<Animator>();
         if (currentAnimator != null)
