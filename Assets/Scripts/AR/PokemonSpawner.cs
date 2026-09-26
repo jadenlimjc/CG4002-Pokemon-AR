@@ -10,7 +10,6 @@ public class PokemonSpawner : MonoBehaviour
     [Header("Spawn Settings")]
     [SerializeField] private float spawnDistance = 3f;
     [SerializeField] private float spawnCooldown = 10f;
-    [SerializeField] private float encounterRadius = 0.5f;
     [SerializeField] private float meshRaycastDistance = 10f;
 
     [Header("Pokemon Pools")]
@@ -76,33 +75,48 @@ public class PokemonSpawner : MonoBehaviour
 
     private void TrySpawnWildPokemon()
     {
-        Vector3 spawnPosition;
+        // Collect candidate positions
+        List<Vector3> candidates = GetCandidatePositions();
 
-        if (TryGetMeshSpawnPosition(out spawnPosition))
+        if (candidates.Count > 0)
         {
-            Debug.Log($"[Spawner] Mesh hit at {spawnPosition}");
-            SpawnPokemon(spawnPosition);
+            // Pick which Pokemon will spawn (using first candidate for terrain detection)
+            PokemonData pokemon = PickPokemonByTerrain(candidates[0]);
+            float clearance = pokemon.spawnScale * 0.5f;
+
+            foreach (var pos in candidates)
+            {
+                if (HasClearance(pos, clearance))
+                {
+                    Debug.Log($"[Spawner] Valid position at {pos} (clearance {clearance:F1}m)");
+                    SpawnPokemonAt(pos, pokemon);
+                    return;
+                }
+                Debug.Log($"[Spawner] Skipping — surface too small for {pokemon.pokemonName} at {pos}");
+            }
+
+            Debug.Log("[Spawner] No position with enough clearance, skipping spawn");
         }
         else
         {
 #if UNITY_EDITOR
             Transform cam = Camera.main.transform;
-            spawnPosition = cam.position + cam.forward * spawnDistance;
+            Vector3 spawnPosition = cam.position + cam.forward * spawnDistance;
             spawnPosition.y = cam.position.y - 1f;
             Debug.Log("[Spawner] Editor fallback spawn");
-            SpawnPokemon(spawnPosition);
+            PokemonData pokemon = PickPokemonByTerrain(spawnPosition);
+            SpawnPokemonAt(spawnPosition, pokemon);
 #else
             Debug.Log("[Spawner] No mesh hit, skipping spawn (waiting for AR mesh)");
 #endif
         }
     }
 
-    private bool TryGetMeshSpawnPosition(out Vector3 position)
+    private List<Vector3> GetCandidatePositions()
     {
-        position = Vector3.zero;
-
-        // Try multiple random screen positions to find a horizontal (ground) surface
+        List<Vector3> candidates = new List<Vector3>();
         int maxAttempts = 10;
+
         for (int i = 0; i < maxAttempts; i++)
         {
             float screenX = Random.Range(Screen.width * 0.15f, Screen.width * 0.85f);
@@ -115,21 +129,40 @@ public class PokemonSpawner : MonoBehaviour
                 float dist = Vector3.Distance(Camera.main.transform.position, hit.point);
                 if (dist < 1f || dist > meshRaycastDistance) continue;
 
-                // Only accept roughly horizontal surfaces (ground/floor)
                 float upDot = Vector3.Dot(hit.normal, Vector3.up);
-                if (upDot < 0.7f)
-                {
-                    Debug.Log($"[Spawner] Skipping non-ground surface (normal dot: {upDot:F2})");
-                    continue;
-                }
+                if (upDot < 0.7f) continue;
 
-                Debug.Log($"[Spawner] Ground hit: {hit.collider.name} at {hit.point} (dist: {dist:F1}m, normal dot: {upDot:F2})");
-                position = hit.point;
-                return true;
+                candidates.Add(hit.point);
             }
         }
 
-        return false;
+        return candidates;
+    }
+
+    private bool HasClearance(Vector3 position, float radius)
+    {
+        Vector3[] directions = { Vector3.forward, Vector3.back, Vector3.left, Vector3.right };
+
+        foreach (var dir in directions)
+        {
+            Vector3 checkPos = position + dir * radius + Vector3.up * 0.5f;
+
+            // Check there's ground below each offset point
+            if (!Physics.Raycast(checkPos, Vector3.down, out RaycastHit groundHit, 1.5f))
+                return false;
+
+            // Ground must be at similar height and horizontal
+            if (Mathf.Abs(groundHit.point.y - position.y) > 0.3f)
+                return false;
+            if (Vector3.Dot(groundHit.normal, Vector3.up) < 0.7f)
+                return false;
+
+            // Check no walls within clearance
+            if (Physics.Raycast(position + Vector3.up * 0.3f, dir, radius))
+                return false;
+        }
+
+        return true;
     }
 
     private PokemonData PickPokemonByTerrain(Vector3 worldPosition)
@@ -215,15 +248,9 @@ public class PokemonSpawner : MonoBehaviour
         return pool[Random.Range(0, pool.Length)];
     }
 
-    private void SpawnPokemon(Vector3 position)
+    private void SpawnPokemonAt(Vector3 position, PokemonData pokemon)
     {
-        if (defaultPool == null || defaultPool.Length == 0)
-        {
-            Debug.LogWarning("[Spawner] No Pokemon configured in any pool!");
-            return;
-        }
-
-        currentPokemonData = PickPokemonByTerrain(position);
+        currentPokemonData = pokemon;
 
         if (currentPokemonData.modelPrefab == null)
         {
