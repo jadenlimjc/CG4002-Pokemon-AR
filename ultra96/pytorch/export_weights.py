@@ -6,11 +6,10 @@ from model import Gesture1DCNN  # Import from the dedicated model file
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CHECKPOINT = os.path.join(
-    SCRIPT_DIR, "saved_checkpoints", "gesture_1dcnn_utd_mhad_100hz_256_best.pth"
+    SCRIPT_DIR, "saved_checkpoints", "gesture_1dcnn_real_100hz_256_best.pth"
 )
 DEFAULT_TEST_DATA = os.path.normpath(os.path.join(
-    SCRIPT_DIR, "..", "online_data", "UTD-MHAD_HumanActionRecognitionDataset",
-    "utd_mhad_processed", "utd_mhad_test.npz"
+    SCRIPT_DIR, "..", "real_data", "processed", "real_gestures_test.npz"
 ))
 
 # --- This dictionary is the key to the solution ---
@@ -61,7 +60,10 @@ def export_weights_and_vectors(
 
     # 1. Load trained model
     device = torch.device('cpu')
-    model = Gesture1DCNN()
+    with np.load(test_data_path) as dataset:
+        class_names = dataset["class_names"].tolist()
+        test_windows = np.asarray(dataset["X"], dtype=np.float32)
+    model = Gesture1DCNN(num_classes=len(class_names))
     try:
         model.load_state_dict(torch.load(model_path, map_location=device))
     except FileNotFoundError:
@@ -78,7 +80,8 @@ def export_weights_and_vectors(
         with open(weights_path, 'w') as f:
             f.write('#ifndef WEIGHTS_H\n#define WEIGHTS_H\n\n')
             f.write('// Auto-generated weights for Vitis HLS\n')
-            f.write('// This file is included by gesture_cnn.cpp\n\n')
+            f.write('// This file is included by gesture_cnn.cpp\n')
+            f.write(f'// Class order: {", ".join(class_names)}\n\n')
             f.write('#include "gesture_cnn.h"\n\n')
 
             for torch_name, c_name in NAME_MAP.items():
@@ -101,8 +104,6 @@ def export_weights_and_vectors(
 
     # 3. Export a real, normalized held-out window and its PyTorch logits for
     # HLS C-simulation and board-level numerical comparison.
-    with np.load(test_data_path) as dataset:
-        test_windows = np.asarray(dataset["X"], dtype=np.float32)
     if test_windows.ndim != 3 or test_windows.shape[1:] != (6, 256):
         raise ValueError(f"{test_data_path}: X must have shape [N, 6, 256]")
     dummy_input = torch.from_numpy(test_windows[:1].copy())

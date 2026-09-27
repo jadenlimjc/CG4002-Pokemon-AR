@@ -4,10 +4,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
+import argparse
 import os
 
 from model import Gesture1DCNN
-from train_baseline import NPZIMUDataset, UTD_DATA_DIR, set_seed
+from train_baseline import NPZIMUDataset, REAL_DATA_DIR, set_seed
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -53,7 +54,7 @@ def evaluate_and_generate_confusion_matrix(model, data_loader, device, class_map
     plt.savefig(filename, bbox_inches="tight")
     print(f"Saved confusion matrix to '{filename}'")
 
-def main():
+def main(args=None):
     """
     Main function to load the best model and evaluate its performance.
     """
@@ -61,15 +62,13 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # --- Configuration ---
-    checkpoint_dir = os.path.join(SCRIPT_DIR, "saved_checkpoints")
-    best_model_path = os.path.join(
-        checkpoint_dir, "gesture_1dcnn_utd_mhad_100hz_256_best.pth"
-    )
+    args = args or parse_args()
+    best_model_path = args.checkpoint
     test_dataset = NPZIMUDataset(
-        os.path.join(UTD_DATA_DIR, "utd_mhad_test.npz")
+        os.path.join(args.data_dir, "real_gestures_test.npz")
     )
     gesture_map = dict(enumerate(test_dataset.class_names))
-    output_path = os.path.join(SCRIPT_DIR, "utd_mhad_confusion_matrix.png")
+    output_path = args.output
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
     # --- Load Model ---
@@ -87,5 +86,15 @@ def main():
         model, test_loader, device, gesture_map, filename=output_path
     )
 
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data-dir", default=REAL_DATA_DIR)
+    parser.add_argument("--checkpoint", default=os.path.join(
+        SCRIPT_DIR, "saved_checkpoints", "gesture_1dcnn_real_100hz_256_best.pth"))
+    parser.add_argument("--output", default=os.path.join(
+        SCRIPT_DIR, "real_gestures_confusion_matrix.png"))
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    main()
+    main(parse_args())

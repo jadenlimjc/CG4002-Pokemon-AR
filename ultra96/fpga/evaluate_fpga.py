@@ -16,11 +16,6 @@ else:
     from evaluation_data import NPZIMUDataSource
 
 
-CLASS_NAMES = [
-    "Neutral", "Aim", "Throw", "Stop Aim", "Punch", "Downward Swipe", "Guard"
-]
-
-
 def evaluate(accelerator, data_source, warmup=10):
     """Return a confusion matrix and timed post-warm-up inference records."""
     matrix = np.zeros((NUM_CLASSES, NUM_CLASSES), dtype=np.int64)
@@ -84,7 +79,7 @@ def report_performance(timings, configured_clocks, csv_path=None):
         print(f"  Saved raw performance data to {csv_path}")
 
 
-def save_confusion_matrix(matrix, path, class_names=CLASS_NAMES):
+def save_confusion_matrix(matrix, path, class_names):
     """Save a PNG when matplotlib is installed, plus an always-available CSV."""
     csv_path = os.path.splitext(path)[0] + ".csv"
     np.savetxt(csv_path, matrix, fmt="%d", delimiter=",")
@@ -137,6 +132,11 @@ def main():
     if args.warmup < 0:
         raise ValueError("--warmup must be non-negative")
     source = NPZIMUDataSource(args.data)
+    if len(source.class_names) != NUM_CLASSES:
+        raise ValueError(
+            f"Dataset has {len(source.class_names)} classes but overlay expects "
+            f"{NUM_CLASSES}; retrain/export/resynthesize the matching accelerator"
+        )
     with GestureCNNAccelerator(args.overlay) as accelerator:
         matrix, timings = evaluate(accelerator, source, args.warmup)
         report_performance(timings, accelerator.configured_clock_mhz(),

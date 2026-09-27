@@ -8,9 +8,8 @@ import os, numpy as np
 from model import Gesture1DCNN # Import the model from its dedicated file
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-UTD_DATA_DIR = os.path.normpath(os.path.join(
-    SCRIPT_DIR, "..", "online_data", "UTD-MHAD_HumanActionRecognitionDataset",
-    "utd_mhad_processed"
+REAL_DATA_DIR = os.path.normpath(os.path.join(
+    SCRIPT_DIR, "..", "real_data", "processed"
 ))
 
 def set_seed(seed=42):
@@ -99,7 +98,7 @@ class RealTimeGesturePredictor:
 # =====================================================================
 # 3. TRAINING & VALIDATION PIPELINE
 # =====================================================================
-def run_pipeline(num_epochs=30):
+def run_pipeline(num_epochs=30, data_dir=REAL_DATA_DIR, checkpoint=None):
     # Set seed for deterministic results
     set_seed(42)
 
@@ -111,10 +110,10 @@ def run_pipeline(num_epochs=30):
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Datasets and Loaders
-    train_dataset = NPZIMUDataset(os.path.join(UTD_DATA_DIR, "utd_mhad_train.npz"))
-    val_dataset = NPZIMUDataset(os.path.join(UTD_DATA_DIR, "utd_mhad_val.npz"))
+    train_dataset = NPZIMUDataset(os.path.join(data_dir, "real_gestures_train.npz"))
+    val_dataset = NPZIMUDataset(os.path.join(data_dir, "real_gestures_val.npz"))
     gesture_map = dict(enumerate(train_dataset.class_names))
-    checkpoint_name = "gesture_1dcnn_utd_mhad_100hz_256_best.pth"
+    checkpoint_name = "gesture_1dcnn_real_100hz_256_best.pth"
 
     num_classes = len(gesture_map)
     if val_dataset.class_names != train_dataset.class_names:
@@ -137,7 +136,8 @@ def run_pipeline(num_epochs=30):
 
     best_val_balanced_acc = 0.0
     best_val_loss = float('inf')
-    best_model_path = os.path.join(checkpoint_dir, checkpoint_name)
+    best_model_path = checkpoint or os.path.join(checkpoint_dir, checkpoint_name)
+    os.makedirs(os.path.dirname(os.path.abspath(best_model_path)), exist_ok=True)
 
     print("\n--- Starting Model Training ---")
     for epoch in range(1, num_epochs + 1):
@@ -202,9 +202,11 @@ def run_pipeline(num_epochs=30):
 def parse_args():
     parser = argparse.ArgumentParser(description="Train the gesture 1D CNN")
     parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--data-dir", default=REAL_DATA_DIR)
+    parser.add_argument("--checkpoint", default=None)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    run_pipeline(args.epochs)
+    run_pipeline(args.epochs, args.data_dir, args.checkpoint)

@@ -17,14 +17,14 @@ class NPZIMUDataSource:
             self.labels = np.asarray(dataset["y"], dtype=np.int64).copy()
             self.class_names = (
                 dataset["class_names"].tolist()
-                if "class_names" in dataset else [str(index) for index in range(7)]
+                if "class_names" in dataset else []
             )
         if self.windows.ndim != 3 or self.windows.shape[1:] != (6, 256):
             raise ValueError("X must have shape [number_of_samples, 6, 256]")
         if self.labels.shape != (len(self.windows),):
             raise ValueError("y must have one label per window")
-        if len(self.class_names) != 7:
-            raise ValueError("class_names must contain seven entries")
+        if not self.class_names:
+            raise ValueError("class_names must be present and non-empty")
 
     def __iter__(self):
         return iter(zip(self.windows, self.labels))

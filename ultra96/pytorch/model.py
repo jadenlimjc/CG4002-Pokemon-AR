@@ -10,7 +10,7 @@ class Gesture1DCNN(nn.Module):
     Uses simple, synthesizable operations (Conv1d, BatchNorm1d, ReLU, Linear).
     This class is the "Single Source of Truth" for the model architecture.
     """
-    def __init__(self, in_channels=6, num_classes=7):
+    def __init__(self, in_channels=6, num_classes=10):
         super(Gesture1DCNN, self).__init__()
 
         # Conv Block 1: Large receptive field (kernel=7)

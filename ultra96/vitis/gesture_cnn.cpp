@@ -136,7 +136,7 @@ void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_st
     conv3_process(s_b2_pool, s_b3_conv);
     adaptive_avg_pool<128, BLOCK2_LENGTH>(s_b3_conv, pooled_vec);
 
-    // 5. Classifier: FC1 (128 -> 64) -> ReLU -> FC2 (64 -> 7)
+    // 5. Classifier: FC1 (128 -> 64) -> ReLU -> FC2 (64 -> 10)
     fc1_process(pooled_vec, fc1_out);
     fc2_process(fc1_out, final_logits);
 

@@ -64,6 +64,7 @@ ultra96/pytorch/saved_checkpoints/
 ultra96/pytorch/*.png
 ultra96/online_data/UTD-MHAD_HumanActionRecognitionDataset/Inertial/
 ultra96/online_data/UTD-MHAD_HumanActionRecognitionDataset/utd_mhad_processed/
+ultra96/real_data/processed
 
 
 # ==========================================
