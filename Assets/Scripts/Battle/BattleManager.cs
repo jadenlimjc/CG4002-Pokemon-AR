@@ -187,9 +187,23 @@ public class BattleManager : MonoBehaviour
         // Spawn player's Pokemon
         SpawnPlayerPokemon();
 
-        // Get wild Pokemon animator
+        // Get wild Pokemon animator and face the player's Pokemon
         if (spawner.CurrentWildPokemon != null)
+        {
             wildAnimator = spawner.CurrentWildPokemon.GetComponent<Animator>();
+
+            if (playerPokemonInstance != null)
+            {
+                Vector3 lookDir = playerPokemonInstance.transform.position - spawner.CurrentWildPokemon.transform.position;
+                lookDir.y = 0;
+                if (lookDir != Vector3.zero)
+                {
+                    Vector3 prefabAngles = spawner.CurrentPokemonData.modelPrefab.transform.rotation.eulerAngles;
+                    float targetY = Quaternion.LookRotation(lookDir).eulerAngles.y;
+                    spawner.CurrentWildPokemon.transform.rotation = Quaternion.Euler(prefabAngles.x, targetY, prefabAngles.z);
+                }
+            }
+        }
 
         isPlayerTurn = true;
         isProcessingMove = false;
