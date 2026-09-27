@@ -102,13 +102,29 @@ public class OnScreenControls : MonoBehaviour
         });
     }
 
+    private bool meshVisible = true;
+
     private void CreateUtilityButtons()
     {
         float y = buttonHeight + spacing + (buttonHeight + spacing) * 4;
-        CreateButton("Reset", -buttonWidth / 2f, y, () =>
+        CreateButton("Reset", -buttonWidth / 2f - spacing, y, () =>
         {
             if (GameStateManager.Instance != null)
                 GameStateManager.Instance.ResetToIdle();
+        });
+
+        CreateButton("Mesh", buttonWidth / 2f + spacing, y, () =>
+        {
+            meshVisible = !meshVisible;
+            foreach (var filter in FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
+            {
+                if (filter.GetComponent<MeshCollider>() != null)
+                {
+                    var renderer = filter.GetComponent<MeshRenderer>();
+                    if (renderer != null)
+                        renderer.enabled = meshVisible;
+                }
+            }
         });
     }
 
