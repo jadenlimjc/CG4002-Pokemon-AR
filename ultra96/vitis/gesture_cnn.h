@@ -7,7 +7,7 @@
 #include <ap_fixed.h>
 
 // =================================================================================
-// Fixed-point data types for HLS. These are now the single source of truth.
+// Fixed-point widths balance numerical range, precision, and FPGA cost.
 // =================================================================================
 using data_t   = ap_fixed<16, 6>;  // Input, weights, and feature maps
 using accum_t  = ap_fixed<24, 12>; // Accumulator for convolutions and linear layers
@@ -59,13 +59,13 @@ void conv_bn_relu(
         }
     }
 
-    // Buffers to hold pre-computed batchnorm parameters
+    // Fold BatchNorm into one scale and shift per output channel.
     accum_t scale_buf[OUT_CH];
     accum_t shift_buf[OUT_CH];
 
     const accum_t eps = accum_t(1e-5);
 
-    // Pre-compute batchnorm parameters for all output channels
+    // scale = gamma / sqrt(var + eps); shift = beta - mean * scale.
     for (int oc = 0; oc < OUT_CH; ++oc) {
         #pragma HLS PIPELINE
         accum_t variance = accum_t(bn_var[oc]) + eps;
@@ -118,7 +118,7 @@ void conv_bn_relu(
                     #pragma HLS UNROLL
                     acc += tap_acc[k];
                 }
-                // Apply BatchNorm and ReLU immediately and stream out
+                // Fused BatchNorm + ReLU: y = max(0, acc * scale + shift).
                 accum_t bn_out = acc * scale_buf[oc] + shift_buf[oc];
                 out_stream.write((bn_out > 0) ? data_t(bn_out) : data_t(0));
             }
@@ -126,7 +126,7 @@ void conv_bn_relu(
     }
 }
 
-// 1D Max Pooling (Kernel=2, Stride=2)
+// MaxPool keeps the larger of each pair, halving temporal length.
 template<int CH, int IN_LEN, int OUT_LEN>
 void max_pool2(hls::stream<data_t>& in_stream, hls::stream<data_t>& out_stream) {
     data_t first_timestep[CH];
@@ -147,7 +147,7 @@ void max_pool2(hls::stream<data_t>& in_stream, hls::stream<data_t>& out_stream) 
     }
 }
 
-// Adaptive Average Pooling 1D (Spatial reduction to length 1)
+// Global average pooling reduces each channel to one feature.
 template<int CH, int IN_LEN>
 void adaptive_avg_pool(hls::stream<data_t>& in_stream, data_t out_vec[CH]) {
     accum_t sums[CH];
@@ -169,7 +169,7 @@ void adaptive_avg_pool(hls::stream<data_t>& in_stream, data_t out_vec[CH]) {
     }
 }
 
-// Fully Connected (Dense) Layer
+// Dense layer: one dot product plus bias per output neuron.
 template<int IN_F, int OUT_F, typename OUT_T>
 void linear_layer(
     const data_t in_vec[IN_F],

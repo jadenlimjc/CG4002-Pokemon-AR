@@ -96,9 +96,11 @@ static void fc2_process(
 // TOP-LEVEL SYNTHESIZABLE KERNEL
 // =================================================================================
 void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_stream) {
+    // AXI streams carry data; AXI-Lite exposes ap_start and ap_done.
     #pragma HLS INTERFACE axis port=in_stream
     #pragma HLS INTERFACE axis port=out_stream
     #pragma HLS INTERFACE s_axilite port=return bundle=control
+    // DATAFLOW lets independent streaming stages overlap in time.
     #pragma HLS DATAFLOW
 
     // Intermediate streams between layers
@@ -114,7 +116,7 @@ void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_st
     data_t fc1_out[64];
     result_t final_logits[NUM_CLASSES];
 
-    #pragma HLS STREAM variable=s_in depth=1536
+    #pragma HLS STREAM variable=s_in depth=1536 // Buffers decouple layer rates.
     #pragma HLS STREAM variable=s_b1_conv depth=512
     #pragma HLS STREAM variable=s_b1_pool depth=512
     #pragma HLS STREAM variable=s_b2_conv depth=256

@@ -21,7 +21,7 @@ ACCEL_RANGE_G = 8.0
 GYRO_RANGE_DPS = 500.0
 CHANNEL_NAMES = np.array(["ax", "ay", "az", "gx", "gy", "gz"])
 
-# Order is the model/deployment ABI. Append new classes; do not reorder these.
+# Class order must match PyTorch, HLS, and the FPGA output logits.
 CLASS_SPECS = (
     ("neutral", "Neutral"),
     ("aim", "Aim"),
@@ -37,7 +37,9 @@ CLASS_SPECS = (
 CLASS_NAMES = np.asarray([display for _, display in CLASS_SPECS])
 PREFIX_TO_LABEL = {prefix: label for label, (prefix, _) in enumerate(CLASS_SPECS)}
 FILENAME_PATTERN = re.compile(r"^(?P<prefix>[a-z]+)(?P<trial>\d+)\.csv$", re.I)
+# Split by recording number so one recording never crosses data splits.
 SPLIT_TRIALS = {"train": set(range(1, 7)), "val": {7, 8}, "test": {9, 10}}
+# Three nearby training windows add variation without leaking into val/test.
 TRAIN_OFFSETS = (-32, 0, 32)
 
 
@@ -68,7 +70,7 @@ def load_csv(path):
 
 
 def motion_centre(signal):
-    """Locate the main gesture using rotation plus gravity-insensitive jerk."""
+    """Centre the window on the strongest smoothed motion."""
     jerk = np.linalg.norm(np.diff(signal[:, :3], axis=0, prepend=signal[:1, :3]), axis=1)
     rotation = np.linalg.norm(signal[:, 3:], axis=1)
     energy = jerk + rotation
@@ -77,6 +79,7 @@ def motion_centre(signal):
 
 
 def extract_window(signal, centre):
+    # Produce the fixed [6, 256] model input; edge-pad short boundaries.
     start = int(centre) - WINDOW_SIZE // 2
     end = start + WINDOW_SIZE
     before = max(0, -start)
@@ -107,6 +110,7 @@ def convert(input_dir, output_dir):
         split = split_for_trial(trial)
         label = PREFIX_TO_LABEL[prefix]
         signal = load_csv(path)
+        # Neutral uses the recording centre; gestures use the motion peak.
         base_centre = len(signal) // 2 if prefix == "neutral" else motion_centre(signal)
         offsets = TRAIN_OFFSETS if split == "train" else (0,)
         for offset in offsets:

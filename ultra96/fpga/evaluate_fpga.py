@@ -1,4 +1,4 @@
-"""Evaluate the FPGA accelerator and save its confusion matrix."""
+"""End-to-end board demo: accuracy, latency, throughput, and confusion matrix."""
 
 import argparse
 import csv
@@ -17,7 +17,8 @@ else:
 
 
 def evaluate(accelerator, data_source, warmup=10):
-    """Return a confusion matrix and timed post-warm-up inference records."""
+    """Drive the low-level accelerator once per held-out test window."""
+    # Confusion matrix uses [true class, predicted class].
     matrix = np.zeros((NUM_CLASSES, NUM_CLASSES), dtype=np.int64)
     timings = []
     count = 0
@@ -27,6 +28,7 @@ def evaluate(accelerator, data_source, warmup=10):
             raise ValueError(f"Invalid label {target} at sample {count}")
         logits, timing = accelerator.predict_logits_timed(window)
         prediction = int(np.argmax(logits))
+        # Warm-up samples count toward accuracy but not latency statistics.
         if count > warmup:
             timings.append(timing.as_dict())
         matrix[target, prediction] += 1
@@ -61,6 +63,7 @@ def report_performance(timings, configured_clocks, csv_path=None):
         print(f"  {labels[key]:31s} mean={samples_ms.mean():9.3f} ms  "
               f"median={np.median(samples_ms):9.3f} ms  "
               f"p95={np.percentile(samples_ms, 95):9.3f} ms")
+    # End-to-end latency already includes overlapping DMA and accelerator time.
     total_time = values["total_s"].sum()
     print(f"  Throughput: {len(timings) / total_time:.2f} windows/s")
     print("  Note: DMA and accelerator intervals overlap; do not sum them.")
@@ -79,7 +82,7 @@ def report_performance(timings, configured_clocks, csv_path=None):
         print(f"  Saved raw performance data to {csv_path}")
 
 
-def save_confusion_matrix(matrix, path, class_names):
+def save_confusion_matrix(matrix, path, class_names, title_prefix="FPGA"):
     """Save a PNG when matplotlib is installed, plus an always-available CSV."""
     csv_path = os.path.splitext(path)[0] + ".csv"
     np.savetxt(csv_path, matrix, fmt="%d", delimiter=",")
@@ -99,7 +102,7 @@ def save_confusion_matrix(matrix, path, class_names):
         xticks=np.arange(NUM_CLASSES), yticks=np.arange(NUM_CLASSES),
         xticklabels=class_names, yticklabels=class_names,
         xlabel="Predicted Label", ylabel="True Label",
-        title=f"FPGA Confusion Matrix (Accuracy: {accuracy:.2f}%)"
+        title=f"{title_prefix} Confusion Matrix (Accuracy: {accuracy:.2f}%)"
     )
     plt.setp(axis.get_xticklabels(), rotation=45, ha="right")
     threshold = matrix.max() / 2.0
@@ -122,6 +125,14 @@ def parse_args():
     )
     parser.add_argument("--warmup", type=int, default=10,
                         help="initial inferences excluded from performance results")
+    parser.add_argument(
+        "--shuffle-labels", action="store_true",
+        help="negative control: shuffle scoring labels, not input windows"
+    )
+    parser.add_argument(
+        "--shuffle-seed", type=int, default=42,
+        help="reproducible seed used by --shuffle-labels"
+    )
     parser.add_argument("--performance-csv", default="fpga_performance.csv")
     parser.add_argument("--output", default="fpga_confusion_matrix.png")
     return parser.parse_args()
@@ -137,14 +148,28 @@ def main():
             f"Dataset has {len(source.class_names)} classes but overlay expects "
             f"{NUM_CLASSES}; retrain/export/resynthesize the matching accelerator"
         )
+    if args.shuffle_labels:
+        # Negative control changes only labels used for scoring; inputs stay identical.
+        original_labels = source.labels.copy()
+        source.labels = np.random.default_rng(args.shuffle_seed).permutation(source.labels)
+        changed = int(np.count_nonzero(source.labels != original_labels))
+        print("=" * 72)
+        print("NEGATIVE CONTROL: SCORING LABELS SHUFFLED; IMU WINDOWS UNCHANGED")
+        print(f"Seed={args.shuffle_seed}; changed label positions={changed}/"
+              f"{len(source.labels)}")
+        print("=" * 72)
+    else:
+        print("GENUINE EVALUATION: original held-out labels")
+    # Load the overlay once, then benchmark every held-out window.
     with GestureCNNAccelerator(args.overlay) as accelerator:
         matrix, timings = evaluate(accelerator, source, args.warmup)
         report_performance(timings, accelerator.configured_clock_mhz(),
                            args.performance_csv)
     accuracy = 100.0 * np.trace(matrix) / matrix.sum()
+    mode = "Negative-Control FPGA" if args.shuffle_labels else "FPGA"
     print(f"Overall FPGA accuracy: {accuracy:.2f}% ({np.trace(matrix)}/{matrix.sum()})")
     print(matrix)
-    save_confusion_matrix(matrix, args.output, source.class_names)
+    save_confusion_matrix(matrix, args.output, source.class_names, mode)
 
 
 if __name__ == "__main__":

@@ -30,8 +30,10 @@ def evaluate_and_generate_confusion_matrix(model, data_loader, device, class_map
             all_preds.extend(predicted.cpu().numpy())
             all_targets.extend(targets.cpu().numpy())
 
+    # Rows are true classes; columns are predicted classes.
     cm = confusion_matrix(all_targets, all_preds, labels=range(len(class_map)))
     accuracy = 100.0 * np.sum(np.diag(cm)) / np.sum(cm)
+    # Balanced accuracy averages recall so every gesture counts equally.
     recalls = np.diag(cm) / np.maximum(cm.sum(axis=1), 1)
     balanced_accuracy = 100.0 * np.mean(recalls)
     print(f"Overall Test Accuracy: {accuracy:.2f}%")

@@ -109,7 +109,7 @@ def run_pipeline(num_epochs=30, data_dir=REAL_DATA_DIR, checkpoint=None):
     checkpoint_dir = os.path.join(SCRIPT_DIR, "saved_checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)
 
-    # Datasets and Loaders
+    # Load fixed [6, 256] windows; shuffle training only.
     train_dataset = NPZIMUDataset(os.path.join(data_dir, "real_gestures_train.npz"))
     val_dataset = NPZIMUDataset(os.path.join(data_dir, "real_gestures_val.npz"))
     gesture_map = dict(enumerate(train_dataset.class_names))
@@ -125,6 +125,7 @@ def run_pipeline(num_epochs=30, data_dir=REAL_DATA_DIR, checkpoint=None):
     print("Classes:", gesture_map)
 
     model = Gesture1DCNN(in_channels=6, num_classes=num_classes).to(device)
+    # Inverse-frequency weights give each gesture equal importance in the loss.
     counts = torch.bincount(train_dataset.labels, minlength=num_classes).float()
     if torch.any(counts == 0):
         raise ValueError(f"Training data is missing a class: {counts.tolist()}")
@@ -147,6 +148,7 @@ def run_pipeline(num_epochs=30, data_dir=REAL_DATA_DIR, checkpoint=None):
         for inputs, targets in train_loader:
             inputs, targets = inputs.to(device), targets.to(device)
 
+            # Forward -> measure error -> backpropagate -> update model weights.
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, targets)
@@ -161,7 +163,7 @@ def run_pipeline(num_epochs=30, data_dir=REAL_DATA_DIR, checkpoint=None):
         train_acc = 100.0 * correct / total
         train_loss = total_loss / total
 
-        # Validation Phase
+        # Validation measures generalization without changing any weights.
         model.eval()
         val_loss, val_correct, val_total = 0.0, 0, 0
         val_cm = torch.zeros((num_classes, num_classes), dtype=torch.int64)
@@ -183,8 +185,7 @@ def run_pipeline(num_epochs=30, data_dir=REAL_DATA_DIR, checkpoint=None):
         avg_val_loss = val_loss / val_total
         print(f"Epoch [{epoch:02d}/{num_epochs:02d}] | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | Val Loss: {avg_val_loss:.4f} | Val Acc: {val_acc:.2f}% | Val Balanced Acc: {val_balanced_acc:.2f}%", end="")
 
-        # The UTD negative class is much larger, so select checkpoints using
-        # mean per-class recall rather than imbalance-sensitive raw accuracy.
+        # Save the epoch with the best mean recall across all gesture classes.
         if (val_balanced_acc > best_val_balanced_acc or
                 (val_balanced_acc == best_val_balanced_acc and
                  avg_val_loss < best_val_loss)):

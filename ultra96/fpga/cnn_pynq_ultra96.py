@@ -88,7 +88,7 @@ def get_cnn_instance(ol):
 
 
 class GestureCNNAccelerator:
-    """Reusable single-window inference interface for the FPGA CNN."""
+    """Low-level Overlay, DMA, and MMIO driver used by evaluate_fpga.py."""
 
     def __init__(self, overlay_path=OVERLAY_PATH):
         hwh_path = os.path.splitext(overlay_path)[0] + ".hwh"
@@ -100,9 +100,11 @@ class GestureCNNAccelerator:
                 "files must have the same basename."
             )
 
+        # Program the FPGA and discover IP blocks from the matching HWH file.
         self.overlay = Overlay(overlay_path)
         self.dma = get_dma_instance(self.overlay)
         self.cnn = get_cnn_instance(self.overlay)
+        # DMA requires physically contiguous input and output buffers.
         self.in_buf = allocate(shape=(INPUT_DATA_SIZE,), dtype=np.float32)
         self.out_buf = allocate(shape=(OUTPUT_DATA_SIZE,), dtype=np.float32)
         self._closed = False
@@ -151,12 +153,13 @@ class GestureCNNAccelerator:
         self.out_buf.fill(0)
         preparation_end = perf_counter_ns()
 
-        # Arm both streams before ap_start. Transfers execute asynchronously.
+        # Arm receive first to prevent output back-pressure, then send input.
         receive_start = perf_counter_ns()
         self.dma.recvchannel.transfer(self.out_buf)
         send_start = perf_counter_ns()
         self.dma.sendchannel.transfer(self.in_buf)
         accelerator_start = perf_counter_ns()
+        # AXI-Lite control register: bit 0 starts the HLS accelerator.
         self.cnn.write(0x00, 0x01)
 
         # The send wait gives an accurate host-observed input-channel interval.
@@ -164,7 +167,7 @@ class GestureCNNAccelerator:
         self.dma.sendchannel.wait()
         send_end = perf_counter_ns()
 
-        # ap_done is bit 1 of the standard HLS AXI-Lite control register.
+        # Poll AXI-Lite bit 1 until the accelerator reports ap_done.
         timeout_ns = int(ACCELERATOR_TIMEOUT_S * 1e9)
         while not (self.cnn.read(0x00) & 0x02):
             if perf_counter_ns() - accelerator_start > timeout_ns:

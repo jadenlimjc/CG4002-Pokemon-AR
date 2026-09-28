@@ -12,8 +12,7 @@ DEFAULT_TEST_DATA = os.path.normpath(os.path.join(
     SCRIPT_DIR, "..", "real_data", "processed", "real_gestures_test.npz"
 ))
 
-# --- This dictionary is the key to the solution ---
-# It maps the complex PyTorch names to the simple C++ names.
+# Map each trained PyTorch tensor to the name used by the HLS kernel.
 NAME_MAP = {
     # Block 1
     "block1.0.weight": "conv1_weight",
@@ -58,7 +57,7 @@ def export_weights_and_vectors(
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output files will be saved to '{os.path.abspath(output_dir)}'")
 
-    # 1. Load trained model
+    # Load the ten-class checkpoint and class order.
     device = torch.device('cpu')
     with np.load(test_data_path) as dataset:
         class_names = dataset["class_names"].tolist()
@@ -74,7 +73,7 @@ def export_weights_and_vectors(
     model.eval()
     state_dict = model.state_dict()
 
-    # 2. Export weights to C header file using the explicit name map
+    # Flatten trained tensors into C arrays included during HLS synthesis.
     weights_path = os.path.join(output_dir, 'weights.h')
     try:
         with open(weights_path, 'w') as f:
@@ -102,8 +101,7 @@ def export_weights_and_vectors(
         print(f"An error occurred while writing {weights_path}: {e}")
 
 
-    # 3. Export a real, normalized held-out window and its PyTorch logits for
-    # HLS C-simulation and board-level numerical comparison.
+    # Export one real held-out window and its software logits as golden vectors.
     if test_windows.ndim != 3 or test_windows.shape[1:] != (6, 256):
         raise ValueError(f"{test_data_path}: X must have shape [N, 6, 256]")
     dummy_input = torch.from_numpy(test_windows[:1].copy())

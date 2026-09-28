@@ -49,6 +49,7 @@ def pl_clock_mhz():
 
 
 def snapshot(services=()):
+    # Save every setting that apply() may change so restore() is reversible.
     cores = {}
     for cpu in cpu_directories():
         online_file = cpu / "online"
@@ -78,6 +79,7 @@ def require_root():
 
 
 def set_pl_clock(mhz):
+    # FCLK0 controls the programmable-logic accelerator clock.
     from pynq import Clocks
     Clocks.fclk0_mhz = float(mhz)
     actual = float(Clocks.fclk0_mhz)
@@ -93,6 +95,7 @@ def apply(args):
             f"{args.state} already exists; restore it first or use --overwrite-state"
         )
 
+    # Snapshot first; the profile is temporary and recoverable.
     state = snapshot(args.stop_service)
     args.state.write_text(json.dumps(state, indent=2) + "\n")
     print(f"Saved original state to {args.state}")
@@ -100,7 +103,7 @@ def apply(args):
     cores = cpu_directories()
     if args.online_cores > len(cores):
         raise ValueError(f"Board exposes only {len(cores)} CPU cores")
-    # CPU0 generally has no online file and must remain online.
+    # Keep CPU0 online; disable only the unused secondary cores.
     for cpu in cores[1:]:
         write(cpu / "online", 1 if int(cpu.name[3:]) < args.online_cores else 0)
 
@@ -113,9 +116,11 @@ def apply(args):
         governors = (read(POLICY / "scaling_available_governors") or "").split()
         if "userspace" not in governors:
             raise RuntimeError(f"userspace governor unavailable: {' '.join(governors)}")
+        # Userspace governor allows an explicit CPU clock selection.
         write(POLICY / "scaling_governor", "userspace")
         write(POLICY / "scaling_setspeed", args.cpu_khz)
 
+    # Lowering FCLK0 trades FPGA throughput for dynamic power.
     if args.pl_mhz is not None:
         set_pl_clock(args.pl_mhz)
 
@@ -129,6 +134,7 @@ def apply(args):
 
 def restore(args):
     require_root()
+    # Restore cores, CPU policy, PL clock, and stopped services.
     state = json.loads(args.state.read_text())
 
     # Bring cores back before restoring the shared CPU-frequency policy.
