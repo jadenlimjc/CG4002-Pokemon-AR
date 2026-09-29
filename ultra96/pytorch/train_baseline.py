@@ -11,6 +11,14 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REAL_DATA_DIR = os.path.normpath(os.path.join(
     SCRIPT_DIR, "..", "real_data", "processed"
 ))
+UTD_DATA_DIR = os.path.normpath(os.path.join(
+    SCRIPT_DIR, "..", "online_data", "UTD-MHAD_HumanActionRecognitionDataset",
+    "utd_mhad_processed"
+))
+DATASET_CONFIGS = {
+    "real": (REAL_DATA_DIR, "real_gestures"),
+    "utd": (UTD_DATA_DIR, "utd_mhad"),
+}
 
 def set_seed(seed=42):
     """Sets the seed for reproducibility."""
@@ -98,7 +106,7 @@ class RealTimeGesturePredictor:
 # =====================================================================
 # 3. TRAINING & VALIDATION PIPELINE
 # =====================================================================
-def run_pipeline(num_epochs=30, data_dir=REAL_DATA_DIR, checkpoint=None):
+def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
     # Set seed for deterministic results
     set_seed(42)
 
@@ -110,10 +118,12 @@ def run_pipeline(num_epochs=30, data_dir=REAL_DATA_DIR, checkpoint=None):
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Load fixed [6, 256] windows; shuffle training only.
-    train_dataset = NPZIMUDataset(os.path.join(data_dir, "real_gestures_train.npz"))
-    val_dataset = NPZIMUDataset(os.path.join(data_dir, "real_gestures_val.npz"))
+    default_data_dir, file_prefix = DATASET_CONFIGS[dataset]
+    data_dir = data_dir or default_data_dir
+    train_dataset = NPZIMUDataset(os.path.join(data_dir, f"{file_prefix}_train.npz"))
+    val_dataset = NPZIMUDataset(os.path.join(data_dir, f"{file_prefix}_val.npz"))
     gesture_map = dict(enumerate(train_dataset.class_names))
-    checkpoint_name = "gesture_1dcnn_real_100hz_256_best.pth"
+    checkpoint_name = f"gesture_1dcnn_{dataset}_100hz_256_best.pth"
 
     num_classes = len(gesture_map)
     if val_dataset.class_names != train_dataset.class_names:
@@ -203,11 +213,13 @@ def run_pipeline(num_epochs=30, data_dir=REAL_DATA_DIR, checkpoint=None):
 def parse_args():
     parser = argparse.ArgumentParser(description="Train the gesture 1D CNN")
     parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--data-dir", default=REAL_DATA_DIR)
+    parser.add_argument("--dataset", choices=DATASET_CONFIGS, default="real")
+    parser.add_argument("--data-dir", default=None,
+                        help="override the selected dataset processed directory")
     parser.add_argument("--checkpoint", default=None)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    run_pipeline(args.epochs, args.data_dir, args.checkpoint)
+    run_pipeline(args.epochs, args.dataset, args.data_dir, args.checkpoint)

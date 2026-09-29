@@ -5,8 +5,9 @@ Splitting is participant-based to prevent recordings from the same person
 appearing in both training and evaluation data.
 
 UTD-MHAD does not contain the project's exact gestures, so whole actions are
-used as motion proxies. Neutral is intentionally omitted because UTD-MHAD has
-no true idle recording.
+used as motion proxies. The output uses the same ten labels and label order as
+preprocess_real_gestures.py so training can switch datasets without changing
+the model's output meaning.
 """
 
 import argparse
@@ -23,17 +24,24 @@ CHANNEL_NAMES = np.array(
     ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]
 )
 
+# Class order must match preprocess_real_gestures.py, PyTorch, HLS, and FPGA.
+# Neutral has no UTD action: a stationary window is synthesized from the
+# median accelerometer pose of each action-7 trial, with zero angular rate.
 # (project class, UTD action ID, start fraction, end fraction, rationale)
 GESTURE_SOURCES = (
+    ("Neutral", None, 0.00, 1.00, "Synthetic stationary pose from action 7"),
+    ("Aim", 7, 0.00, 1.00, "Basketball shoot proxy"),
+    ("Stop Aim", 20, 0.00, 1.00, "Catch proxy"),
+    ("Throw", 5, 0.00, 1.00, "Right-arm throw"),
     ("Punch", 13, 0.00, 1.00, "Boxing"),
     ("Downward Swipe", 12, 0.00, 1.00, "Bowling"),
     ("Guard", 6, 0.00, 1.00, "Arm cross"),
     ("Flee / U-turn", 14, 0.00, 1.00, "Baseball swing"),
     ("Switch Pokemon / Back-pocket reach", 15, 0.00, 1.00, "Tennis swing"),
     ("Use Item / Front-pocket reach", 16, 0.00, 1.00, "Arm curl"),
-    ("Throw", 5, 0.00, 1.00, "Right-arm throw"),
 )
 CLASS_NAMES = np.array([source[0] for source in GESTURE_SOURCES])
+NEUTRAL_SOURCE_ACTION = 7
 
 SPLIT_SUBJECTS = {
     "train": {1, 2, 3, 4, 5, 6},
@@ -101,6 +109,13 @@ def extract_window(signal, start_fraction=0.0, end_fraction=1.0):
     return resample_linear(phase).T
 
 
+def make_neutral_window(signal):
+    """Create a stationary [6, 256] example while retaining sensor pose."""
+    stationary_sample = np.zeros(6, dtype=np.float32)
+    stationary_sample[:3] = np.median(signal[:, :3], axis=0)
+    return np.repeat(stationary_sample[:, None], WINDOW_SIZE, axis=1)
+
+
 def find_split(subject):
     matches = [name for name, subjects in SPLIT_SUBJECTS.items() if subject in subjects]
     if len(matches) != 1:
@@ -111,7 +126,8 @@ def find_split(subject):
 def convert(input_dir, output_dir):
     action_to_sources = {}
     for label, (_, action, start, end, proxy) in enumerate(GESTURE_SOURCES):
-        action_to_sources.setdefault(action, []).append((label, start, end, proxy))
+        if action is not None:
+            action_to_sources.setdefault(action, []).append((label, start, end, proxy))
     records = {name: [] for name in SPLIT_SUBJECTS}
 
     for path in sorted(input_dir.glob("*.mat")):
@@ -126,6 +142,10 @@ def convert(input_dir, output_dir):
         trial = int(match.group("trial"))
         split = find_split(subject)
         signal = load_signal(path)
+        if action == NEUTRAL_SOURCE_ACTION:
+            records[split].append(
+                (make_neutral_window(signal), 0, subject, trial, path.name)
+            )
         for label, start, end, _ in action_to_sources[action]:
             records[split].append(
                 (extract_window(signal, start, end), label, subject, trial, path.name)
@@ -148,9 +168,10 @@ def convert(input_dir, output_dir):
             filenames=np.asarray(filenames),
             class_names=CLASS_NAMES,
             # String metadata avoids object arrays that require allow_pickle.
-            source_action_ids=np.asarray(
-                [str(source[1]) for source in GESTURE_SOURCES]
-            ),
+            source_action_ids=np.asarray([
+                "synthetic" if source[1] is None else str(source[1])
+                for source in GESTURE_SOURCES
+            ]),
             source_action_names=np.asarray(
                 [source[4] for source in GESTURE_SOURCES]
             ),
@@ -161,6 +182,7 @@ def convert(input_dir, output_dir):
             channel_names=CHANNEL_NAMES,
             target_sample_rate_hz=np.asarray(SAMPLE_RATE_HZ, dtype=np.int64),
             window_size=np.asarray(WINDOW_SIZE, dtype=np.int64),
+            normalization=np.asarray("accel/8g, gyro/1000dps"),
         )
 
         counts = np.bincount(y, minlength=len(CLASS_NAMES))

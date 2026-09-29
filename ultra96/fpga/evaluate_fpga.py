@@ -16,7 +16,7 @@ else:
     from evaluation_data import NPZIMUDataSource
 
 
-def evaluate(accelerator, data_source, warmup=10):
+def evaluate(accelerator, data_source, warmup=10, show_predictions=False):
     """Drive the low-level accelerator once per held-out test window."""
     # Confusion matrix uses [true class, predicted class].
     matrix = np.zeros((NUM_CLASSES, NUM_CLASSES), dtype=np.int64)
@@ -32,11 +32,22 @@ def evaluate(accelerator, data_source, warmup=10):
         if count > warmup:
             timings.append(timing.as_dict())
         matrix[target, prediction] += 1
-        print(
-            f"\rProcessed {count} samples; latest true={target}, pred={prediction}",
-            end="", flush=True
-        )
-    print()
+        if show_predictions:
+            logit_text = ", ".join(
+                f"{class_id}:{float(value):.6f}"
+                for class_id, value in enumerate(logits)
+            )
+            print(
+                f"Sample {count:3d}: true={target}, pred={prediction}, "
+                f"logits=[{logit_text}]", flush=True
+            )
+        else:
+            print(
+                f"\rProcessed {count} samples; latest true={target}, pred={prediction}",
+                end="", flush=True
+            )
+    if not show_predictions:
+        print()
     if count == 0:
         raise ValueError("The data source did not produce any samples")
     if not timings:
@@ -125,6 +136,8 @@ def parse_args():
     )
     parser.add_argument("--warmup", type=int, default=10,
                         help="initial inferences excluded from performance results")
+    parser.add_argument("--show-predictions", action="store_true",
+                        help="print true class, predicted class, and all logits for every window")
     parser.add_argument(
         "--shuffle-labels", action="store_true",
         help="negative control: shuffle scoring labels, not input windows"
@@ -162,7 +175,8 @@ def main():
         print("GENUINE EVALUATION: original held-out labels")
     # Load the overlay once, then benchmark every held-out window.
     with GestureCNNAccelerator(args.overlay) as accelerator:
-        matrix, timings = evaluate(accelerator, source, args.warmup)
+        matrix, timings = evaluate(accelerator, source, args.warmup,
+                                   args.show_predictions)
         report_performance(timings, accelerator.configured_clock_mhz(),
                            args.performance_csv)
     accuracy = 100.0 * np.trace(matrix) / matrix.sum()

@@ -8,7 +8,7 @@ import argparse
 import os
 
 from model import Gesture1DCNN
-from train_baseline import NPZIMUDataset, REAL_DATA_DIR, set_seed
+from train_baseline import DATASET_CONFIGS, NPZIMUDataset, set_seed
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -65,9 +65,14 @@ def main(args=None):
     
     # --- Configuration ---
     args = args or parse_args()
-    best_model_path = args.checkpoint
+    default_data_dir, file_prefix = DATASET_CONFIGS[args.dataset]
+    data_dir = args.data_dir or default_data_dir
+    best_model_path = args.checkpoint or os.path.join(
+        SCRIPT_DIR, "saved_checkpoints",
+        f"gesture_1dcnn_{args.dataset}_100hz_256_best.pth"
+    )
     test_dataset = NPZIMUDataset(
-        os.path.join(args.data_dir, "real_gestures_test.npz")
+        os.path.join(data_dir, f"{file_prefix}_test.npz")
     )
     gesture_map = dict(enumerate(test_dataset.class_names))
     output_path = args.output
@@ -90,9 +95,10 @@ def main(args=None):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-dir", default=REAL_DATA_DIR)
-    parser.add_argument("--checkpoint", default=os.path.join(
-        SCRIPT_DIR, "saved_checkpoints", "gesture_1dcnn_real_100hz_256_best.pth"))
+    parser.add_argument("--dataset", choices=DATASET_CONFIGS, default="real")
+    parser.add_argument("--data-dir", default=None,
+                        help="override the selected dataset processed directory")
+    parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--output", default=os.path.join(
         SCRIPT_DIR, "real_gestures_confusion_matrix.png"))
     return parser.parse_args()
