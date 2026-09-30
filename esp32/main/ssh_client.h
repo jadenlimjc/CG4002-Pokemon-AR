@@ -85,7 +85,7 @@ private:
     bool is_connected = false;
 
     // ----------------------------------------------------------------
-    // Public-key auth first, password fallback. Same pattern as before,
+    // Public-key auth first then password. Same pattern as before,
     // parameterized so it works for both stujump and ultra96.
     // ----------------------------------------------------------------
     bool authenticate(ssh_session s, const char *user, const char *password) {
