@@ -149,6 +149,8 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
     best_val_loss = float('inf')
     best_model_path = checkpoint or os.path.join(checkpoint_dir, checkpoint_name)
     os.makedirs(os.path.dirname(os.path.abspath(best_model_path)), exist_ok=True)
+    train_losses = []
+    val_losses = []
 
     print("\n--- Starting Model Training ---")
     for epoch in range(1, num_epochs + 1):
@@ -193,6 +195,8 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
         val_recall = val_cm.diag().float() / val_cm.sum(dim=1).clamp_min(1)
         val_balanced_acc = 100.0 * val_recall.mean().item()
         avg_val_loss = val_loss / val_total
+        train_losses.append(train_loss)
+        val_losses.append(avg_val_loss)
         print(f"Epoch [{epoch:02d}/{num_epochs:02d}] | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | Val Loss: {avg_val_loss:.4f} | Val Acc: {val_acc:.2f}% | Val Balanced Acc: {val_balanced_acc:.2f}%", end="")
 
         # Save the epoch with the best mean recall across all gesture classes.
@@ -205,6 +209,22 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
             print(f"  -> New best model saved to {best_model_path} (Val Balanced Acc: {best_val_balanced_acc:.2f}%, Val Loss: {best_val_loss:.4f})")
         else:
             print() # Newline if no model was saved
+
+    if train_losses:
+        epochs = range(1, len(train_losses) + 1)
+        fig, ax = plt.subplots()
+        ax.plot(epochs, train_losses, label="Training loss")
+        ax.plot(epochs, val_losses, label="Validation loss")
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Cross-entropy loss")
+        ax.set_title(f"{dataset.upper()} training and validation loss")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        plot_path = os.path.join(SCRIPT_DIR, f"gesture_1dcnn_{dataset}_loss.png")
+        fig.savefig(plot_path)
+        plt.close(fig)
+        print(f"Loss plot saved to '{plot_path}'")
 
     print("\n--- Training Complete ---")
     print(f"Best model saved to '{best_model_path}' with Validation Balanced Accuracy: {best_val_balanced_acc:.2f}%")
