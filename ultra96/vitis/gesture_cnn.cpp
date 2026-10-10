@@ -18,7 +18,7 @@ static void read_input(
         conv_pkt u;
         u.i = pkt.data.to_uint();
         // The external AXI protocol remains IEEE-754 float; quantize here.
-        out_stream.write(data_t(u.f));
+        out_stream.write(quantize_input(u.f));
     }
 }
 

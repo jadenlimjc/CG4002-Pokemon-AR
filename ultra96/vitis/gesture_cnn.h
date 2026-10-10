@@ -7,14 +7,33 @@
 #include <ap_fixed.h>
 
 // =================================================================================
-// Fixed-point widths balance numerical range, precision, and FPGA cost.
-// =================================================================================
-using data_t   = ap_fixed<16, 6>;  // Input, weights, and feature maps
-using accum_t  = ap_fixed<24, 12>; // Accumulator for convolutions and linear layers
-// Logits from the trained model can exceed the data_t range (approximately
-// [-32, 32)).  Keep them in the accumulator format to prevent wraparound
-// before they are converted back to IEEE-754 floats on AXI-Stream.
-using result_t = ap_fixed<24, 12>; // Final output logits
+// Round to nearest, ties to even, and saturate at every narrowing boundary.
+// data_t: [-32, 32 - 2^-10]; result_t: [-2048, 2048 - 2^-12].
+// A data_t product has 20 fractional bits. Preserve all of them in MACs.
+// With at most 192 products, |sum| <= 192 * 32 * 32 + 32 = 196640;
+// 28 integer bits (including sign) also leave headroom for BN coefficients.
+// Keep operand multipliers at 16 bits rather than multiplying widened MACs.
+using data_t   = ap_fixed<16, 6, AP_RND_CONV, AP_SAT>;
+using accum_t  = ap_fixed<48, 28, AP_RND_CONV, AP_SAT>;
+using result_t = ap_fixed<24, 12, AP_RND_CONV, AP_SAT>;
+
+// HLS math overloads accept default-mode ap_fixed arguments. The conversion
+// preserves every bit because width and binary point match accum_t. Variance
+// is positive and its square root fits this format, so no wrapping occurs.
+inline accum_t sqrt_variance(const accum_t& variance) {
+    using sqrt_arg_t = ap_fixed<48, 28>;
+    return accum_t(hls::sqrt(sqrt_arg_t(variance)));
+}
+
+// NaN maps to zero; infinities and finite outliers clip to the input range.
+// Check before conversion because ap_fixed conversion of NaN/Inf is undefined.
+inline data_t quantize_input(float value) {
+    if (value != value) return data_t(0);
+    if (value >= 32.0f) return data_t(31.9990234375f);
+    if (value <= -32.0f) return data_t(-32);
+    return data_t(value);
+}
+
 using axis_t = ap_axis<32, 0, 0, 0>; // 32-bit floating-point AXI-Stream packet
 
 constexpr int IN_CHANNELS = 6;
@@ -69,10 +88,12 @@ void conv_bn_relu(
     for (int oc = 0; oc < OUT_CH; ++oc) {
         #pragma HLS PIPELINE
         accum_t variance = accum_t(bn_var[oc]) + eps;
-        accum_t stddev = hls::sqrt(variance);
+        // Protect sqrt/division against zero or invalid running variance.
+        if (variance < eps) variance = eps;
+        accum_t stddev = sqrt_variance(variance);
         accum_t inv_std = accum_t(1) / stddev;
         scale_buf[oc] = accum_t(bn_w[oc]) * inv_std;
-        shift_buf[oc] = accum_t(bn_b[oc]) - (accum_t(bn_mean[oc]) * accum_t(bn_w[oc]) * inv_std);
+        shift_buf[oc] = accum_t(bn_b[oc]) - (accum_t(bn_mean[oc]) * scale_buf[oc]);
     }
 
     // Main convolution loop
@@ -108,8 +129,7 @@ void conv_bn_relu(
                     for (int k = 0; k < K_SIZE; ++k) {
                         #pragma HLS UNROLL
                         int w_idx = (oc * IN_CH * K_SIZE) + (ic * K_SIZE) + k;
-                        tap_acc[k] += accum_t(line_buf[ic][k]) *
-                                      accum_t(weight[w_idx]);
+                        tap_acc[k] += line_buf[ic][k] * weight[w_idx];
                     }
                 }
 
@@ -119,7 +139,8 @@ void conv_bn_relu(
                     acc += tap_acc[k];
                 }
                 // Fused BatchNorm + ReLU: y = max(0, acc * scale + shift).
-                accum_t bn_out = acc * scale_buf[oc] + shift_buf[oc];
+                // Preserve the full expression range through ReLU, then saturate.
+                const auto bn_out = acc * scale_buf[oc] + shift_buf[oc];
                 out_stream.write((bn_out > 0) ? data_t(bn_out) : data_t(0));
             }
         }
@@ -147,25 +168,41 @@ void max_pool2(hls::stream<data_t>& in_stream, hls::stream<data_t>& out_stream) 
     }
 }
 
+// Number of guard bits required to sum N fixed-point values exactly.
+constexpr int pool_guard_bits(int n) {
+    return n <= 1 ? 0 : 1 + pool_guard_bits((n + 1) / 2);
+}
+
 // Global average pooling reduces each channel to one feature.
 template<int CH, int IN_LEN>
 void adaptive_avg_pool(hls::stream<data_t>& in_stream, data_t out_vec[CH]) {
-    accum_t sums[CH];
+    static_assert(CH > 0 && IN_LEN > 0, "Pooling dimensions must be positive");
+    // Preserve the input's 10 fractional bits and add ceil(log2(IN_LEN))
+    // integer guard bits. For 64 timesteps this is a 22-bit exact sum.
+    // No rounding or saturation is needed during summation: even IN_LEN
+    // copies of either data_t endpoint fit. Saturate only the final output.
+    constexpr int GUARD = pool_guard_bits(IN_LEN);
+    using pool_sum_t = ap_fixed<16 + GUARD, 6 + GUARD>;
+    pool_sum_t sums[CH];
+    #pragma HLS BIND_STORAGE variable=sums type=ram_t2p impl=bram
 
     for (int c = 0; c < CH; ++c) {
-        sums[c] = accum_t(0);
+        sums[c] = pool_sum_t(0);
     }
 
     // Consume the same time-major layout produced by conv_bn_relu.
     for (int l = 0; l < IN_LEN; ++l) {
         for (int c = 0; c < CH; ++c) {
             #pragma HLS PIPELINE II=1
-            sums[c] += accum_t(in_stream.read());
+            sums[c] += pool_sum_t(in_stream.read());
         }
     }
 
     for (int c = 0; c < CH; ++c) {
-        out_vec[c] = data_t(sums[c] / accum_t(IN_LEN));
+        // Widen before division to match the reference quotient precision.
+        // Dividing pool_sum_t directly can discard fractional average bits
+        // before data_t gets a chance to round them.
+        out_vec[c] = data_t(accum_t(sums[c]) / accum_t(IN_LEN));
     }
 }
 
@@ -184,7 +221,7 @@ void linear_layer(
             // Keep the dot product sequential and pipeline individual MACs;
             // pipelining the output loop can fully expand the inner product.
             #pragma HLS PIPELINE II=1
-            acc += accum_t(in_vec[i]) * accum_t(weight[o * IN_F + i]);
+            acc += in_vec[i] * weight[o * IN_F + i];
         }
         if (apply_relu) {
             out_vec[o] = (acc > accum_t(0)) ? OUT_T(acc) : OUT_T(0);
