@@ -5,9 +5,9 @@ Splitting is participant-based to prevent recordings from the same person
 appearing in both training and evaluation data.
 
 UTD-MHAD does not contain the project's exact gestures, so whole actions are
-used as motion proxies. The output uses the same ten labels and label order as
-preprocess_real_gestures.py so training can switch datasets without changing
-the model's output meaning.
+used as motion proxies. This legacy baseline contains the original ten labels
+(label IDs 0-9), but has no separate Uppercut class (label 10). Use real-sensor
+data to train and export the final eleven-class model for HLS/FPGA deployment.
 """
 
 import argparse

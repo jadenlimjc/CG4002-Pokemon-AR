@@ -41,7 +41,8 @@ constexpr int IN_LENGTH = 256;
 constexpr int BLOCK1_LENGTH = IN_LENGTH / 2;
 constexpr int BLOCK2_LENGTH = BLOCK1_LENGTH / 2;
 constexpr int TOTAL_INPUT_SIZE = IN_CHANNELS * IN_LENGTH; // 1536 floats
-constexpr int NUM_CLASSES = 10;
+// Labels 0-9 retain their original order; Uppercut is label 10.
+constexpr int NUM_CLASSES = 11;
 
 void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_stream);
 

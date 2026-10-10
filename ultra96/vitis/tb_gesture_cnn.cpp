@@ -5,6 +5,11 @@
 #include "gesture_cnn.h"
 #include "weights.h"
 
+static_assert(sizeof(fc2_weight) / sizeof(fc2_weight[0]) == 64 * NUM_CLASSES,
+              "Classifier weights are stale: retrain and export all eleven classes");
+static_assert(sizeof(fc2_bias) / sizeof(fc2_bias[0]) == NUM_CLASSES,
+              "Classifier biases are stale: retrain and export all eleven classes");
+
 // =================================================================================
 // Bit-accurate golden reference.  Keep the same fixed-point types and
 // expression ordering as the synthesizable implementation.

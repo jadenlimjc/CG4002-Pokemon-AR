@@ -9,7 +9,7 @@ class Gesture1DCNN(nn.Module):
     1D CNN tailored for IMU-based edge deployment.
     Uses simple, synthesizable operations (Conv1d, BatchNorm1d, ReLU, Linear).
     """
-    def __init__(self, in_channels=6, num_classes=10):
+    def __init__(self, in_channels=6, num_classes=11):
         super(Gesture1DCNN, self).__init__()
 
         # Block 1 learns short motion patterns; pooling halves 256 -> 128.

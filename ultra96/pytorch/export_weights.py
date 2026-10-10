@@ -57,11 +57,16 @@ def export_weights_and_vectors(
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output files will be saved to '{os.path.abspath(output_dir)}'")
 
-    # Load the ten-class checkpoint and class order.
+    # Load the checkpoint using the dataset class order (Uppercut is label 10).
     device = torch.device('cpu')
     with np.load(test_data_path) as dataset:
         class_names = dataset["class_names"].tolist()
         test_windows = np.asarray(dataset["X"], dtype=np.float32)
+    if len(class_names) != 11 or class_names[-1] != "Uppercut":
+        raise ValueError(
+            "HLS export requires the final eleven-class real dataset with Uppercut "
+            "at label 10. Regenerate real NPZ splits and retrain first."
+        )
     model = Gesture1DCNN(num_classes=len(class_names))
     try:
         model.load_state_dict(torch.load(model_path, map_location=device))
@@ -95,6 +100,10 @@ def export_weights_and_vectors(
                 else:
                     print(f"WARNING: Parameter '{torch_name}' not found in model state_dict.")
 
+            f.write('static_assert(sizeof(fc2_weight) / sizeof(fc2_weight[0]) == '
+                    '64 * NUM_CLASSES, "Re-export weights for the HLS class count");\n')
+            f.write('static_assert(sizeof(fc2_bias) / sizeof(fc2_bias[0]) == '
+                    'NUM_CLASSES, "Re-export weights for the HLS class count");\n\n')
             f.write('#endif // WEIGHTS_H\n')
         print(f"\nSuccessfully generated {weights_path}")
     except Exception as e:
