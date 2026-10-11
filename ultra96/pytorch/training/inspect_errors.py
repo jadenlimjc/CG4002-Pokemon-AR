@@ -11,9 +11,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from model import Gesture1DCNN
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from ultra96.pytorch.training.model import Gesture1DCNN
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]  # ultra96/
 sys.path.insert(0, str(ROOT / "real_data"))
 from preprocess_real_gestures import load_csv, motion_centre, WINDOW_SIZE, SAMPLE_RATE_HZ
 

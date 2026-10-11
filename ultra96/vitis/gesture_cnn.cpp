@@ -51,7 +51,7 @@ static void conv1_process(
     #pragma HLS INLINE off
     conv_bn_relu<IN_CHANNELS, 32, IN_LENGTH, 7, 3>(
         input, output, conv1_weight, conv1_bias,
-        bn1_weight, bn1_bias, bn1_running_mean, bn1_running_var
+        bn1_scale, bn1_shift
     );
 }
 
@@ -62,7 +62,7 @@ static void conv2_process(
     #pragma HLS INLINE off
     conv_bn_relu<32, 64, BLOCK1_LENGTH, 5, 2>(
         input, output, conv2_weight, conv2_bias,
-        bn2_weight, bn2_bias, bn2_running_mean, bn2_running_var
+        bn2_scale, bn2_shift
     );
 }
 
@@ -73,7 +73,7 @@ static void conv3_process(
     #pragma HLS INLINE off
     conv_bn_relu<64, 128, BLOCK2_LENGTH, 3, 1>(
         input, output, conv3_weight, conv3_bias,
-        bn3_weight, bn3_bias, bn3_running_mean, bn3_running_var
+        bn3_scale, bn3_shift
     );
 }
 

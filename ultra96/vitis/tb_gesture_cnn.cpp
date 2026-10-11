@@ -2,6 +2,7 @@
 #include <fstream>
 #include <cmath>
 #include <limits>
+#include <cstdlib>
 #include "gesture_cnn.h"
 #include "weights.h"
 
@@ -36,6 +37,11 @@ void gesture_cnn_ref(
         accum_t scale1 = accum_t(bn1_weight[oc]) * inv_std1;
         accum_t shift1 = accum_t(bn1_bias[oc]) -
             (accum_t(bn1_running_mean[oc]) * scale1);
+        // Independently check exported coefficients against the old runtime math.
+        if (scale1 != bn1_scale[oc] || shift1 != bn1_shift[oc]) {
+            std::cerr << "BN1 coefficient mismatch at channel " << oc << std::endl;
+            std::exit(1);
+        }
         for (int l = 0; l < IN_LENGTH; ++l) {
             accum_t acc = accum_t(conv1_bias[oc]);
             for (int ic = 0; ic < 6; ++ic) {
@@ -61,6 +67,11 @@ void gesture_cnn_ref(
         accum_t scale2 = accum_t(bn2_weight[oc]) * inv_std2;
         accum_t shift2 = accum_t(bn2_bias[oc]) -
             (accum_t(bn2_running_mean[oc]) * scale2);
+        // Independently check exported coefficients against the old runtime math.
+        if (scale2 != bn2_scale[oc] || shift2 != bn2_shift[oc]) {
+            std::cerr << "BN2 coefficient mismatch at channel " << oc << std::endl;
+            std::exit(1);
+        }
         for (int l = 0; l < BLOCK1_LENGTH; ++l) {
             accum_t acc = accum_t(conv2_bias[oc]);
             for (int ic = 0; ic < 32; ++ic) {
@@ -86,6 +97,11 @@ void gesture_cnn_ref(
         accum_t scale3 = accum_t(bn3_weight[oc]) * inv_std3;
         accum_t shift3 = accum_t(bn3_bias[oc]) -
             (accum_t(bn3_running_mean[oc]) * scale3);
+        // Independently check exported coefficients against the old runtime math.
+        if (scale3 != bn3_scale[oc] || shift3 != bn3_shift[oc]) {
+            std::cerr << "BN3 coefficient mismatch at channel " << oc << std::endl;
+            std::exit(1);
+        }
         for (int l = 0; l < BLOCK2_LENGTH; ++l) {
             accum_t acc = accum_t(conv3_bias[oc]);
             for (int ic = 0; ic < 64; ++ic) {

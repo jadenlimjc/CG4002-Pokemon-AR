@@ -46,7 +46,7 @@ esp32/out/
 ultra96/__pycache__/
 ultra96/*.py[cod]
 ultra96/*$py.class
-ultra96/pytorch/__pycache__/*.pyc
+ultra96/pytorch/**/__pycache__/
 
 # Virtual environments
 ultra96/venv/
@@ -58,10 +58,9 @@ ultra96/pytorch/*.onnx
 ultra96/pytorch/*.pth
 ultra96/pytorch/*.h5
 ultra96/pytorch/*.xclbin
-ultra96/pytorch/hls_export/
 # will likely remove once start training with real data to save checkpoints
 ultra96/pytorch/saved_checkpoints/ 
-ultra96/pytorch/*.png
+ultra96/pytorch/**/*.png
 ultra96/online_data/UTD-MHAD_HumanActionRecognitionDataset/Inertial/
 ultra96/online_data/UTD-MHAD_HumanActionRecognitionDataset/utd_mhad_processed/
 ultra96/real_data/processed

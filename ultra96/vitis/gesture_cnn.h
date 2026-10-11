@@ -58,10 +58,8 @@ void conv_bn_relu(
     hls::stream<data_t>& out_stream,
     const data_t (&weight)[OUT_CH * IN_CH * K_SIZE],
     const data_t* bias,
-    const data_t* bn_w,
-    const data_t* bn_b,
-    const data_t* bn_mean,
-    const data_t* bn_var
+    const accum_t (&bn_scale)[OUT_CH],
+    const accum_t (&bn_shift)[OUT_CH]
 ) {
     // Line buffer to implement a sliding window of size K_SIZE
     data_t line_buf[IN_CH][K_SIZE];
@@ -79,23 +77,7 @@ void conv_bn_relu(
         }
     }
 
-    // Fold BatchNorm into one scale and shift per output channel.
-    accum_t scale_buf[OUT_CH];
-    accum_t shift_buf[OUT_CH];
-
-    const accum_t eps = accum_t(1e-5);
-
-    // scale = gamma / sqrt(var + eps); shift = beta - mean * scale.
-    for (int oc = 0; oc < OUT_CH; ++oc) {
-        #pragma HLS PIPELINE
-        accum_t variance = accum_t(bn_var[oc]) + eps;
-        // Protect sqrt/division against zero or invalid running variance.
-        if (variance < eps) variance = eps;
-        accum_t stddev = sqrt_variance(variance);
-        accum_t inv_std = accum_t(1) / stddev;
-        scale_buf[oc] = accum_t(bn_w[oc]) * inv_std;
-        shift_buf[oc] = accum_t(bn_b[oc]) - (accum_t(bn_mean[oc]) * scale_buf[oc]);
-    }
+    // Scale and shift are precomputed offline with the same HLS arithmetic.
 
     // Main convolution loop
     for (int l = 0; l < IN_LEN + PAD; ++l) {
@@ -141,7 +123,7 @@ void conv_bn_relu(
                 }
                 // Fused BatchNorm + ReLU: y = max(0, acc * scale + shift).
                 // Preserve the full expression range through ReLU, then saturate.
-                const auto bn_out = acc * scale_buf[oc] + shift_buf[oc];
+                const auto bn_out = acc * bn_scale[oc] + bn_shift[oc];
                 out_stream.write((bn_out > 0) ? data_t(bn_out) : data_t(0));
             }
         }

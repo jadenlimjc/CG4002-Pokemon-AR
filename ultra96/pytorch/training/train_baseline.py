@@ -5,14 +5,22 @@ from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
 import argparse
 import os, numpy as np
-from model import Gesture1DCNN # Import the model from its dedicated file
+import sys
+from pathlib import Path
+
+# Support both direct script execution and python -m from the repository root.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from ultra96.pytorch.training.model import Gesture1DCNN # Import the model from its dedicated file
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PYTORCH_DIR = os.path.dirname(SCRIPT_DIR)
+ULTRA96_DIR = os.path.dirname(PYTORCH_DIR)
 REAL_DATA_DIR = os.path.normpath(os.path.join(
-    SCRIPT_DIR, "..", "real_data", "processed"
+    ULTRA96_DIR, "real_data", "processed"
 ))
 UTD_DATA_DIR = os.path.normpath(os.path.join(
-    SCRIPT_DIR, "..", "online_data", "UTD-MHAD_HumanActionRecognitionDataset",
+    ULTRA96_DIR, "online_data", "UTD-MHAD_HumanActionRecognitionDataset",
     "utd_mhad_processed"
 ))
 DATASET_CONFIGS = {
@@ -114,7 +122,7 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
     print(f"Using device: {device}")
 
     # Define and create the output directory for model checkpoints
-    checkpoint_dir = os.path.join(SCRIPT_DIR, "saved_checkpoints")
+    checkpoint_dir = os.path.join(PYTORCH_DIR, "saved_checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Load fixed [6, 256] windows; shuffle training only.

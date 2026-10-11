@@ -6,11 +6,17 @@ from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
 import argparse
 import os
+import sys
+from pathlib import Path
 
-from model import Gesture1DCNN
-from train_baseline import DATASET_CONFIGS, NPZIMUDataset, set_seed
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from ultra96.pytorch.training.model import Gesture1DCNN
+from ultra96.pytorch.training.train_baseline import DATASET_CONFIGS, NPZIMUDataset, set_seed
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PYTORCH_DIR = os.path.dirname(SCRIPT_DIR)
 
 def evaluate_and_generate_confusion_matrix(model, data_loader, device, class_map, filename="confusion_matrix.png"):
     """
@@ -68,7 +74,7 @@ def main(args=None):
     default_data_dir, file_prefix = DATASET_CONFIGS[args.dataset]
     data_dir = args.data_dir or default_data_dir
     best_model_path = args.checkpoint or os.path.join(
-        SCRIPT_DIR, "saved_checkpoints",
+        PYTORCH_DIR, "saved_checkpoints",
         f"gesture_1dcnn_{args.dataset}_100hz_256_best.pth"
     )
     test_dataset = NPZIMUDataset(

@@ -2,14 +2,23 @@ import numpy as np
 import torch
 import argparse
 import os
-from model import Gesture1DCNN  # Import from the dedicated model file
+import sys
+from pathlib import Path
+
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from ultra96.pytorch.training.model import Gesture1DCNN  # Import from the dedicated model file
+from ultra96.pytorch.hls_export.bn_coefficients import generate_bn_coefficients
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PYTORCH_DIR = os.path.dirname(SCRIPT_DIR)
+ULTRA96_DIR = os.path.dirname(PYTORCH_DIR)
+DEFAULT_OUTPUT_DIR = os.path.join(ULTRA96_DIR, "vitis")
 DEFAULT_CHECKPOINT = os.path.join(
-    SCRIPT_DIR, "saved_checkpoints", "gesture_1dcnn_real_100hz_256_best.pth"
+    PYTORCH_DIR, "saved_checkpoints", "gesture_1dcnn_real_100hz_256_best.pth"
 )
 DEFAULT_TEST_DATA = os.path.normpath(os.path.join(
-    SCRIPT_DIR, "..", "real_data", "processed", "real_gestures_test.npz"
+    ULTRA96_DIR, "real_data", "processed", "real_gestures_test.npz"
 ))
 
 # Map each trained PyTorch tensor to the name used by the HLS kernel.
@@ -47,13 +56,20 @@ def export_weights_and_vectors(
     model_path=DEFAULT_CHECKPOINT,
     test_data_path=DEFAULT_TEST_DATA,
     output_dir=None,
+    hls_include_dir=None,
+    cxx=None,
 ):
     """
     Loads the trained PyTorch model and exports its weights to a C-compatible
     header file and generates golden test vectors.
+
+    BN scale/shift constants use the original fixed-point rounding. This needs
+    a host C++ compiler and Vitis headers (--cxx and --hls-include-dir, or CXX
+    and XILINX_HLS/XILINX_VITIS). Re-export after changing BN parameters or the
+    fixed-point types/epsilon in gesture_cnn.h and precompute_bn.cpp.
     """
     # Define output directory for HLS export files
-    output_dir = output_dir or os.path.join(SCRIPT_DIR, "hls_export")
+    output_dir = output_dir or DEFAULT_OUTPUT_DIR
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output files will be saved to '{os.path.abspath(output_dir)}'")
 
@@ -78,6 +94,14 @@ def export_weights_and_vectors(
     model.eval()
     state_dict = model.state_dict()
 
+    # Compute constants before opening weights.h so compiler failures cannot
+    # replace a usable export. Retain raw BN tensors for independent C-sim checks.
+    bn_parameters = {
+        c_name: state_dict[torch_name].detach().numpy().flatten()
+        for torch_name, c_name in NAME_MAP.items() if c_name.startswith("bn")
+    }
+    bn_coefficients = generate_bn_coefficients(bn_parameters, hls_include_dir, cxx)
+
     # Flatten trained tensors into C arrays included during HLS synthesis.
     weights_path = os.path.join(output_dir, 'weights.h')
     try:
@@ -100,6 +124,7 @@ def export_weights_and_vectors(
                 else:
                     print(f"WARNING: Parameter '{torch_name}' not found in model state_dict.")
 
+            f.write(bn_coefficients)
             f.write('static_assert(sizeof(fc2_weight) / sizeof(fc2_weight[0]) == '
                     '64 * NUM_CLASSES, "Re-export weights for the HLS class count");\n')
             f.write('static_assert(sizeof(fc2_bias) / sizeof(fc2_bias[0]) == '
@@ -129,10 +154,13 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT)
     parser.add_argument("--test-data", default=DEFAULT_TEST_DATA)
-    parser.add_argument("--output-dir", default=os.path.join(SCRIPT_DIR, "hls_export"))
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--hls-include-dir", help="Vitis include directory for exact BN precomputation")
+    parser.add_argument("--cxx", help="Host C++ compiler command (default: CXX or g++)")
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = parse_args()
-    export_weights_and_vectors(args.checkpoint, args.test_data, args.output_dir)
+    export_weights_and_vectors(args.checkpoint, args.test_data, args.output_dir,
+                               args.hls_include_dir, args.cxx)
