@@ -7,9 +7,9 @@ Training recordings produce small centre-offset variants, while validation
 and test recordings produce exactly one window each.  Splits are made by
 recording number so variants from one recording can never leak across splits.
 The input may be the real_data root, a subject folder, or a dated session.
-Each session must contain all ten trials for the original ten gestures.
-Older sessions may omit Uppercut entirely; sessions with Uppercut must have
-all ten Uppercut trials. Uppercut is the final class (label 10).
+Sessions may contain incomplete sets after recordings are removed. Remaining
+trial numbers retain their original splits; do not renumber cleaned files.
+Uppercut is the final class (label 10), even when absent from a session.
 """
 
 import argparse
@@ -101,15 +101,15 @@ def extract_window(signal, centre):
 
 
 def validate_session_recordings(session, seen):
-    """Require complete trials, allowing legacy sessions without Uppercut."""
+    """Report incomplete sessions without rejecting cleaned recordings."""
     prefixes = {prefix for prefix, _ in CLASS_SPECS}
     if not any(prefix == "uppercut" for prefix, _ in seen):
         prefixes.remove("uppercut")
-        print(f"Warning: {session} has no Uppercut recordings (legacy session)")
+        print(f"Warning: {session} has no Uppercut recordings")
     expected = {(prefix, trial) for prefix in prefixes for trial in range(1, 11)}
     missing = sorted(expected - seen)
     if missing:
-        raise RuntimeError(f"missing recordings in {session}: {missing}")
+        print(f"Warning: missing recordings in {session} (skipped): {missing}")
 
 
 def convert(input_dir, output_dir):
@@ -154,6 +154,21 @@ def convert(input_dir, output_dir):
         validate_session_recordings(session, seen)
 
     print(f"Loaded {len(paths)} recordings from {len(seen_by_session)} sessions")
+
+    # Fail before writing any files, rather than leaving partially updated
+    # splits or allowing downstream training/evaluation on an empty dataset.
+    empty_splits = [split for split, items in records.items() if not items]
+    if empty_splits:
+        raise RuntimeError(
+            f"No recordings remain for splits: {empty_splits}. "
+            "Keep original trial numbers: train 1-6, val 7-8, test 9-10."
+        )
+    for split, items in records.items():
+        present = {item[1] for item in items}
+        missing_classes = [name for label, name in enumerate(CLASS_NAMES)
+                           if label not in present]
+        if missing_classes:
+            print(f"Warning: {split} has no samples for classes: {missing_classes}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     for split, split_records in records.items():
