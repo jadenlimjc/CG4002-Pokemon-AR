@@ -6,11 +6,15 @@ import zlib
 
 import numpy as np
 
-ACCEL_SCALE = 8.0 / 32768.0  # Range +-8g; output in g
-GYRO_SCALE = 500.0 / 32768.0  # Range +-500 dps; output in degrees/s
+# Must match esp32/main/hardware_config.h; packets contain native int16 counts.
+ACCEL_RANGE_G = 8.0
+GYRO_RANGE_DPS = 500.0
+SIGNED_SENSOR_COUNTS = 1 << 15
+ACCEL_SCALE = ACCEL_RANGE_G / SIGNED_SENSOR_COUNTS
+GYRO_SCALE = GYRO_RANGE_DPS / SIGNED_SENSOR_COUNTS
 
 
-# ESP32 wire format: sequence, milliseconds, IMU, hall reading, flags, optional CRC.
+# ESP32 wire format: sequence, milliseconds, IMU, touch mask, flags, optional CRC.
 BODY = struct.Struct("<IIhhhhhhHB")
 CRC = struct.Struct("<I")
 
@@ -88,8 +92,8 @@ class TelemetryBuffer:
         self.sequence_stats = SequenceStats()
 
     def _convert_units(self, raw_readings: tuple) -> list:
-        ax, ay, az, gx, gy, gz, hall_raw, flags = raw_readings
-        hall_trigger = flags & 0x01
+        ax, ay, az, gx, gy, gz, touch_mask, flags = raw_readings
+        any_touch = flags & 0x01
 
         return [
             ax * ACCEL_SCALE,
@@ -98,8 +102,8 @@ class TelemetryBuffer:
             gx * GYRO_SCALE,
             gy * GYRO_SCALE,
             gz * GYRO_SCALE,
-            float(hall_raw),
-            float(hall_trigger),
+            float(touch_mask),
+            float(any_touch),
         ]
 
     def add_packet(self, payload: bytes):

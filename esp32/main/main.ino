@@ -13,10 +13,17 @@
 #include "secrets.h"
 #include "telemetry_packet.h"
 #include "demo_protocol.h"
+#include "hardware_config.h" // Sample rate, pins, thresholds and feedback settings.
+#include "sensor_hardware.h"
+#include "buzzer_feedback.h"
 
 // ==========================================
 // CONFIGURATION
 // ==========================================
+
+// Edit hardware::SAMPLE_RATE_HZ near the top of hardware_config.h.
+// Both the FreeRTOS cadence and MPU6050 divider are derived from it.
+BuzzerFeedback buzzer;
 
 // Stable per-board identity. All boards run the same firmware.
 char model_id[13];
@@ -216,6 +223,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length);
 
 void setup() {
     Serial.begin(115200);
+    if (!buzzer.begin()) Serial.println("[BOOT] Buzzer PWM setup failed.");
 
     // Give serial monitor time to attach.
     delay(1000);
@@ -278,11 +286,11 @@ void setup() {
     BaseType_t sensor_result = xTaskCreatePinnedToCore(
         SensorSampleTask,
         "SensorSample",
-        4096,
+        hardware::SENSOR_TASK_STACK_BYTES,
         NULL,
-        3,
+        hardware::SENSOR_TASK_PRIORITY,
         NULL,
-        0
+        hardware::SENSOR_TASK_CORE
     );
 
     if (sensor_result != pdPASS) {
@@ -314,50 +322,56 @@ void setup() {
 // ==========================================
 
 void loop() {
-    // All useful work is handled by FreeRTOS tasks.
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    // Feedback timing stays independent of sensor and network I/O.
+    buzzer.update();
+    vTaskDelay(hardware::BUZZER_SERVICE_TICKS);
 }
 
 // ==========================================
 // SENSOR SAMPLING TASK
-// CORE 0
+// Core selected in hardware_config.h
 // ==========================================
 
 void SensorSampleTask(void* pvParameters) {
+    SensorHardware sensors;
+    bool sensorsReady = false;
+    uint32_t lastInitAttemptMs = millis() - hardware::SENSOR_RETRY_MS;
     TickType_t xLastWakeTime = xTaskGetTickCount();
-
-    const TickType_t xFrequency = pdMS_TO_TICKS(10); // 100 Hz
 
     uint32_t current_index = 0;
 
-    Serial.println("[SensorSample] Task started on Core 0.");
+    Serial.printf("[SensorSample] Core %d, sample rate %u Hz.\n",
+                  int(hardware::SENSOR_TASK_CORE), unsigned(hardware::SAMPLE_RATE_HZ));
 
     for (;;) {
-        // Maintain 100 Hz sampling period.
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        vTaskDelayUntil(&xLastWakeTime, hardware::SAMPLE_PERIOD_TICKS);
 
         if (demoMode.load() != AUTO) continue;
 
-        TelemetryPacket packet;
+        if (!sensorsReady) {
+            if (uint32_t(millis() - lastInitAttemptMs) < hardware::SENSOR_RETRY_MS) continue;
+            sensorsReady = sensors.begin();
+            lastInitAttemptMs = millis();
+            Serial.println(sensorsReady ? "[SensorSample] Hardware ready." :
+                                          "[SensorSample] MPU6050 unavailable; will retry.");
+            // Initialisation can span multiple periods; avoid catch-up bursts.
+            xLastWakeTime = xTaskGetTickCount();
+            continue;
+        }
+
+        TelemetryPacket packet = {};
 
         packet.sample_index = current_index++;
         packet.timestamp_ms = millis();
 
-        // TODO:
-        // Replace these mock values with actual
-        // I2C / ADC sensor reads.
-
-        packet.accel_x = random(-32768, 32767);
-        packet.accel_y = random(-32768, 32767);
-        packet.accel_z = random(-32768, 32767);
-        packet.gyro_x = random(-32768, 32767);
-        packet.gyro_y = random(-32768, 32767);
-        packet.gyro_z = random(-32768, 32767);
-        packet.hall_raw = random(0, 4095);
-
-        // Bit 0 = local hall trigger.
-        uint8_t local_haptic_trigger = (packet.hall_raw > 2500) ? 1 : 0;
-        packet.flags = local_haptic_trigger & 0x01;
+        if (!sensors.read(packet)) {
+            // Skip invalid/stale data. The skipped sequence marks the failed sample.
+            sensorsReady = false;
+            lastInitAttemptMs = millis();
+            Serial.println("[SensorSample] MPU6050 read failed; will reinitialise.");
+            xLastWakeTime = xTaskGetTickCount();
+            continue;
+        }
         packet.crc32 = telemetryCrc32(
             reinterpret_cast<const uint8_t*>(&packet), offsetof(TelemetryPacket, crc32)
         );
@@ -664,14 +678,14 @@ void connectMQTT() {
     }
 }
 
-// Manual demonstrations only: keep automatic 100 Hz telemetry off Serial.
+// Manual demonstrations only: keep automatic telemetry off Serial.
 void printGesturePacket(const char* direction, const TelemetryPacket& p) {
     Serial.printf("  %s seq=%lu device_ms=%lu CRC=OK (%08lx)\n",
                   direction, (unsigned long)p.sample_index,
                   (unsigned long)p.timestamp_ms, (unsigned long)p.crc32);
-    Serial.printf("  accel=(%d,%d,%d) gyro=(%d,%d,%d) hall=%u flags=0x%02x\n",
+    Serial.printf("  accel=(%d,%d,%d) gyro=(%d,%d,%d) touch_mask=0x%04x flags=0x%02x\n",
                   p.accel_x, p.accel_y, p.accel_z, p.gyro_x, p.gyro_y,
-                  p.gyro_z, p.hall_raw, p.flags);
+                  p.gyro_z, p.touch_mask, p.flags);
 }
 
 void printDemoReceipt(const uint8_t* request, const uint8_t* response) {
@@ -768,7 +782,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
             Serial.printf("[DEMO] Mode confirmed: %s\n", modeNames[selected]);
         }
     } else if (strcmp(topic, topic_haptic) == 0 && demoMode.load() == AUTO) {
-        Serial.println("[MQTT Rx] Haptic command (simulating motor trigger)");
+        buzzer.beep(); // Thread-safe API; loop() owns PWM and duration.
     }
     // In manual modes the Ultra96 subscribes to Haptic commands as Send triggers.
 }

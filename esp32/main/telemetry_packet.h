@@ -13,7 +13,7 @@ struct __attribute__((packed)) TelemetryPacket {
     int16_t gyro_x;
     int16_t gyro_y;
     int16_t gyro_z;
-    uint16_t hall_raw;
+    uint16_t touch_mask; // Bits 0/1/2 = index/middle/ring touch levels.
     uint8_t flags;
     uint32_t crc32;
 };
@@ -34,8 +34,12 @@ inline uint32_t telemetryCrc32(const uint8_t* bytes, size_t length) {
     return crc ^ 0xffffffffu;
 }
 
-// Bit 7 asks U96 to acknowledge this one telemetry packet. Bit 0 retains its
-// hall-trigger meaning, so the existing phone and inference format is unchanged.
+// Bit assignments retain the existing packet layout and RTT protocol.
+constexpr uint16_t TELEMETRY_TOUCH_INDEX = 1u << 0;
+constexpr uint16_t TELEMETRY_TOUCH_MIDDLE = 1u << 1;
+constexpr uint16_t TELEMETRY_TOUCH_RING = 1u << 2;
+constexpr uint8_t TELEMETRY_ANY_TOUCH = 1u << 0; // Former Hall-trigger slot.
+// Bit 7 asks U96 to acknowledge this one telemetry packet.
 constexpr uint8_t TELEMETRY_RTT_REQUEST = 0x80;
 
 struct __attribute__((packed)) TelemetryAck {
