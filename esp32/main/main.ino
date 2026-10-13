@@ -25,6 +25,7 @@ char topic_telemetry[64];
 char topic_status[64];
 char topic_ack[64];
 char topic_rtt[64];
+char topic_health[64];
 char topic_config[64];
 char topic_haptic[64];
 char topic_mode[64], topic_demo_in[64], topic_demo_out[64];
@@ -41,6 +42,7 @@ void initialiseMqttIdentity() {
     snprintf(topic_status, sizeof(topic_status), "esp32/%s/status", model_id);
     snprintf(topic_ack, sizeof(topic_ack), "esp32/%s/telemetry_ack", model_id);
     snprintf(topic_rtt, sizeof(topic_rtt), "esp32/%s/rtt", model_id);
+    snprintf(topic_health, sizeof(topic_health), "esp32/%s/health", model_id);
     snprintf(topic_config, sizeof(topic_config), "esp32/%s/config", model_id);
     snprintf(topic_haptic, sizeof(topic_haptic), "esp32/%s/haptic/cmd", model_id);
     snprintf(topic_mode, sizeof(topic_mode), "esp32/%s/mode", model_id);
@@ -71,12 +73,42 @@ uint16_t last_failed_port = 0;
 QueueHandle_t telemetryQueue = NULL;
 const uint8_t QUEUE_MAX_SIZE = 20;
 
+// Boot-lifetime diagnostics; only queue counters cross task boundaries.
+// These identify local discards, not loss somewhere on the network path.
+std::atomic<uint32_t> queueDrops{0}, enqueueFailures{0};
+uint32_t diagnosticBootId = 0, healthReportIndex = 0;
+uint32_t telemetryPublishFailures = 0, disconnectedDiscards = 0, publishedSamples = 0;
+uint32_t maximumPublishAgeMs = 0;
+uint64_t maximumPublishDurationUs = 0, lastHealthReportUs = 0;
+
 // ==========================================
 // MQTT / SSH client
 // ==========================================
 
 SSHForwardClient sshClient;
 PubSubClient client(sshClient);
+
+// NetworkTask owns reporting. A bounded, non-retained snapshot every ten
+// seconds stays separate from the existing binary telemetry and RTT formats.
+void reportTelemetryHealth() {
+    const uint64_t now = esp_timer_get_time();
+    if (now - lastHealthReportUs < 10000000 || !client.connected()) return;
+    lastHealthReportUs = now; // Failed reports wait too; no retry flood.
+    char payload[512];
+    const int length = snprintf(payload, sizeof(payload),
+        "{\"boot_id\":%lu,\"report_index\":%lu,\"queue_drops\":%lu,"
+        "\"enqueue_failures\":%lu,\"publish_failures\":%lu,\"disconnected_discards\":%lu,"
+        "\"published_samples\":%lu,\"queue_depth\":%u,\"max_publish_age_ms\":%lu,"
+        "\"max_publish_duration_us\":%llu}",
+        (unsigned long)diagnosticBootId, (unsigned long)++healthReportIndex,
+        (unsigned long)queueDrops.load(), (unsigned long)enqueueFailures.load(),
+        (unsigned long)telemetryPublishFailures, (unsigned long)disconnectedDiscards,
+        (unsigned long)publishedSamples, (unsigned)uxQueueMessagesWaiting(telemetryQueue),
+        (unsigned long)maximumPublishAgeMs, (unsigned long long)maximumPublishDurationUs);
+    if (length > 0 && static_cast<size_t>(length) < sizeof(payload)) {
+        client.publish(topic_health, payload, false);
+    }
+}
 
 // NetworkTask owns all RTT state. No new task, per-packet ACK, or blocking wait.
 class TelemetryRtt {
@@ -226,6 +258,7 @@ void setup() {
     // --------------------------------------
 
     initialiseMqttIdentity();
+    diagnosticBootId = esp_random();
     // Includes MQTT headers/topics and incoming configuration commands.
     if (!client.setBufferSize(1024)) {
         Serial.println("[ERROR] Failed to allocate MQTT packet buffer!");
@@ -341,8 +374,11 @@ void SensorSampleTask(void* pvParameters) {
             TelemetryPacket discarded;
 
             if (xQueueReceive(telemetryQueue, &discarded, 0) == pdTRUE) {
-                xQueueSend(telemetryQueue, &packet, 0);
+                ++queueDrops;
             }
+            // NetworkTask may have drained the queue since the failed send.
+            // Retry even when no oldest sample remains to remove.
+            if (xQueueSend(telemetryQueue, &packet, 0) != pdTRUE) ++enqueueFailures;
         }
     }
 }
@@ -410,16 +446,28 @@ void NetworkTask(void* pvParameters) {
 
         if (xQueueReceive(telemetryQueue, &packet, pdMS_TO_TICKS(5)) == pdTRUE) {
             if (demoMode.load() == AUTO && WiFi.status() == WL_CONNECTED && client.connected()) {
+                // Millisecond subtraction remains valid across the device clock wrap.
+                const uint32_t ageMs = static_cast<uint32_t>(millis()) - packet.timestamp_ms;
+                if (ageMs > maximumPublishAgeMs) maximumPublishAgeMs = ageMs;
                 const bool measured = telemetryRtt.prepare(packet);
                 const uint8_t* payload = reinterpret_cast<const uint8_t*>(&packet);
+                const uint64_t startedUs = esp_timer_get_time();
                 bool success = client.publish(topic_telemetry, payload, sizeof(TelemetryPacket));
+                const uint64_t durationUs = static_cast<uint64_t>(esp_timer_get_time()) - startedUs;
+                if (durationUs > maximumPublishDurationUs) maximumPublishDurationUs = durationUs;
 
                 if (!success) {
+                    ++telemetryPublishFailures;
                     if (measured) telemetryRtt.publishFailed();
                     Serial.println("[NetworkTask] MQTT publish failed.");
+                } else {
+                    ++publishedSamples; // Local publish success, not proof of delivery.
                 }
+            } else if (demoMode.load() == AUTO) {
+                ++disconnectedDiscards;
             }
         }
+        reportTelemetryHealth();
 
         // ----------------------------------
         // SERIAL -> SSH

@@ -16,7 +16,7 @@ import time
 from dotenv import find_dotenv, load_dotenv
 import paho.mqtt.client as mqtt
 
-from process_telemetry import TelemetryBuffer
+from process_telemetry import PacketError, TelemetryBuffer, decode_packet
 
 load_dotenv(find_dotenv())
 
@@ -25,6 +25,35 @@ BROKER_PORT = 1883
 USERNAME = os.getenv("MQTT_USER", "team_user")
 PASSWORD = os.getenv("MQTT_PASSWORD")
 TELEMETRY_SUBSCRIPTION = "esp32/+/telemetry"
+HEALTH_SUBSCRIPTION = "esp32/+/health"
+HEALTH_COUNTERS = ("boot_id", "report_index", "queue_drops", "enqueue_failures",
+                   "publish_failures", "disconnected_discards", "published_samples",
+                   "queue_depth", "max_publish_age_ms")
+
+
+def decode_health(payload):
+    """Boot-lifetime counters and maxima, never receiver delivery guarantees.
+
+    Queue drops count overflow evictions. Enqueue failures count unsuccessful
+    retries. Disconnected discards count samples dequeued without a connection.
+    Explicit demo-mode queue resets are excluded. Max age includes sensor queue
+    time; max duration measures the blocking telemetry publish call. Neither is
+    one-way latency. Missing health reports cannot be recovered by this service.
+    """
+    if len(payload) > 512:
+        raise ValueError("oversized health report")
+    report = json.loads(payload)
+    if not isinstance(report, dict):
+        raise ValueError("expected health object")
+    for key in HEALTH_COUNTERS:
+        if type(report.get(key)) is not int or not 0 <= report[key] <= 0xffffffff:
+            raise ValueError(f"invalid {key}")
+    duration = report.get("max_publish_duration_us")
+    if type(duration) is not int or not 0 <= duration <= 0xffffffffffffffff:
+        raise ValueError("invalid max_publish_duration_us")
+    if report["queue_depth"] > 20:
+        raise ValueError("invalid queue depth")
+    return {key: report[key] for key in (*HEALTH_COUNTERS, "max_publish_duration_us")}
 
 
 def validate_model_id(value):
@@ -37,7 +66,7 @@ def device_topics(model_id):
     validate_model_id(model_id)
     topics = {name: f"esp32/{model_id}/{suffix}" for name, suffix in (
         ("telemetry", "telemetry"), ("status", "status"), ("ack", "telemetry_ack"),
-        ("rtt", "rtt"), ("config", "config"), ("haptic", "haptic/cmd"),
+        ("rtt", "rtt"), ("health", "health"), ("config", "config"), ("haptic", "haptic/cmd"),
     )}
     topics["inference"] = f"ultra96/{model_id}/inference"
     return topics
@@ -117,6 +146,8 @@ class TelemetryProcessor:
         self.topics = device_topics(model_id)
         self.worker = worker
         self.skipped_windows = 0
+        self.ack_errors = 0
+        self.health_report = None
         self.buffer = TelemetryBuffer(window_size=window_size, hop_size=hop_size)
 
     def process_packet(self, payload: bytes):
@@ -171,11 +202,35 @@ class TelemetryService:
 
     def on_message(self, client, userdata, msg):
         parts = msg.topic.split("/")
-        if msg.retain or len(parts) != 3 or parts[0] != "esp32" or parts[2] != "telemetry":
+        if (msg.retain or len(parts) != 3 or parts[0] != "esp32"
+                or parts[2] not in ("telemetry", "health")):
             return
         try:
             model_id = validate_model_id(parts[1])
         except ValueError:
+            return
+        if parts[2] == "health":
+            processor = self.processors.get(model_id)
+            if processor is None:
+                return # Diagnostics alone must not invent a live sample source.
+            try:
+                report = decode_health(msg.payload)
+            except (ValueError, UnicodeError):
+                logging.warning("[%s] Ignoring invalid firmware health report", model_id)
+                return
+            previous = processor.health_report
+            if previous and report["boot_id"] == previous["boot_id"]:
+                delta = (report["report_index"] - previous["report_index"]) & 0xffffffff
+                if not 0 < delta < 0x80000000:
+                    return
+            processor.health_report = report
+            logging.info("[%s] Firmware health (boot-lifetime): %s; receiver_gap_slots=%s; ack_errors=%s",
+                         model_id, json.dumps(report, sort_keys=True),
+                         processor.buffer.sequence_stats.gap_slots, processor.ack_errors)
+            return
+        try:
+            packet = decode_packet(msg.payload)
+        except PacketError:
             return
         if model_id not in self.processors:
             if len(self.processors) >= self.max_devices:
@@ -183,7 +238,15 @@ class TelemetryService:
                 return
             self.processors[model_id] = TelemetryProcessor(client, model_id, self.worker)
             logging.info("Discovered FireBeetle %s", model_id)
-        self.processors[model_id].process_packet(msg.payload)
+        processor = self.processors[model_id]
+        # ACK before window processing/inference, only for CRC-verified probes.
+        # The normal service supplies the responder previously present only in
+        # comms_demo.py. Run one of those services at a time to avoid double ACKs.
+        if packet.checked and packet.features[-1] & 0x80:
+            ack = msg.payload[:8] + msg.payload[-4:]
+            if client.publish(processor.topics["ack"], ack, qos=0, retain=False).rc != 0:
+                processor.ack_errors += 1
+        processor.process_packet(msg.payload)
 
 
 def create_mqtt_client(client_id="ultra96_core"):
@@ -226,7 +289,7 @@ def main():
     def on_connect(cli, userdata, flags, reason_code, properties=None):
         if reason_code == 0:
             logging.info("Connected to MQTT broker.")
-            cli.subscribe(TELEMETRY_SUBSCRIPTION)
+            cli.subscribe([(TELEMETRY_SUBSCRIPTION, 0), (HEALTH_SUBSCRIPTION, 0)])
         else:
             logging.error("Connection failed: %s", reason_code)
 
