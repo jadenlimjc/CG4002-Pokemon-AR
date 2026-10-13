@@ -214,6 +214,17 @@ private:
         // libssh expects a blocking fd.
         fcntl(cli_sock, F_SETFL, orig_flags);
 
+        // Session2 uses SSH_OPTIONS_FD, which bypasses libssh's socket setup.
+        // Disable Nagle on both bridge ends before either SSH task uses them.
+        int no_delay = 1;
+        if (setsockopt(cli_sock, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof(no_delay)) < 0 ||
+            setsockopt(srv_sock, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof(no_delay)) < 0) {
+            Serial.println("[BRIDGE] Failed to enable TCP_NODELAY.");
+            close(cli_sock);
+            close(srv_sock);
+            return false;
+        }
+
         srv_sock_out = srv_sock;
         cli_sock_out = cli_sock;
         return true;
@@ -366,10 +377,12 @@ public:
 
         unsigned int stujump_port_u = STUJUMP_PORT;
         int process_config_off = 0;
+        int no_delay = 1;
 
         if (ssh_options_set(session1, SSH_OPTIONS_HOST, STUJUMP_HOST) != SSH_OK ||
             ssh_options_set(session1, SSH_OPTIONS_PORT, &stujump_port_u) != SSH_OK ||
             ssh_options_set(session1, SSH_OPTIONS_USER, SOC_USERNAME) != SSH_OK ||
+            ssh_options_set(session1, SSH_OPTIONS_NODELAY, &no_delay) != SSH_OK ||
             ssh_options_set(session1, SSH_OPTIONS_PROCESS_CONFIG, &process_config_off) != SSH_OK) {
 
             Serial.printf("[SSH] session1 options failed: %s\n", ssh_get_error(session1));
