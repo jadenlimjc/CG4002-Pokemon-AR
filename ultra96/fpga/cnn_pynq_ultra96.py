@@ -2,7 +2,7 @@ from pynq import Overlay, allocate
 import numpy as np
 import os
 from dataclasses import asdict, dataclass
-from time import perf_counter_ns
+from time import perf_counter_ns, sleep
 
 # Keep all deployment artifacts beside this script so the directory can be
 # copied to the board as one self-contained bundle.
@@ -27,6 +27,27 @@ REFERENCE_OUTPUT_PATH = os.path.join(SCRIPT_DIR, "golden_output.dat")
 REFERENCE_RTOL = 0.10
 REFERENCE_ATOL = 0.50
 ACCELERATOR_TIMEOUT_S = 10.0
+DMA_TIMEOUT_S = 10.0
+DMA_STOP_TIMEOUT_S = 1.0
+POLL_INTERVAL_S = 0.0001
+
+
+def wait_for_dma(channel, name, timeout_s=DMA_TIMEOUT_S):
+    """Bound a simple DMA wait while preserving PYNQ's cache cleanup."""
+    deadline = perf_counter_ns() + int(timeout_s * 1e9)
+    while True:
+        if channel.error:
+            raise RuntimeError(f"DMA {name} channel reported a hardware error")
+        if not channel.running:
+            raise RuntimeError(f"DMA {name} channel halted before completion")
+        if channel.idle:
+            # The single inference owner guarantees completion stays stable.
+            # PYNQ wait now returns immediately and invalidates receive cache.
+            channel.wait()
+            return
+        if perf_counter_ns() >= deadline:
+            raise TimeoutError(f"DMA {name} did not complete within {timeout_s:g} seconds")
+        sleep(POLL_INTERVAL_S)
 
 
 @dataclass(frozen=True)
@@ -108,6 +129,7 @@ class GestureCNNAccelerator:
         self.in_buf = allocate(shape=(INPUT_DATA_SIZE,), dtype=np.float32)
         self.out_buf = allocate(shape=(OUTPUT_DATA_SIZE,), dtype=np.float32)
         self._closed = False
+        self._faulted = False
         self.last_timing = None
 
     def configured_clock_mhz(self):
@@ -138,6 +160,9 @@ class GestureCNNAccelerator:
         if self._closed:
             raise RuntimeError("Accelerator has already been closed")
 
+        if self._faulted:
+            raise RuntimeError("Accelerator faulted; close and reload the overlay before retrying")
+        self.last_timing = None
         total_start = perf_counter_ns()
         preparation_start = total_start
         window = np.asarray(window, dtype=np.float32)
@@ -153,31 +178,37 @@ class GestureCNNAccelerator:
         self.out_buf.fill(0)
         preparation_end = perf_counter_ns()
 
-        # Arm receive first to prevent output back-pressure, then send input.
-        receive_start = perf_counter_ns()
-        self.dma.recvchannel.transfer(self.out_buf)
-        send_start = perf_counter_ns()
-        self.dma.sendchannel.transfer(self.in_buf)
-        accelerator_start = perf_counter_ns()
-        # AXI-Lite control register: bit 0 starts the HLS accelerator.
-        self.cnn.write(0x00, 0x01)
+        try:
+            # Arm receive first to prevent output back-pressure, then send input.
+            receive_start = perf_counter_ns()
+            self.dma.recvchannel.transfer(self.out_buf)
+            send_start = perf_counter_ns()
+            self.dma.sendchannel.transfer(self.in_buf)
+            accelerator_start = perf_counter_ns()
+            # AXI-Lite control register: bit 0 starts the HLS accelerator.
+            self.cnn.write(0x00, 0x01)
 
-        # The send wait gives an accurate host-observed input-channel interval.
-        # Input must finish before this finite-input accelerator can assert done.
-        self.dma.sendchannel.wait()
-        send_end = perf_counter_ns()
+            # The send wait gives an accurate host-observed input-channel interval.
+            # Input must finish before this finite-input accelerator can assert done.
+            wait_for_dma(self.dma.sendchannel, "send")
+            send_end = perf_counter_ns()
 
-        # Poll AXI-Lite bit 1 until the accelerator reports ap_done.
-        timeout_ns = int(ACCELERATOR_TIMEOUT_S * 1e9)
-        while not (self.cnn.read(0x00) & 0x02):
-            if perf_counter_ns() - accelerator_start > timeout_ns:
-                raise TimeoutError(
-                    f"Accelerator did not assert ap_done within "
-                    f"{ACCELERATOR_TIMEOUT_S:g} seconds"
-                )
-        accelerator_end = perf_counter_ns()
-        self.dma.recvchannel.wait()
-        receive_end = perf_counter_ns()
+            # Poll AXI-Lite bit 1 until the accelerator reports ap_done.
+            timeout_ns = int(ACCELERATOR_TIMEOUT_S * 1e9)
+            while not (self.cnn.read(0x00) & 0x02):
+                if perf_counter_ns() - accelerator_start > timeout_ns:
+                    raise TimeoutError(
+                        f"Accelerator did not assert ap_done within "
+                        f"{ACCELERATOR_TIMEOUT_S:g} seconds"
+                    )
+                sleep(POLL_INTERVAL_S)
+            accelerator_end = perf_counter_ns()
+            wait_for_dma(self.dma.recvchannel, "receive")
+            receive_end = perf_counter_ns()
+        except Exception:
+            # Partial transfers require overlay recovery before reuse.
+            self._faulted = True
+            raise
 
         copy_start = perf_counter_ns()
         logits = np.array(self.out_buf, dtype=np.float32, copy=True)
@@ -200,6 +231,16 @@ class GestureCNNAccelerator:
 
     def close(self):
         if not self._closed:
+            # PYNQ stop() also waits indefinitely. Request halt directly, then
+            # bound acknowledgement before releasing DMA-owned memory.
+            for offset in (0x00, 0x30):
+                self.dma.mmio.write(offset, 0)
+            deadline = perf_counter_ns() + int(DMA_STOP_TIMEOUT_S * 1e9)
+            while self.dma.sendchannel.running or self.dma.recvchannel.running:
+                if perf_counter_ns() >= deadline:
+                    self._faulted = True
+                    raise TimeoutError("DMA did not halt; buffers retained. Reset hardware before recovery.")
+                sleep(POLL_INTERVAL_S)
             self.in_buf.freebuffer()
             self.out_buf.freebuffer()
             self._closed = True
@@ -221,13 +262,6 @@ def main():
         )
 
     print(f"Loading overlay: {OVERLAY_PATH}")
-    overlay = Overlay(OVERLAY_PATH)
-    print("Overlay loaded")
-    
-    print("Discovered IP blocks:", list(overlay.ip_dict.keys()))
-    dma = get_dma_instance(overlay)
-    cnn = get_cnn_instance(overlay)
-
     # Load the golden input vector generated by export_weights.py
     # This ensures we test the hardware with the exact same data as the HLS C-simulation.
     if not os.path.exists(INPUT_PATH):
@@ -235,7 +269,7 @@ def main():
             f"Golden input not found: {INPUT_PATH}. Copy golden_input.dat "
             "beside this script."
         )
-    
+
     input_data = np.loadtxt(INPUT_PATH, dtype=np.float32).reshape(-1)
 
     if input_data.size != INPUT_DATA_SIZE:
@@ -255,29 +289,12 @@ def main():
                 f"{expected_output.size} floats, expected {OUTPUT_DATA_SIZE}"
             )
 
-    # The exported file/PyTorch tensor is channel-major [C, L], while the HLS
-    # streaming convolution consumes all channels at each timestep [L, C].
-    stream_input = input_data.reshape(IN_CHANNELS, IN_LENGTH).T.reshape(-1)
-
-    in_buf = allocate(shape=(INPUT_DATA_SIZE,), dtype=np.float32)
-    out_buf = allocate(shape=(OUTPUT_DATA_SIZE,), dtype=np.float32)
-
-    try:
-        in_buf[:] = stream_input
-        out_buf.fill(0)
-
-        print(f"Starting DMA transfer: {INPUT_DATA_SIZE} in, {OUTPUT_DATA_SIZE} out")
-        # Arm the receive path before starting the accelerator so output-side
-        # backpressure cannot stall the pipeline. The AXI-Lite control bundle
-        # generated by HLS uses bit 0 of address 0x00 as ap_start.
-        dma.recvchannel.transfer(out_buf)
-        cnn.write(0x00, 0x01)
-        dma.sendchannel.transfer(in_buf)
-        dma.sendchannel.wait()
-        dma.recvchannel.wait()
-        print("DMA transfer complete")
-
-        received_output = np.array(out_buf, dtype=np.float32)
+    with GestureCNNAccelerator(OVERLAY_PATH) as accelerator:
+        print("Overlay loaded")
+        print("Discovered IP blocks:", list(accelerator.overlay.ip_dict.keys()))
+        received_output = accelerator.predict_logits(
+            input_data.reshape(IN_CHANNELS, IN_LENGTH)
+        )
 
         print("Received values:")
         print(received_output)
@@ -324,9 +341,6 @@ def main():
                     f"class_match={class_match}, numeric_close={numeric_close}"
                 )
 
-    finally:
-        in_buf.freebuffer()
-        out_buf.freebuffer()
 
 
 if __name__ == "__main__":
