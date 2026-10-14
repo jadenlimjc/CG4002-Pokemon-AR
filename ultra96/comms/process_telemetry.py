@@ -6,8 +6,8 @@ import zlib
 
 import numpy as np
 
-ACCEL_SCALE = 2.0 / 32768.0  # Range +-2g
-GYRO_SCALE = 250.0 / 32768.0  # Range +-250 dps
+ACCEL_SCALE = 8.0 / 32768.0  # Range +-8g; output in g
+GYRO_SCALE = 500.0 / 32768.0  # Range +-500 dps; output in degrees/s
 
 
 # ESP32 wire format: sequence, milliseconds, IMU, hall reading, flags, optional CRC.
@@ -77,7 +77,7 @@ class SequenceStats:
 
 
 class TelemetryBuffer:
-    def __init__(self, window_size=20, hop_size=10, max_gap_fill=5, queue_maxsize=10):
+    def __init__(self, window_size=256, hop_size=25, max_gap_fill=5, queue_maxsize=10):
         self.window_size = window_size
         self.hop_size = hop_size
         self.step_counter = 0

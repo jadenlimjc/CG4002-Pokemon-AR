@@ -44,13 +44,18 @@ def device_topics(model_id):
 
 
 class Action(str, Enum):
+    # Declaration order matches training labels and FPGA logits (indices 0-10).
+    NEUTRAL = "NEUTRAL"
     AIM = "AIM"
     STOP_AIMING = "STOP_AIMING"
     THROW = "THROW"
     PUNCH = "PUNCH"
-    KARATE_CHOP = "KARATE_CHOP"
+    DOWNWARD_SWIPE = "DOWNWARD_SWIPE"
     GUARD = "GUARD"
-
+    FLEE = "FLEE"
+    SWITCH_POKEMON = "SWITCH_POKEMON"
+    USE_ITEM = "USE_ITEM"
+    UPPERCUT = "UPPERCUT"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -106,7 +111,7 @@ class InferenceWorker:
 
 
 class TelemetryProcessor:
-    def __init__(self, client, model_id, worker, window_size=20, hop_size=10):
+    def __init__(self, client, model_id, worker, window_size=256, hop_size=25):
         self.client = client
         self.model_id = validate_model_id(model_id)
         self.topics = device_topics(model_id)
@@ -149,7 +154,7 @@ class TelemetryProcessor:
 
     def send_config(self, config_dict=None):
         if config_dict is None:
-            config_dict = {"sample_rate_hz": 50, "imu_range": "8g", "debug": True}
+            config_dict = {"sample_rate_hz": 100, "imu_range": "8g", "debug": True}
         self.client.publish(self.topics["config"], json.dumps(config_dict))
         logging.info("[%s] Config sent", self.model_id)
 
