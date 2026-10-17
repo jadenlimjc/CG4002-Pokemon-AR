@@ -9,6 +9,8 @@ recording number so variants from one recording can never leak across splits.
 The input may be the real_data root, a subject folder, or a dated session.
 Sessions may contain incomplete sets after recordings are removed. Remaining
 trial numbers retain their original splits; do not renumber cleaned files.
+The 60/20/20 split pattern repeats for each block of ten trials, with no
+upper limit on the trial number.
 Uppercut is the final class (label 10), even when absent from a session.
 """
 
@@ -43,6 +45,7 @@ CLASS_SPECS = (
 CLASS_NAMES = np.asarray([display for _, display in CLASS_SPECS])
 PREFIX_TO_LABEL = {prefix: label for label, (prefix, _) in enumerate(CLASS_SPECS)}
 FILENAME_PATTERN = re.compile(r"^(?P<prefix>[a-z]+)(?P<trial>\d+)\.csv$", re.I)
+# Repeat this pattern for every ten trials; assignments stay stable as data grows.
 # Split by recording number so one recording never crosses data splits.
 SPLIT_TRIALS = {"train": set(range(1, 7)), "val": {7, 8}, "test": {9, 10}}
 # Three nearby training windows add variation without leaking into val/test.
@@ -50,7 +53,11 @@ TRAIN_OFFSETS = (-32, 0, 32)
 
 
 def split_for_trial(trial):
-    matches = [split for split, trials in SPLIT_TRIALS.items() if trial in trials]
+    if trial < 1:
+        raise ValueError(f"trial number must be positive, got {trial}")
+    trial_in_block = (trial - 1) % 10 + 1
+    matches = [split for split, trials in SPLIT_TRIALS.items()
+               if trial_in_block in trials]
     if len(matches) != 1:
         raise ValueError(f"trial {trial} belongs to {len(matches)} splits")
     return matches[0]
@@ -161,7 +168,8 @@ def convert(input_dir, output_dir):
     if empty_splits:
         raise RuntimeError(
             f"No recordings remain for splits: {empty_splits}. "
-            "Keep original trial numbers: train 1-6, val 7-8, test 9-10."
+            "Keep original trial numbers. In each block of ten trials: "
+            "train 1-6, val 7-8, test 9-10 (repeating for 11-20, etc.)."
         )
     for split, items in records.items():
         present = {item[1] for item in items}
