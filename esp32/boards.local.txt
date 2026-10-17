@@ -1,0 +1,10 @@
+# Arduino IDE setup for FireBeetle-ESP32 (4 MiB flash).
+# Copy these properties into boards.local.txt beside the ESP32 package's
+# installed boards.txt, then restart Arduino IDE. This repository copy alone
+# is not loaded by Arduino IDE. Preserve any unrelated existing overrides.
+#
+# Use the same 1.875 MiB application slots as the Makefile build. Keep both OTA
+# slots; reduce unused SPIFFS to 128 KiB. This sketch does not use SPIFFS.
+# Both properties are required: changing the size limit alone is unsafe.
+firebeetle32.build.partitions=min_spiffs
+firebeetle32.upload.maximum_size=1966080
