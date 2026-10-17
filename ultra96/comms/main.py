@@ -88,6 +88,29 @@ class Action(str, Enum):
     USE_ITEM = "USE_ITEM"
     UPPERCUT = "UPPERCUT"
 
+def load_accelerator(overlay_path=None):
+    # Board deployment keeps the driver and hardware artifacts in ~/ai.
+    # Keep PYNQ imports lazy so packet tools and host-side tests work off-board.
+    sys.path.insert(0, str(Path.home() / "ai"))
+    from cnn_pynq_ultra96 import GestureCNNAccelerator
+    if overlay_path is None:
+        return GestureCNNAccelerator()
+    return GestureCNNAccelerator(overlay_path)
+
+
+def prepare_fpga_input(window):
+    """Convert physical-unit telemetry to training-normalized [6, 256]."""
+    if window.features.shape != (256, 8):
+        raise ValueError(f"Expected telemetry shape (256, 8), got {window.features.shape}")
+    # Hall values stay available in telemetry but are not CNN input channels.
+    features = window.features[:, :6].copy()
+    features[:, :3] /= 8.0
+    features[:, 3:] /= 500.0
+    if not np.isfinite(features).all():
+        raise ValueError("Telemetry contains non-finite IMU readings")
+    return np.ascontiguousarray(features.T, dtype=np.float32)
+
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
@@ -105,21 +128,17 @@ class InferenceWorker:
     other waiting devices. The condition protects scheduling only, never DMA
     or inference. MQTT callbacks therefore remain independent of inference.
     """
-    def __init__(self, accelerator_factory=None, confidence_threshold=0.75):
-        if not 0 <= confidence_threshold <= 1:
-            raise ValueError("confidence_threshold must be between 0 and 1")
-        self.accelerator_factory = accelerator_factory or create_accelerator
-        self.confidence_threshold = confidence_threshold
-        self.accelerator = None
-        self.ready = Event()
-        self.failed = Event()
-        self.failure = None
+    def __init__(self, accelerator=None, overlay_path=None):
+        self.accelerator = accelerator
+        self.overlay_path = overlay_path
         self.condition = Condition()
         self.pending = OrderedDict()
         self.stopping = False
         self.thread = Thread(target=self._run, name="inference", daemon=True)
 
     def start(self):
+        if self.accelerator is None:
+            self.accelerator = load_accelerator(self.overlay_path)
         self.thread.start()
         # Load/program once, on the same thread that owns all inference and DMA.
         self.ready.wait()
@@ -150,25 +169,16 @@ class InferenceWorker:
                         return
                     _, (processor, window) = self.pending.popitem(last=False)
                 processor.run_inference(window)
-        except Exception as error:
-            self.failure = error
-            self.failed.set()
-            logging.exception("FPGA inference stopped")
-        finally:
-            self.ready.set()
-            with self.condition:
-                self.stopping = True
-                for processor, _ in self.pending.values():
-                    processor.skipped_windows += 1
-                self.pending.clear()
-            # Never free DMA buffers on the MQTT/UI thread while a transfer runs.
-            if self.accelerator is not None:
-                try:
-                    self.accelerator.close()
-                except Exception as error:
-                    self.failure = error
-                    self.failed.set()
-                    logging.exception("FPGA cleanup failed")
+            except Exception:
+                logging.exception("[%s] Inference failed", processor.model_id)
+                if getattr(self.accelerator, "_faulted", False):
+                    logging.error("FPGA faulted; restart the service to reload the overlay")
+                    with self.condition:
+                        self.stopping = True
+                        for pending_processor, _ in self.pending.values():
+                            pending_processor.skipped_windows += 1
+                        self.pending.clear()
+                    return
 
     def close(self):
         with self.condition:
@@ -178,10 +188,11 @@ class InferenceWorker:
             self.pending.clear()
             self.condition.notify_all()
         if self.thread.ident is not None:
-            # Existing driver bounds send, execution and receive at 10 s each.
-            self.thread.join(timeout=35)
-            if self.thread.is_alive():
-                raise RuntimeError("Inference has not stopped; accelerator still owns its buffers")
+            # The driver bounds DMA/accelerator waits. Never free buffers while
+            # the inference thread may still be using them.
+            self.thread.join()
+        if self.accelerator is not None:
+            self.accelerator.close()
 
 
 class TelemetryProcessor:
@@ -208,58 +219,30 @@ class TelemetryProcessor:
             self.worker.submit(self, window)
 
     def run_inference(self, window):
-        """Classify one window and retain the visualizer's per-device sequencing."""
-        started = time.monotonic()
-        inputs = model_input(window.features)
-        logits, fpga_timing = self.worker.accelerator.predict_logits_timed(inputs)
-        logits = np.asarray(logits, dtype=np.float64)
+        """Run on the shared worker, which exclusively owns accelerator DMA."""
+        features = prepare_fpga_input(window)
+        logits = np.asarray(self.worker.accelerator.predict_logits(features), dtype=np.float32)
         if logits.shape != (len(Action),) or not np.isfinite(logits).all():
-            raise ValueError("FPGA must return eleven finite logits in training class order")
-        probabilities = np.exp(logits - logits.max())
-        probabilities /= probabilities.sum()
-        index = int(np.argmax(probabilities))
-        predicted_action = list(Action)[index].value
-        confidence = float(probabilities[index])
-        completed = time.monotonic()
-        timestamp_ms = time.time_ns() // 1_000_000
-        timing = {key.removesuffix("_s"): value * 1000
-                  for key, value in fpga_timing.as_dict().items()}
-        timing["inference"] = (completed - started) * 1000
-        timing["queue"] = None if window.queued_at is None else (started - window.queued_at) * 1000
-        timing["receive_to_result"] = None if window.received_at is None else (completed - window.received_at) * 1000
-        event = None
-        status = "LOW_CONFIDENCE"
-        if confidence >= self.worker.confidence_threshold:
-            event = self.gesture_sequence.consume(predicted_action, confidence,
-                                                  timestamp_ms=timestamp_ms)
-            status = "SUPPRESSED" if event is None else "DETECTED"
-        result = {
+            raise ValueError("FPGA must return eleven finite logits")
+        class_index = int(np.argmax(logits))
+        predicted_action = list(Action)[class_index]
+        # Stable softmax score; this is not a calibrated correctness estimate.
+        scores = np.exp(logits.astype(np.float64) - float(logits.max()))
+        confidence = float(scores[class_index] / scores.sum())
+        result_payload = {
             "model_id": self.model_id,
             "predicted_action": predicted_action,
             "confidence": confidence,
-            "inference_source": "fpga",
-            "window_shape": list(window.features.shape),
-            "model_input_shape": [6, 256],
+            "window_shape": list(features.shape),
             "sample_sequence": window.last_sequence,
             "sample_timestamp_ms": window.timestamp_ms,
             "skipped_windows": self.skipped_windows,
             "timestamp_ms": timestamp_ms,
             "timing_ms": timing,
         }
-        if event is not None:
-            event.update(result)
-            info = self.client.publish(self.topics["inference"], json.dumps(event), qos=0, retain=False)
-            status = "PUBLISHED" if info.rc == 0 else "PUBLISH_FAILED"
-            if info.rc != 0:
-                logging.error("[%s] Gesture publish failed: %s", self.model_id, info.rc)
-        result.update(action=predicted_action, status=status,
-                      published_action=None if event is None else event["action"])
-        logging.info("[%s] %s %.1f%% %s | inference=%.2f ms queue=%s ms skipped=%s",
-                     self.model_id, predicted_action, confidence * 100, status,
-                     timing["inference"], timing["queue"], self.skipped_windows)
-        # Every prediction is available to the diagnostic UI, even when gameplay
-        # suppresses neutral, low-confidence or repeated/out-of-order gestures.
-        return result
+        self.client.publish(self.topics["inference"], json.dumps(result_payload))
+        logging.info("[%s] Window %s -> %s (%.0f%%)", self.model_id,
+                     features.shape, predicted_action.value, confidence * 100)
 
     def trigger_haptic(self, cmd="1"):
         self.client.publish(self.topics["haptic"], cmd)
@@ -359,6 +342,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--max-devices", type=int, default=64,
                         help="maximum distinct device buffers per run (default: 64)")
+    parser.add_argument("--overlay", help="path to gesture_cnn.bit (matching .hwh required)")
     args = parser.parse_args()
     if args.max_devices < 1:
         parser.error("--max-devices must be positive")
@@ -367,7 +351,7 @@ def main():
         sys.exit(1)
 
     client = create_mqtt_client()
-    worker = InferenceWorker()
+    worker = InferenceWorker(overlay_path=args.overlay)
     service = TelemetryService(client, worker, args.max_devices)
 
     def on_connect(cli, userdata, flags, reason_code, properties=None):
@@ -382,15 +366,14 @@ def main():
     try:
         worker.start()
         connect_with_retry(client)
-        client.loop_start()
-        worker.failed.wait()
-        worker.raise_if_failed()
+        client.loop_forever()
     except KeyboardInterrupt:
         logging.info("Shutting down core service...")
     finally:
-        worker.close()
-        client.disconnect()
-        client.loop_stop()
+        try:
+            worker.close()
+        finally:
+            client.disconnect()
 
 
 if __name__ == "__main__":
