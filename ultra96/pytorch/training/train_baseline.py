@@ -28,6 +28,14 @@ DATASET_CONFIGS = {
     "utd": (UTD_DATA_DIR, "utd_mhad"),
 }
 
+# Selected Optuna trial 7. Original baseline: lr=1e-3,
+# weight_decay=1e-4, dropout=0.3. Keep UTD training on those defaults.
+REAL_TRAINING_PARAMS = {
+    "lr": 0.0004345454109729479,
+    "weight_decay": 1.461896279370496e-05,
+    "dropout": 0.34474115788895177,
+}
+
 def set_seed(seed=42):
     """Sets the seed for reproducibility."""
     np.random.seed(seed)
@@ -142,7 +150,12 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
 
     print("Classes:", gesture_map)
 
+    params = REAL_TRAINING_PARAMS if dataset == "real" else {
+        "lr": 1e-3, "weight_decay": 1e-4, "dropout": 0.3,
+    }
     model = Gesture1DCNN(in_channels=6, num_classes=num_classes).to(device)
+    model.classifier[0].p = params["dropout"]
+    print("Training settings:", params)
     # Inverse-frequency weights give each gesture equal importance in the loss.
     counts = torch.bincount(train_dataset.labels, minlength=num_classes).float()
     if torch.any(counts == 0):
@@ -151,7 +164,8 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
     criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
     print("Class counts:", counts.to(torch.int64).tolist())
     print("Loss weights:", [round(value, 4) for value in class_weights.tolist()])
-    optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=params["lr"],
+                           weight_decay=params["weight_decay"])
 
     best_val_balanced_acc = 0.0
     best_val_loss = float('inf')
