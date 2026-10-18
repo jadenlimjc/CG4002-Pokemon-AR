@@ -2,6 +2,7 @@ from collections import deque
 from dataclasses import dataclass
 from queue import Full, Queue
 import struct
+import time
 import zlib
 
 import numpy as np
@@ -12,6 +13,22 @@ GYRO_RANGE_DPS = 500.0
 SIGNED_SENSOR_COUNTS = 1 << 15
 ACCEL_SCALE = ACCEL_RANGE_G / SIGNED_SENSOR_COUNTS
 GYRO_SCALE = GYRO_RANGE_DPS / SIGNED_SENSOR_COUNTS
+
+
+def model_input(features):
+    """Convert the live [256, 8] buffer to the CNN's normalized [6, 256] input.
+
+    The buffer holds g and degrees/s; training uses fractions of sensor range.
+    Touch fields are excluded. Keep the shared window immutable.
+    """
+    features = np.asarray(features)
+    if features.shape != (256, 8):
+        raise ValueError(f"Expected live window (256, 8), got {features.shape}")
+    scales = np.array([ACCEL_RANGE_G] * 3 + [GYRO_RANGE_DPS] * 3, dtype=np.float32)
+    result = np.ascontiguousarray((features[:, :6] / scales).T, dtype=np.float32)
+    if not np.isfinite(result).all():
+        raise ValueError("Non-finite IMU input")
+    return result
 
 
 # ESP32 wire format: sequence, milliseconds, IMU, touch mask, flags, optional CRC.
@@ -38,6 +55,8 @@ class InferenceWindow:
     features: np.ndarray
     last_sequence: int
     timestamp_ms: int | None
+    received_at: float | None = None
+    queued_at: float | None = None
 
 
 def decode_packet(payload, require_crc=False):
@@ -106,7 +125,8 @@ class TelemetryBuffer:
             float(any_touch),
         ]
 
-    def add_packet(self, payload: bytes):
+    def add_packet(self, payload: bytes, received_at=None):
+        self.received_at = time.monotonic() if received_at is None else received_at
         try:
             packet = decode_packet(payload)
         except PacketError:
@@ -150,7 +170,8 @@ class TelemetryBuffer:
         if len(self.buffer) == self.window_size and self.step_counter >= self.hop_size:
             matrix = np.array(self.buffer, dtype=np.float32)
             matrix.setflags(write=False)
-            window = InferenceWindow(matrix, sequence, timestamp_ms)
+            window = InferenceWindow(matrix, sequence, timestamp_ms,
+                                     self.received_at, time.monotonic())
             try:
                 self.output_queue.put_nowait(window)
             except Full:
