@@ -677,29 +677,30 @@ def main():
     client.on_disconnect = dashboard.on_disconnect
     old_settings = termios.tcgetattr(sys.stdin)
     try:
+        worker.start()
         connect_with_retry(client, BROKER_HOST, BROKER_PORT)
         tty.setcbreak(sys.stdin.fileno())
         sys.stdout.write("\033[?1049h\033[2J\033[H")
         with dashboard.dashboard_logging():
-            worker.start()
             client.loop_start()
             try:
                 while True:
+                    worker.raise_if_failed()
                     dashboard.tick()
                     if not dashboard.handle_key(get_key_non_blocking()):
                         break
                     dashboard.print_live_stats()
                     time.sleep(0.1)
             finally:
-                client.loop_stop()
                 worker.close()
                 client.disconnect()
+                client.loop_stop()
     except KeyboardInterrupt:
         pass
     finally:
-        client.loop_stop()
         worker.close()
         client.disconnect()
+        client.loop_stop()
         sys.stdout.write("\033[?1049l")
         sys.stdout.flush()
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
