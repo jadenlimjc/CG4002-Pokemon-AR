@@ -6,6 +6,7 @@ ENV_FILE="$PROJECT_ROOT/.env"
 PASSWD_FILE="$PROJECT_ROOT/ultra96/mqtt/mosquitto.passwd"
 SECRETS_FILE="$PROJECT_ROOT/esp32/main/secrets.h"
 SSH_KEY_PATH="$HOME/.ssh/esp32_key"
+UNITY_SETTINGS_FILE="$PROJECT_ROOT/visualiser/Assets/StreamingAssets/secrets.json"
 
 echo "=== Project Setup ==="
 echo
@@ -95,6 +96,12 @@ $SSH_PRIVATE_KEY
 #endif // SECRETS_H
 EOF
 
+# Generate the Unity settings consumed by NetworkManager, preserving quotes/newlines.
+SOC_USERNAME="$SOC_USERNAME" SOC_PASSWORD="$SOC_PASSWORD" \
+MQTT_USER="$MQTT_USER" MQTT_PASSWORD="$MQTT_PASSWORD" \
+python3 "$PROJECT_ROOT/visualiser/Tools/write_connection_settings.py" \
+    --key "$SSH_KEY_PATH" --output "$UNITY_SETTINGS_FILE"
+
 # Ensure broker directory exists for auth file
 mkdir -p "$(dirname "$PASSWD_FILE")"
 
@@ -105,3 +112,4 @@ echo "=== Setup complete ==="
 echo "Created secrets: $ENV_FILE"
 echo "Created C++ secrets: $SECRETS_FILE"
 echo "Created broker auth: $PASSWD_FILE"
+echo "Created Unity settings: $UNITY_SETTINGS_FILE"

@@ -1,11 +1,60 @@
-# CG4002 Pokemon AR - Unity Setup Guide
+# CG4002 Visualiser — AR game and communications
+
+This folder combines the former `pokemon-ar/` game source with the SSH/MQTT API.
+Both `NetworkManager.cs` and `SshMqttClient.cs` live in `Assets/Scripts/Networking/`.
+`NetworkManager` loads connection settings, creates and manages `SshMqttClient`,
+and delivers gestures through the existing `GestureEvents` bus. The gameplay
+scripts remain unchanged.
+This repository contains scripts and documentation to import into a
+separately created Unity project. Scenes, models, prefabs, package binaries,
+ProjectSettings and Unity-generated `.meta` files stay local.
+
+## Live comms quick start
+
+1. Run the repository root `./setup.sh`. It now also writes the ignored
+   `visualiser/Assets/StreamingAssets/secrets.json` used by `NetworkManager`.
+   Run it from this worktree when preparing this version. For Unity-only settings,
+   export `SOC_USERNAME`, `SOC_PASSWORD`, `MQTT_USER`, `MQTT_PASSWORD`, then run
+   `python3 visualiser/Tools/write_connection_settings.py --key ~/.ssh/esp32_key --output visualiser/Assets/StreamingAssets/secrets.json`.
+2. Copy `visualiser/Assets/Scripts/` into your Unity project's `Assets/Scripts/`,
+   and copy the generated `secrets.json` into `Assets/StreamingAssets/`. Unity
+   creates `.meta` files locally. Include the MQTTnet and SSH.NET assemblies and
+   their dependencies from the comms project. The client uses MQTTnet's
+   `MqttFactory`/`PayloadSegment` API and SSH.NET's `ConnectAsync` API.
+3. Add `NetworkManager` to the scene's NetworkManager object. It creates
+   `SshMqttClient` and connects using MQTT over TCP through the SSH tunnels.
+   No transport selection or additional networking component is required.
+4. Set **Model Id** to your FireBeetle ID to select a player/device. Empty accepts
+   all devices for single-device demos. **Minimum Confidence** defaults to zero.
+   `NetworkManager.IsConnected` and `Status` report the connection. `Reconnect()`
+   reconnects; application pause/disable cancels the connection, and resume/enable
+   restarts it. Haptic/config commands use `NetworkManager.Client.SendHapticAsync`
+   and `SendConfigAsync` through the same connection.
+5. On Ultra96, run the broker and `python comms/main.py`
+   from `ultra96/`, with the existing Python dependencies and MQTT credentials.
+   This connects to the local broker on port 1883. The phone reaches that broker
+   through the existing SSH jump-host and Ultra96 tunnels.
+
+`main.py` still uses random placeholder inference. This integration defines the
+eleven-label comms contract using the existing training/FPGA class order.
+The model hookup remains separate from this integration.
+Do not interpret game `gesture_id` values as neural-network class indices.
+
+NetworkManager prepares the existing battle catch handler before dispatching
+Aim, so Aim → Throw works without a separate Catch button. Existing gameplay
+semantics otherwise apply: U-turn requests Run (the game currently asks for a
+second Run to confirm), and the pocket actions currently show the game's
+"Coming Soon" messages. Actual menus, model retraining and game rules are outside
+this comms integration. The new physical set has no battle-entry gesture;
+`POKEBALL_THROW` remains available through the existing UI/debug controls.
+
+## Unity setup
 
 ## Prerequisites
 
 - **Unity Hub** + **Unity 6** (6000.x)
 - **Android Build Support** module (install via Unity Hub > Installs > Add Modules)
 - Android device with **ARCore** support (or iOS with ARKit)
-- Python 3.x (for mock server testing)
 
 ---
 
@@ -48,17 +97,22 @@ The Niantic Spatial SDK 4.1.0 provides:
 
 ## Step 3: Import Scripts
 
-Copy the entire `Assets/Scripts/` folder from this repo into your Unity project's `Assets/` folder.
+Copy `visualiser/Assets/Scripts/` into your Unity project's `Assets/Scripts/` folder. Include the comms dependencies and generated connection
+settings described above. The layout below includes folders you create locally;
+only the C# sources in Scripts are versioned under `visualiser/Assets/`.
+Unity-generated `.meta` files and locally created assets are ignored by this repo.
 
 ```
 Assets/
+├── StreamingAssets/               # Generated secrets.json (ignored by Git)
 ├── Scripts/
 │   ├── Core/
 │   │   ├── GameState.cs          # FSM: Idle→Encounter→Catch/Battle→Result
 │   │   ├── GestureData.cs        # Data contracts + event system
 │   │   └── PokemonData.cs        # ScriptableObject for Pokemon stats
 │   ├── Networking/
-│   │   └── NetworkManager.cs     # UDP/TCP listener for gesture signals
+│   │   ├── NetworkManager.cs     # Settings, lifecycle, transport → GestureEvents
+│   │   └── SshMqttClient.cs      # SSH tunnels and MQTT API
 │   ├── AR/
 │   │   └── PokemonSpawner.cs     # Lightship mesh + semantic spawn
 │   ├── Battle/
@@ -151,7 +205,7 @@ Scene Root
 
 | Pokemon | Role | Moves |
 |---------|------|-------|
-| Lucario | Player's Pokemon | Close Combat, Protect, Brick Break, Drain Punch |
+| Lucario | Player's Pokemon | Configure slots for Punch, Downward Swipe, Uppercut, Guard |
 | Eevee | Wild (easy catch) | - |
 | Machop | Wild (battle) | - |
 
@@ -162,11 +216,9 @@ In the Inspector for each Manager:
 - **BattleManager**: Assign the player's PokemonData ScriptableObject
 - **CatchManager**: Assign Pokeball prefab, VFX prefabs (sparkle, smoke, fizzle), reticle UI object
 - **BattleHUD**: Assign all UI text/slider references, reticle GameObject
-- **NetworkManager**: Set port (default 8888), choose UDP or TCP mode
+- **NetworkManager**: Set Model Id and optional Minimum Confidence.
 
-## Step 8: Test with Mock Server
-
-### Option A: Keyboard (in Unity Editor)
+## Step 8: Check Gameplay in Unity Editor
 Just press Play. The MockInputController shows controls in top-left:
 - `A` = Aim (show reticle)
 - `C` = Catch throw (fire Pokeball)
@@ -174,19 +226,6 @@ Just press Play. The MockInputController shows controls in top-left:
 - `B` = Battle entry
 - `1-4` = Battle moves
 - `R` = Reset
-
-### Option B: Python UDP sender (simulates external hardware)
-```bash
-cd MockServer
-python mock_gesture_server.py --ip 127.0.0.1 --port 8888
-```
-
-### Option C: Automated sequence
-```bash
-python continuous_mock.py --mode battle   # Auto-runs a battle
-python continuous_mock.py --mode catch    # Auto-runs a catch (with aiming)
-python continuous_mock.py --mode random   # Alternates randomly
-```
 
 ## Step 9: Build to Device
 
@@ -200,7 +239,12 @@ python continuous_mock.py --mode random   # Alternates randomly
 
 ## Network Protocol
 
-The AI pipeline (Ultra96/laptop) sends JSON over UDP to port 8888:
+Ultra96 publishes a non-retained MQTT message to `ultra96/<model_id>/inference`.
+`SshMqttClient` subscribes, then `NetworkManager.Update()` drains its queue,
+validates/filters messages and raises the existing game events on Unity's main thread.
+NetworkManager ignores telemetry/status topics when dispatching gestures.
+
+The gameplay payload is:
 
 ```json
 {
@@ -211,18 +255,53 @@ The AI pipeline (Ultra96/laptop) sends JSON over UDP to port 8888:
 }
 ```
 
-### Action Types:
+`timestamp` is Unix time in **milliseconds**, not the device's uptime. Live
+messages also include `model_id`, `predicted_action`, `window_shape`,
+`sample_sequence`, `sample_timestamp_ms`, `skipped_windows`, and the legacy
+`timestamp_ms` alias. Unity ignores these extra diagnostic fields.
+
+### New gesture set → JSON
+
+| Classifier label | Physical gesture | action | gesture_id |
+|---|---|---|---|
+| `PUNCH` | Punch | `BATTLE_MOVE` | 1 |
+| `DOWNWARD_SWIPE` | Downward swipe | `BATTLE_MOVE` | 2 |
+| `UPPERCUT` | Uppercut | `BATTLE_MOVE` | 3 |
+| `GUARD` | Fist, arm crossing chest | `BATTLE_MOVE` | 4 |
+| `FLEE` | U-turn | `BATTLE_ACTION` | 1 |
+| `SWITCH_POKEMON` | Back left pocket reach | `BATTLE_ACTION` | 2 |
+| `USE_ITEM` | Front left pocket reach | `BATTLE_ACTION` | 3 |
+| `AIM` | Throwing right arm raised to shoulder level | `ARM_PULLBACK` | 0 |
+| `THROW` | Throw from Aim position | `CATCH_THROW` | 0 |
+| `STOP_AIMING` | Arm returns to neutral | `CANCEL` | 0 |
+| `NEUTRAL` | Relaxed right arm down, facing ground | No action* | — |
+
+`GestureSequence` in `ultra96/comms/visualiser_protocol.py` owns per-device
+sequencing. It accepts Aim followed by Throw, then requires Stop Aim or Neutral
+before another gesture. Stop Aim before Throw cancels; *Neutral also emits
+`CANCEL` when returning from an active catch sequence, otherwise it sends nothing.
+Throw without Aim is ignored. Repeated windows of a held gesture emit only one
+message until the recognized label changes/reset occurs. Touch does not change
+Throw into battle entry in this gesture set.
+
+`NetworkManager` translates Aim into the existing `BATTLE_CATCH` preparation event
+followed by `ARM_PULLBACK`; catch preparation is ignored in the encounter phase.
+The JSON itself remains the same four-field contract. Configure Pokemon move
+slots to match this order (Guard/Protect in slot 4); existing assets and legacy
+debug labels are not rewritten by the comms layer.
+
+### All supported game actions:
 
 | action | gesture_id | Trigger |
 |--------|-----------|---------|
 | `ARM_PULLBACK` | 0 | Arm draws back (show reticle) |
 | `CATCH_THROW` | 0 | Overhead throw release (fire Pokeball) |
-| `POKEBALL_THROW` | 0 | Underhand throw motion (enter battle) |
-| `BATTLE_MOVE` | 1 | Many punches (Close Combat) |
-| `BATTLE_MOVE` | 2 | Block stance (Protect) |
-| `BATTLE_MOVE` | 3 | Up-to-down motion (Brick Break) |
-| `BATTLE_MOVE` | 4 | Single punch (Drain Punch) |
-| `DODGE` | 0 | Dodge motion (future) |
+| `POKEBALL_THROW` | 0 | Existing UI/debug battle entry (not in new classifier set) |
+| `BATTLE_MOVE` | 1 | Punch |
+| `BATTLE_MOVE` | 2 | Downward Swipe |
+| `BATTLE_MOVE` | 3 | Uppercut |
+| `BATTLE_MOVE` | 4 | Guard |
+| `BATTLE_ACTION` | 1–4 | Run, switch Pokemon, item, catch respectively |
 | `CANCEL` | 0 | Hand drops / cancel action |
 
 ---
@@ -241,12 +320,12 @@ The AI pipeline (Ultra96/laptop) sends JSON over UDP to port 8888:
 │  - Gesture recognition model (DPU)                  │
 │  - Classifies: punch, block, throw, pullback, etc.  │
 └──────────────┬──────────────────────────────────────┘
-               │ UDP JSON payload
+               │ MQTT JSON over SSH
                ▼
 ┌─────────────────────────────────────────────────────┐
 │  Phone (Unity 6 AR App + Niantic Spatial SDK 4.1)   │
 │  ┌─────────────────────────────────────────────┐    │
-│  │ NetworkManager (listens on port 8888)       │    │
+│  │ NetworkManager → GestureEvents              │    │
 │  │      ↓ GestureEvents                       │    │
 │  │ GameStateManager (FSM)                      │    │
 │  │      ↓ Phase transitions                   │    │
@@ -275,7 +354,7 @@ The AI pipeline (Ultra96/laptop) sends JSON over UDP to port 8888:
 
 1. Import 2-3 Pokemon models and set up Animator Controllers
 2. Test the full flow in Editor with MockInputController
-3. Test UDP communication with the Python mock server
-4. Integrate with the actual Ultra96 AI pipeline
+3. Verify the phone receives MQTT inference messages through the SSH tunnels
+4. Replace Ultra96 placeholder inference with the actual classifier
 5. Verify Lightship semantic segmentation maps terrain correctly to Pokemon types
 6. Add VFX (particle systems for sparkles, smoke, fizzle, hit effects)

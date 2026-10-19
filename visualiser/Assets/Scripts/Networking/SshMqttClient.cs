@@ -105,6 +105,7 @@ namespace CG4002.Comms
         long rejected, dropped;
         int running;
         public string Status { get { lock (gate) return status; } }
+        public bool IsConnected { get { lock (gate) return mqtt != null && mqtt.IsConnected; } }
         public long RejectedMessages { get { lock (gate) return rejected; } }
         public long DroppedMessages { get { lock (gate) return dropped; } }
         public SshMqttClient(ConnectionSecrets settings) { settings.Validate(); secrets = settings; }

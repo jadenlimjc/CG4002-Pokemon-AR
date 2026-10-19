@@ -70,6 +70,26 @@ ultra96/pytorch/error_inspection
 # ==========================================
 # 4. Visualiser - Unity (/visualiser)
 # ==========================================
+# This repository distributes scripts to import into a separately created Unity
+# project (see visualiser/README.md), not scenes or a complete Unity project.
+# Keep only C# sources under the existing Scripts layout.
+visualiser/Assets/**
+!visualiser/Assets/Scripts/
+!visualiser/Assets/Scripts/**/
+!visualiser/Assets/Scripts/**/*.cs
+# Keep credentials ignored even when their filename ends in .cs.
+visualiser/Assets/**/*secrets*
+
+# Unity generates metadata locally; no serialized scene/prefab GUIDs are shipped.
+visualiser/**/*.meta
+visualiser/Packages/
+visualiser/ProjectSettings/
+visualiser/.utmp/
+visualiser/.vs/
+visualiser/*.unitypackage
+visualiser/*.apk
+visualiser/*.aab
+
 # Unity auto-generated directories
 visualiser/[Ll]ibrary/
 visualiser/[Tt]emp/
