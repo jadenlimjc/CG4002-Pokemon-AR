@@ -12,6 +12,7 @@ echo "-- STARTING PULL DRY RUN (Computer <- Ultra96) --"
     --dry-run \
     --exclude='.venv' \
     --exclude='__pycache__' \
+    --exclude='visualiser/' \
     --exclude='.git' \
     --exclude='*secrets*' \
     "xilinx@makerslab-fpga-38.ddns.comp.nus.edu.sg:~/cg4002/" \
@@ -26,6 +27,7 @@ if [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]]; then
     -avz --delete \
     --exclude='.venv' \
     --exclude='__pycache__' \
+    --exclude='visualiser/' \
     --exclude='.git' \
     --exclude='*secrets*' \
     "xilinx@makerslab-fpga-38.ddns.comp.nus.edu.sg:~/cg4002/" \
