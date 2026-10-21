@@ -1,3 +1,129 @@
+# ==========================================
+# Global & OS System Files
+# ==========================================
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+.env
+*.pem
+*.key
+
+# Local credentials at any depth, including after files are moved or renamed.
+# Explicitly allow safe files with a later !path/to/file exception.
+*secrets*
+
+# IDE Settings
+.vscode/
+.idea/
+*.swp
+
+*__pycache__
+
+# ==========================================
+# 1. Broker (/broker)
+# ==========================================
+broker/*.log
+broker/*.pid
+broker/*.passwd
+
+
+# ==========================================
+# 2. ESP32 (/esp32)
+# ==========================================
+# PlatformIO build artifacts
+esp32/.pio/
+esp32/.vscode/
+
+# Arduino IDE build artifacts
+esp32/build/
+esp32/out/
+
+# ==========================================
+# 3. Ultra96 (/ultra96)
+# ==========================================
+# Python artifacts
+ultra96/__pycache__/
+ultra96/*.py[cod]
+ultra96/*$py.class
+ultra96/pytorch/**/__pycache__/
+
+# Virtual environments
+ultra96/venv/
+ultra96/.venv/
+ultra96/env/
+
+# Large ML models / weight files (adjust if committing small models)
+ultra96/pytorch/*.onnx
+ultra96/pytorch/*.pth
+ultra96/pytorch/*.h5
+ultra96/pytorch/*.xclbin
+# will likely remove once start training with real data to save checkpoints
+ultra96/pytorch/saved_checkpoints/ 
+ultra96/pytorch/**/*.png
+ultra96/online_data/UTD-MHAD_HumanActionRecognitionDataset/Inertial/
+ultra96/online_data/UTD-MHAD_HumanActionRecognitionDataset/utd_mhad_processed/
+ultra96/real_data/processed
+ultra96/pytorch/error_inspection
+
+
+# ==========================================
+# 4. Visualiser - Unity (/visualiser)
+# ==========================================
+# This repository distributes scripts to import into a separately created Unity
+# project (see visualiser/README.md), not scenes or a complete Unity project.
+# Keep only C# sources under the existing Scripts layout.
+visualiser/Assets/**
+!visualiser/Assets/Scripts/
+!visualiser/Assets/Scripts/**/
+!visualiser/Assets/Scripts/**/*.cs
+# Keep credentials ignored even when their filename ends in .cs.
+visualiser/Assets/**/*secrets*
+
+# Unity generates metadata locally; no serialized scene/prefab GUIDs are shipped.
+visualiser/**/*.meta
+visualiser/Packages/
+visualiser/ProjectSettings/
+visualiser/.utmp/
+visualiser/.vs/
+visualiser/*.unitypackage
+visualiser/*.apk
+visualiser/*.aab
+
+# Unity auto-generated directories
+visualiser/[Ll]ibrary/
+visualiser/[Tt]emp/
+visualiser/[Oo]bj/
+visualiser/[Bb]uild/
+visualiser/[Bb]uilds/
+visualiser/[Ll]ogs/
+visualiser/[Uu]serSettings/
+visualiser/[Mm]emoryCaptures/
+
+# Visual Studio / Rider generated files
+visualiser/*.csproj
+visualiser/*.unityproj
+visualiser/*.sln
+visualiser/*.suo
+visualiser/*.user
+visualiser/*.userprefs
+visualiser/*.pidb
+visualiser/*.booproj
+visualiser/*.svd
+visualiser/*.pdb
+visualiser/*.opendb
+visualiser/*.idb
+
+# OS X / Unity builds
+visualiser/*.app/
+/ultra96/.python-version
+
+!ultra96/comms/tests/telemetry.log
+
+# Live demo readback artifacts and metrics
+ultra96/comms/tests/received_files/
+ultra96/comms/tests/telemetry_demo_results.csv
+ultra96/comms/tests/telemetry_rtt_results.csv
 /[Ll]ibrary/
 /[Tt]emp/
 /[Oo]bj/

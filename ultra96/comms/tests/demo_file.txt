@@ -1,0 +1,15 @@
+CG4002 live file transfer
+Route: Ultra96 -> FireBeetle RAM -> Ultra96 -> Android visualiser
+Feel free to edit any of the text here to prove that the file is actually being transferred.
+
+I wish I was a caterpillar. Imagine how good it would be to simply crawl towards
+food and eat food. No other worries in life. My only goals are food and crawling.
+Instead I have responsibilities and CG4002. I have to worry about NUS VPN and
+SSH connectivity, and whether my communication channels are "encrypted". Oh, to
+be a simple caterpillar. A caterpillar wouldn't have to stay up late at night
+bashing its head as to why there is no inbuilt library from Espressif to create
+and maintain an SSH connection over a jumphost. A caterpillar wouldn't have to
+stress over midterms on Saturday. There is only leaf. On the other hand,
+caterpillars don't have access to YouTube Shorts. Caterpillars can't doomscroll
+and understand memes. I think the meaning of life is to doomscroll instead of
+doing anything productive.

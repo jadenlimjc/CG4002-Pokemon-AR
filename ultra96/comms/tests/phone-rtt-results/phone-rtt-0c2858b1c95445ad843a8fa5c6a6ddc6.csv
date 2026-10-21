@@ -1,0 +1,11 @@
+run_id,label,sequence,send_offset_ms,status,rtt_ms,rejected_replies,interval_ms,timeout_ms
+0c2858b1c95445ad843a8fa5c6a6ddc6,"baseline",1,70.972,timeout,,0,2000,15000
+0c2858b1c95445ad843a8fa5c6a6ddc6,"baseline",2,2077.373,timeout,,0,2000,15000
+0c2858b1c95445ad843a8fa5c6a6ddc6,"baseline",3,4090.494,timeout,,0,2000,15000
+0c2858b1c95445ad843a8fa5c6a6ddc6,"baseline",4,6102.990,cancelled,,0,2000,15000
+0c2858b1c95445ad843a8fa5c6a6ddc6,"baseline",5,8110.440,cancelled,,0,2000,15000
+0c2858b1c95445ad843a8fa5c6a6ddc6,"baseline",6,10116.254,cancelled,,0,2000,15000
+0c2858b1c95445ad843a8fa5c6a6ddc6,"baseline",7,12122.100,cancelled,,0,2000,15000
+0c2858b1c95445ad843a8fa5c6a6ddc6,"baseline",8,14135.501,cancelled,,0,2000,15000
+0c2858b1c95445ad843a8fa5c6a6ddc6,"baseline",9,16152.072,cancelled,,0,2000,15000
+0c2858b1c95445ad843a8fa5c6a6ddc6,"baseline",10,18158.710,cancelled,,0,2000,15000

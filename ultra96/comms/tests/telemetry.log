@@ -1,0 +1,126 @@
+[2026-09-16T07:48:30.186525] [cc386a2b1838] run_ended: 14128 accepted samples
+[2026-09-16T07:48:30.186525] [cc386a2b1838] +0.000s device_discovered: esp32/cc386a2b1838/status
+[2026-09-16T07:48:30.186525] [cc386a2b1838] +0.001s mqtt_presence: online (retained snapshot)
+[2026-09-16T07:48:30.186525] [cc386a2b1838] +0.049s first_telemetry: First sample received
+[2026-09-16T07:48:30.186525] [cc386a2b1838] +0.169s clock_synced: Offset=1789544751322.61ms
+[2026-09-16T07:48:30.186525] [cc386a2b1838] +141.333s broker_disconnected: Normal disconnection
+[2026-09-16T07:49:15.171115] [cc386a2b1838] run_ended: 2068 accepted samples
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +0.000s device_discovered: esp32/cc386a2b1838/status
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +0.001s mqtt_presence: online (retained snapshot)
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +0.012s first_telemetry: First sample received
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +0.286s clock_synced: Offset=1789544751325.36ms
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +6.809s telemetry_timeout: No samples for 2.003s
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +6.822s telemetry_resumed: Gap between samples: 2.016s
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +7.177s clock_synced: Offset=1789544751405.41ms
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +11.075s telemetry_timeout: No samples for 2.053s
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +17.636s mqtt_presence: offline (live broker message)
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +17.680s mqtt_presence: online (live broker message)
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +17.707s telemetry_resumed: Gap between samples: 8.685s
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +17.707s clock_restart_suspected: Sample index and device clock moved backwards
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +17.900s clock_synced: Offset=1789544925945.75ms
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +30.879s telemetry_timeout: No samples for 2.022s
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +36.394s mqtt_presence: offline (live broker message)
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +36.437s mqtt_presence: online (live broker message)
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +36.463s telemetry_resumed: Gap between samples: 7.605s
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +36.463s clock_restart_suspected: Sample index and device clock moved backwards
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +36.848s clock_synced: Offset=1789544945736.76ms
+[2026-09-16T07:49:15.171115] [cc386a2b1838] +39.013s broker_disconnected: Normal disconnection
+[2026-09-16T08:03:43.925791] [cc386a2b1838] run_ended: 3692 accepted samples
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +0.000s device_discovered: esp32/cc386a2b1838/status
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +0.001s mqtt_presence: online (retained snapshot)
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +0.001s first_telemetry: First sample received
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +0.241s clock_synced: Offset=1789545635210.18ms
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +13.892s telemetry_timeout: No samples for 2.077s
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +16.220s mqtt_presence: offline (live broker message)
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +19.966s mqtt_presence: online (live broker message)
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +20.010s telemetry_resumed: Gap between samples: 8.195s
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +20.010s clock_restart_suspected: Sample index and device clock moved backwards
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +20.167s clock_synced: Offset=1789545765872.26ms
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +24.876s telemetry_timeout: No samples for 2.019s
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +28.264s mqtt_presence: offline (live broker message)
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +29.915s mqtt_presence: online (live broker message)
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +29.959s telemetry_resumed: Gap between samples: 7.102s
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +29.959s clock_restart_suspected: Sample index and device clock moved backwards
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +30.090s clock_synced: Offset=1789545776774.52ms
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +37.661s telemetry_timeout: No samples for 2.057s
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +40.209s mqtt_presence: offline (live broker message)
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +54.447s mqtt_presence: online (live broker message)
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +54.496s telemetry_resumed: Gap between samples: 18.892s
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +54.496s clock_restart_suspected: Sample index and device clock moved backwards
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +54.628s clock_synced: Offset=1789545800821.25ms
+[2026-09-16T08:03:43.925791] [cc386a2b1838] +70.666s broker_disconnected: Normal disconnection
+[2026-09-17T02:32:20.570033] [cc386a2b1838] run_ended: 7279 accepted samples
+[2026-09-17T02:32:20.570033] [cc386a2b1838] +0.000s device_discovered: esp32/cc386a2b1838/status
+[2026-09-17T02:32:20.570033] [cc386a2b1838] +0.001s mqtt_presence: online (retained snapshot)
+[2026-09-17T02:32:20.570033] [cc386a2b1838] +0.071s first_telemetry: First sample received
+[2026-09-17T02:32:20.570033] [cc386a2b1838] +0.540s clock_synced: Offset=1789612209897.11ms
+[2026-09-17T02:32:20.570033] [cc386a2b1838] +72.690s broker_disconnected: Normal disconnection
+[2026-09-17T02:36:49.057226] [cc386a2b1838] run_ended: 0 accepted samples
+[2026-09-17T02:36:49.057226] [cc386a2b1838] +0.000s device_discovered: esp32/cc386a2b1838/status
+[2026-09-17T02:36:49.057226] [cc386a2b1838] +0.001s mqtt_presence: offline (retained snapshot)
+[2026-09-17T02:36:49.057226] [cc386a2b1838] +6.750s broker_disconnected: Normal disconnection
+[2026-09-17T02:36:49.057226] [7c9f172b1838] run_ended: 676 accepted samples
+[2026-09-17T02:36:49.057226] [7c9f172b1838] +0.000s device_discovered: esp32/7c9f172b1838/status
+[2026-09-17T02:36:49.057226] [7c9f172b1838] +0.000s mqtt_presence: online (retained snapshot)
+[2026-09-17T02:36:49.057226] [7c9f172b1838] +0.002s first_telemetry: First sample received
+[2026-09-17T02:36:49.057226] [7c9f172b1838] +0.206s clock_synced: Offset=1789612586088.46ms
+[2026-09-17T02:36:49.057226] [7c9f172b1838] +6.749s broker_disconnected: Normal disconnection
+[2026-09-17T02:38:47.371167] [cc386a2b1838] run_ended: 6196 accepted samples
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +0.000s device_discovered: esp32/cc386a2b1838/status
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +0.001s mqtt_presence: online (retained snapshot)
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +0.347s first_telemetry: First sample received
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +0.692s clock_synced: Offset=1789612619761.80ms
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +25.841s telemetry_timeout: No samples for 2.091s
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +26.294s telemetry_resumed: Gap between samples: 2.545s
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +26.521s mqtt_presence: offline (live broker message)
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +28.584s telemetry_timeout: No samples for 2.063s
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +29.201s mqtt_presence: online (live broker message)
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +29.307s telemetry_resumed: Gap between samples: 2.786s
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +29.773s clock_synced: Offset=1789612619799.66ms
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +55.096s telemetry_timeout: No samples for 2.014s
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +55.263s telemetry_resumed: Gap between samples: 2.181s
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +56.982s mqtt_presence: offline (live broker message)
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +59.075s telemetry_timeout: No samples for 2.093s
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +59.971s mqtt_presence: online (live broker message)
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +60.034s telemetry_resumed: Gap between samples: 3.053s
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +60.290s clock_synced: Offset=1789612619737.79ms
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +63.253s telemetry_timeout: No samples for 2.027s
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +67.828s mqtt_presence: offline (live broker message)
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +70.219s mqtt_presence: online (live broker message)
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +70.272s telemetry_resumed: Gap between samples: 9.046s
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +70.272s clock_restart_suspected: Sample index and device clock moved backwards
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +70.524s clock_synced: Offset=1789612699649.87ms
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +84.668s telemetry_timeout: No samples for 2.097s
+[2026-09-17T02:38:47.371167] [cc386a2b1838] +89.723s broker_disconnected: Normal disconnection
+[2026-09-17T02:38:47.371167] [7c9f172b1838] run_ended: 8151 accepted samples
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +0.000s device_discovered: esp32/7c9f172b1838/status
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +0.000s mqtt_presence: online (retained snapshot)
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +0.072s first_telemetry: First sample received
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +0.338s clock_synced: Offset=1789612618050.88ms
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +26.245s telemetry_timeout: No samples for 2.094s
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +30.730s telemetry_resumed: Gap between samples: 6.579s
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +30.998s mqtt_presence: offline (live broker message)
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +33.065s telemetry_timeout: No samples for 2.067s
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +33.147s mqtt_presence: online (live broker message)
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +33.206s telemetry_resumed: Gap between samples: 2.209s
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +33.425s clock_synced: Offset=1789612618010.97ms
+[2026-09-17T02:38:47.371167] [7c9f172b1838] +89.722s broker_disconnected: Normal disconnection
+[2026-09-17T03:38:38.225805] [cc386a2b1838] run_ended: 24304 accepted samples
+[2026-09-17T03:38:38.225805] [cc386a2b1838] +0.000s device_discovered: esp32/cc386a2b1838/status
+[2026-09-17T03:38:38.225805] [cc386a2b1838] +0.001s mqtt_presence: online (retained snapshot)
+[2026-09-17T03:38:38.225805] [cc386a2b1838] +0.035s first_telemetry: First sample received
+[2026-09-17T03:38:38.225805] [cc386a2b1838] +0.303s clock_synced: Offset=1789616050019.98ms
+[2026-09-17T03:38:38.225805] [cc386a2b1838] +120.759s telemetry_timeout: No samples for 2.027s
+[2026-09-17T03:38:38.225805] [cc386a2b1838] +121.303s telemetry_resumed: Gap between samples: 2.571s
+[2026-09-17T03:38:38.225805] [cc386a2b1838] +121.697s clock_synced: Offset=1789616050114.93ms
+[2026-09-17T03:38:38.225805] [cc386a2b1838] +244.381s broker_disconnected: Normal disconnection
+[2026-09-17T03:38:38.225805] [7c9f172b1838] run_ended: 0 accepted samples
+[2026-09-17T03:38:38.225805] [7c9f172b1838] +0.000s device_discovered: esp32/7c9f172b1838/status
+[2026-09-17T03:38:38.225805] [7c9f172b1838] +0.000s mqtt_presence: offline (retained snapshot)
+[2026-09-17T03:38:38.225805] [7c9f172b1838] +244.380s broker_disconnected: Normal disconnection
+[2026-09-17T04:03:34.967959] [cc386a2b1838] run_ended: 6578 accepted samples
+[2026-09-17T04:03:34.967959] [cc386a2b1838] +0.000s device_discovered: esp32/cc386a2b1838/status
+[2026-09-17T04:03:34.967959] [cc386a2b1838] +0.001s mqtt_presence: online (retained snapshot)
+[2026-09-17T04:03:34.967959] [cc386a2b1838] +0.063s first_telemetry: First sample received
+[2026-09-17T04:03:34.967959] [cc386a2b1838] +0.277s clock_synced: Offset=1789616050108.27ms
+[2026-09-17T04:03:34.967959] [cc386a2b1838] +65.754s broker_disconnected: Normal disconnection
