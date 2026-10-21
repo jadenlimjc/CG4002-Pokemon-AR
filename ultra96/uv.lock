@@ -994,7 +994,7 @@ dev = [
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.4.0" },
     { name = "numpy", specifier = ">=1.20.0" },
-    { name = "paho-mqtt", specifier = ">=1.6.1" },
+    { name = "paho-mqtt", specifier = ">=2.0,<3" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "torch", specifier = ">=1.9.0" },
 ]

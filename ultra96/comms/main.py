@@ -1,6 +1,7 @@
 """Route each FireBeetle's samples to its own buffer and a shared inference worker."""
 
 import argparse
+import asyncio
 from collections import OrderedDict
 from enum import Enum
 import json
@@ -140,7 +141,11 @@ class InferenceWorker:
             self.condition.notify()
 
     def _run(self):
+        loop = None
         try:
+            # PYNQ's XRT device requires a current loop in its owning thread.
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             self.accelerator = self.accelerator_factory()
             self.ready.set()
             while True:
@@ -169,6 +174,9 @@ class InferenceWorker:
                     self.failure = error
                     self.failed.set()
                     logging.exception("FPGA cleanup failed")
+            if loop is not None:
+                asyncio.set_event_loop(None)
+                loop.close()
 
     def close(self):
         with self.condition:

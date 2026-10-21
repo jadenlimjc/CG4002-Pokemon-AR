@@ -2,11 +2,14 @@
 
 from datetime import datetime
 import logging
+from pathlib import Path
 import select
 import sys
 from threading import RLock
 import time
 
+# Support direct execution from any working directory.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from integration_support import live_client, parser_for, telemetry_device
 from main import Action, InferenceWorker, TelemetryProcessor, TelemetryService
 from process_telemetry import PacketError, decode_packet

@@ -57,7 +57,7 @@ public class CatchManager : MonoBehaviour
 
         switch (action)
         {
-            case GestureAction.ARM_PULLBACK:
+            case GestureAction.ARM_PULLBACK: 
                 isAiming = true;
                 ShowReticle();
                 break;

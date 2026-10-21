@@ -1,6 +1,10 @@
 """Print every live ESP32 packet on Ultra96, with no inference or metrics."""
 
 import logging
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from integration_support import live_client, parser_for, telemetry_device
 from process_telemetry import BODY, CRC, PacketError, decode_packet
