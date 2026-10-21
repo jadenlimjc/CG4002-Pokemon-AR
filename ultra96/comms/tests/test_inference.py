@@ -1,6 +1,7 @@
 """Exercise the direct FPGA API boundary and two-board scheduling."""
 
 import importlib.util
+import asyncio
 import json
 from pathlib import Path
 import sys
@@ -219,6 +220,31 @@ class GameplayTests(unittest.TestCase):
 
 
 class SchedulingTests(unittest.TestCase):
+    def test_worker_has_event_loop_until_accelerator_cleanup(self):
+        loops = []
+
+        class Accelerator(FakeAccelerator):
+            def __init__(self):
+                super().__init__()
+                loops.append(asyncio.get_event_loop())
+
+            def close(self):
+                loops.append(asyncio.get_event_loop())
+                self_loop = loops[-1]
+                if self_loop.is_closed():
+                    raise RuntimeError('event loop closed before accelerator')
+                super().close()
+
+        worker = InferenceWorker(Accelerator)
+        try:
+            worker.start()
+        finally:
+            worker.close()
+        worker.raise_if_failed()
+        self.assertEqual(len(loops), 2)
+        self.assertIs(loops[0], loops[1])
+        self.assertTrue(loops[0].is_closed())
+
     def test_two_boards_keep_receiving_and_get_fair_latest_windows(self):
         entered, release, done = Event(), Event(), Event()
         calls, completed, lifecycle = [], [], []
