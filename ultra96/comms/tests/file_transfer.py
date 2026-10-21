@@ -36,11 +36,11 @@ def decode_frame(payload):
 
 
 MODES = ("auto", "file", "pipeline")
-# Edit these actual IMU/hall/flags samples live, then restart the script.
+# SI IMU samples (m/s^2, rad/s), touch mask, flags; restart after editing.
 DUMMY_SAMPLES = (
-    (1200, -800, 16000, 200, -300, 450, 900, 0),
-    (-4500, 2200, 15000, -800, 700, 300, 2800, 1),
-    (8000, -1200, 14000, 1600, -900, 250, 1500, 0),
+    (1.2, -0.8, 9.8, 0.2, -0.3, 0.45, 0, 0),
+    (-4.5, 2.2, 9.0, -0.8, 0.7, 0.3, 5, 1),
+    (8.0, -1.2, 8.5, 1.6, -0.9, 0.25, 0, 0),
 )
 
 
@@ -168,7 +168,8 @@ class TransferController:
                 before = decode_packet(p["packet"], require_crc=True)
                 after = decode_packet(data, require_crc=True)
                 expected = list(before.features)
-                expected[0] = -1 - expected[0]
+                # Match the ESP32 float32 subtraction, including its rounding.
+                expected[0] = struct.unpack("<f", struct.pack("<f", -1.0 - expected[0]))[0]
                 expected[-1] ^= 2
                 if after.sequence != before.sequence or after.features != tuple(expected):
                     raise ValueError("FireBeetle modification mismatch")

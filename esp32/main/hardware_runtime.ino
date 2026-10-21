@@ -85,11 +85,15 @@ void shutdownHardware();
 // =====================================================
 void setupHardware() {
 
-  Serial.println("Touch and hold index finger for 5 seconds to start...");
+  // Serial.println("Touch and hold index finger for 5 seconds to start...");
 
-  indexButton.begin(onIndexTouchIsr);
-  middleButton.begin(onMiddleTouchIsr);
-  ringButton.begin(onRingTouchIsr);
+  // indexButton.begin(onIndexTouchIsr);
+  // middleButton.begin(onMiddleTouchIsr);
+  // ringButton.begin(onRingTouchIsr);
+
+  // TODO: Comment these out once the above is uncommented
+  initHardware();
+  programStarted = true;
 
   motor.begin();
   motor.registerRunningFlag(&indexMotorRunning);
@@ -238,6 +242,17 @@ void checkSimulatedModelResponse() {
 }
 
 // -------------------------------------------------
+// Debug CSV: IMU,timestamp_ms,ax,ay,az,gx,gy,gz.
+// Acceleration is m/s^2; rotation is rad/s. Four decimals match the collector's
+// display precision; the transmitted float32 values are not rounded.
+void printImuReadings(const sensors_event_t& a, const sensors_event_t& g) {
+  Serial.printf("IMU,%lu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
+                static_cast<unsigned long>(a.timestamp),
+                a.acceleration.x, a.acceleration.y, a.acceleration.z,
+                g.gyro.x, g.gyro.y, g.gyro.z);
+}
+
+// -------------------------------------------------
 // Main sensing cycle: MPU6050 motion + hall sensor
 // Called by updateHardware() while started and automatic telemetry is enabled.
 // -------------------------------------------------
@@ -253,6 +268,7 @@ void runSensorCycle() {
 
   sensors_event_t a, g, temp;
   motion.read(a, g, temp);   // reads AND buffers internally
+  // printImuReadings(a, g);
 
   // Always read and buffer at 100 Hz. Optional gating uses the unchanged API.
   const uint16_t touchMask =

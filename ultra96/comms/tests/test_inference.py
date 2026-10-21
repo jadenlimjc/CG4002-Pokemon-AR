@@ -17,7 +17,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from main import Action, InferenceWorker, TelemetryProcessor, TelemetryService, create_accelerator
-from process_telemetry import (BODY, CRC, CHANGE_GATED, STREAM_START,
+from process_telemetry import (BODY, CRC,
                                InferenceWindow, TelemetryBuffer, model_input)
 from processing_demo import ProbeProcessor, ResultTrace
 from test_integration_tools import message, payload
@@ -72,11 +72,10 @@ class ModelTests(unittest.TestCase):
             buffer.add_packet(payload(index, flags=1))
         window = buffer.output_queue.get_nowait()
         # Independent MotionSensor/Adafruit SI reference for the wire fixture.
-        # Do not derive the reference from the decoder under test: that hid
-        # the old 65.536-vs-65.5 gyro sensitivity mismatch.
+        # Use SI readings directly, independently of the receiver conversion.
         physical = np.tile([
             9.80665, -9.80665, 0.5 * 9.80665,
-            np.deg2rad(16384 / 65.5), np.deg2rad(-16384 / 65.5), 0,
+            0.125, -0.25, 0.5,
         ], (256, 1)).astype(np.float32)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'gesture.csv'
@@ -93,71 +92,47 @@ class ModelTests(unittest.TestCase):
         driver.GestureCNNAccelerator.assert_called_once_with()
 
 
-class ChangeGatedTests(unittest.TestCase):
+class BufferTests(unittest.TestCase):
     @staticmethod
-    def packet(sequence, timestamp, ax=4096, flags=CHANGE_GATED):
+    def packet(sequence, timestamp, ax=9.80665, flags=0):
         body = BODY.pack(sequence, timestamp, ax, 0, 0, 0, 0, 0, 0, flags)
         return body + CRC.pack(zlib.crc32(body))
 
-    def test_skipped_readings_hold_previous_value_at_100hz(self):
-        buffer = TelemetryBuffer(window_size=6, hop_size=1)
-        buffer.add_packet(self.packet(0, 1000, flags=CHANGE_GATED | STREAM_START))
-        buffer.add_packet(self.packet(1, 1030, ax=8192))
-        buffer.add_packet(self.packet(2, 1050, ax=12288))
-        window = buffer.output_queue.get_nowait()
-        np.testing.assert_array_equal(window.features[:, 0], [1, 1, 1, 2, 2, 3])
-        self.assertEqual(window.timestamp_ms, 1050)
-        self.assertEqual(window.last_sequence, 2)
-        self.assertEqual(buffer.sequence_stats.gap_slots, 0)
-        self.assertTrue(buffer.output_queue.empty())
-
-    def test_long_silence_is_bounded_and_emits_only_on_received_packet(self):
-        buffer = TelemetryBuffer()
-        buffer.add_packet(self.packet(0, 10))
-        self.assertTrue(buffer.output_queue.empty())
-        buffer.add_packet(self.packet(1, 3600010, ax=8192))
-        window = buffer.output_queue.get_nowait()
-        self.assertEqual(window.features.shape, (256, 8))
-        np.testing.assert_array_equal(window.features[:-1, 0], np.ones(255))
-        self.assertEqual(window.features[-1, 0], 2)
-        self.assertTrue(buffer.output_queue.empty())
-        self.assertEqual(model_input(window.features).shape, (6, 256))
-
-    def test_loss_restart_and_backwards_time_do_not_invent_held_history(self):
-        for sequence, timestamp, flags in (
-                (2, 1000, CHANGE_GATED),  # a transmitted packet was lost
-                (1, 1000, CHANGE_GATED | STREAM_START),  # resumed hardware
-                (1, 90, CHANGE_GATED),  # clock moved backwards
-                (1, 100, CHANGE_GATED)):
-            with self.subTest(sequence=sequence, timestamp=timestamp, flags=flags):
-                buffer = TelemetryBuffer(window_size=4, hop_size=1)
-                buffer.add_packet(self.packet(0, 100))
-                buffer.add_packet(self.packet(sequence, timestamp, ax=8192, flags=flags))
-                self.assertEqual(len(buffer.buffer), 1)
-                self.assertEqual(buffer.buffer[0][0], 2)
-                self.assertTrue(buffer.output_queue.empty())
-
-    def test_timestamp_sequence_wrap_and_duplicates(self):
+    def test_small_sequence_gap_holds_previous_float32_sample(self):
         buffer = TelemetryBuffer(window_size=4, hop_size=1)
+        buffer.add_packet(self.packet(0, 1000))
+        buffer.add_packet(self.packet(3, 1030, ax=19.6133))
+        window = buffer.output_queue.get_nowait()
+        np.testing.assert_allclose(window.features[:, 0], [1, 1, 1, 2])
+        self.assertEqual(window.last_sequence, 3)
+        self.assertEqual(buffer.sequence_stats.gap_slots, 2)
+
+    def test_timestamp_gaps_and_flags_do_not_reconstruct_samples(self):
+        buffer = TelemetryBuffer(window_size=4, hop_size=1)
+        buffer.add_packet(self.packet(0, 10, flags=0x06))
+        buffer.add_packet(self.packet(1, 3600010, ax=19.6133, flags=0x02))
+        self.assertEqual(len(buffer.buffer), 2)
+        np.testing.assert_allclose(np.array(buffer.buffer)[:, 0], [1, 2])
+        self.assertTrue(buffer.output_queue.empty())
+
+    def test_large_sequence_gap_resets_buffer(self):
+        buffer = TelemetryBuffer(window_size=4, hop_size=1)
+        buffer.add_packet(self.packet(0, 100))
+        buffer.add_packet(self.packet(10, 200, ax=19.6133))
+        self.assertEqual(len(buffer.buffer), 1)
+        self.assertAlmostEqual(buffer.buffer[0][0], 2, places=6)
+        self.assertTrue(buffer.output_queue.empty())
+
+    def test_sequence_wrap_and_duplicates(self):
+        buffer = TelemetryBuffer(window_size=2, hop_size=1)
         buffer.add_packet(self.packet(0xffffffff, 0xfffffff0))
-        final = self.packet(0, 14, ax=8192)  # 30 ms across wrap
+        final = self.packet(0, 14, ax=19.6133)
         buffer.add_packet(final)
         buffer.add_packet(final)
         window = buffer.output_queue.get_nowait()
-        np.testing.assert_array_equal(window.features[:, 0], [1, 1, 1, 2])
+        np.testing.assert_allclose(window.features[:, 0], [1, 2])
         self.assertTrue(buffer.output_queue.empty())
         self.assertEqual(buffer.sequence_stats.duplicates, 1)
-
-    def test_continuous_and_gated_streams_reset_when_switching(self):
-        buffer = TelemetryBuffer(window_size=4, hop_size=1)
-        buffer.add_packet(self.packet(0, 0, flags=0))
-        buffer.add_packet(self.packet(1, 1000))
-        self.assertEqual(len(buffer.buffer), 1)
-        buffer.add_packet(self.packet(2, 1010, flags=0))
-        self.assertEqual(len(buffer.buffer), 1)
-        for index in range(3, 6):
-            buffer.add_packet(self.packet(index, 1010 + (index - 2) * 10, flags=0))
-        self.assertEqual(buffer.output_queue.get_nowait().features.shape, (4, 8))
 
 
 class GameplayTests(unittest.TestCase):
@@ -286,7 +261,7 @@ class SchedulingTests(unittest.TestCase):
         def send(board, first, last):
             for index in range(first, last):
                 service.on_message(client, None, message(
-                    payload(index, flags=1, ax=4096 if board == 'A' else 8192),
+                    payload(index, flags=1, ax=9.80665 if board == 'A' else 19.6133),
                     topic=f'esp32/{board}/telemetry'))
 
         worker.start()
