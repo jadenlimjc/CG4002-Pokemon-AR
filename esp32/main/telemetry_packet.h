@@ -39,6 +39,9 @@ constexpr uint16_t TELEMETRY_TOUCH_INDEX = 1u << 0;
 constexpr uint16_t TELEMETRY_TOUCH_MIDDLE = 1u << 1;
 constexpr uint16_t TELEMETRY_TOUCH_RING = 1u << 2;
 constexpr uint8_t TELEMETRY_ANY_TOUCH = 1u << 0; // Former Hall-trigger slot.
+// Changed samples retain timestamps for receiver-side 100 Hz hold reconstruction.
+constexpr uint8_t TELEMETRY_CHANGE_GATED = 1u << 1;
+constexpr uint8_t TELEMETRY_STREAM_START = 1u << 2;
 // Bit 7 asks U96 to acknowledge this one telemetry packet.
 constexpr uint8_t TELEMETRY_RTT_REQUEST = 0x80;
 

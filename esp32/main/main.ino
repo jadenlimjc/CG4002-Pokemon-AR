@@ -2,6 +2,8 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <atomic>
+#include <cmath>
+#include <Adafruit_Sensor.h>
 
 #include "esp_eap_client.h"
 #include "esp_wifi.h"
@@ -13,17 +15,26 @@
 #include "secrets.h"
 #include "telemetry_packet.h"
 #include "demo_protocol.h"
-#include "hardware_config.h" // Sample rate, pins, thresholds and feedback settings.
-#include "sensor_hardware.h"
-#include "buzzer_feedback.h"
+
 
 // ==========================================
 // CONFIGURATION
 // ==========================================
 
-// Edit hardware::SAMPLE_RATE_HZ near the top of hardware_config.h.
-// Both the FreeRTOS cadence and MPU6050 divider are derived from it.
-BuzzerFeedback buzzer;
+// Task cadence for the 100 Hz training recordings. MPU setup belongs to
+// the copied MotionSensor, invoked by hardware_runtime.ino.
+constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 100;
+constexpr uint16_t SENSOR_PERIOD_MS = 1000 / SENSOR_SAMPLE_RATE_HZ;
+constexpr TickType_t SENSOR_PERIOD_TICKS = pdMS_TO_TICKS(SENSOR_PERIOD_MS);
+static_assert(SENSOR_PERIOD_TICKS > 0 && configTICK_RATE_HZ % SENSOR_SAMPLE_RATE_HZ == 0,
+              "Sensor cadence must be representable by FreeRTOS ticks");
+std::atomic<bool> hapticRequested{false};
+
+// Endpoints of the renamed main_oop sketch; SensorSampleTask owns all hardware.
+void setupHardware();
+void updateHardware(bool telemetryEnabled, bool haptic);
+bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
+                         uint16_t touchMask, bool streamStart, bool changeGated);
 
 // Stable per-board identity. All boards run the same firmware.
 char model_id[13];
@@ -223,7 +234,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length);
 
 void setup() {
     Serial.begin(115200);
-    if (!buzzer.begin()) Serial.println("[BOOT] Buzzer PWM setup failed.");
 
     // Give serial monitor time to attach.
     delay(1000);
@@ -286,11 +296,11 @@ void setup() {
     BaseType_t sensor_result = xTaskCreatePinnedToCore(
         SensorSampleTask,
         "SensorSample",
-        hardware::SENSOR_TASK_STACK_BYTES,
+        4096,
         NULL,
-        hardware::SENSOR_TASK_PRIORITY,
+        3,
         NULL,
-        hardware::SENSOR_TASK_CORE
+        0
     );
 
     if (sensor_result != pdPASS) {
@@ -322,79 +332,66 @@ void setup() {
 // ==========================================
 
 void loop() {
-    // Feedback timing stays independent of sensor and network I/O.
-    buzzer.update();
-    vTaskDelay(hardware::BUZZER_SERVICE_TICKS);
+    // The hardware and network tasks own their respective services.
+    vTaskDelay(pdMS_TO_TICKS(1000));
 }
 
-// ==========================================
-// SENSOR SAMPLING TASK
-// Core selected in hardware_config.h
-// ==========================================
-
+// Sensor acquisition, gestures and feedback all remain in the original sketch
+// lifecycle. NetworkTask only posts requests and consumes queued packets.
 void SensorSampleTask(void* pvParameters) {
-    SensorHardware sensors;
-    bool sensorsReady = false;
-    uint32_t lastInitAttemptMs = millis() - hardware::SENSOR_RETRY_MS;
-    TickType_t xLastWakeTime = xTaskGetTickCount();
-
-    uint32_t current_index = 0;
-
-    Serial.printf("[SensorSample] Core %d, sample rate %u Hz.\n",
-                  int(hardware::SENSOR_TASK_CORE), unsigned(hardware::SAMPLE_RATE_HZ));
-
+    setupHardware();
+    TickType_t lastWake = xTaskGetTickCount();
     for (;;) {
-        vTaskDelayUntil(&xLastWakeTime, hardware::SAMPLE_PERIOD_TICKS);
-
-        if (demoMode.load() != AUTO) continue;
-
-        if (!sensorsReady) {
-            if (uint32_t(millis() - lastInitAttemptMs) < hardware::SENSOR_RETRY_MS) continue;
-            sensorsReady = sensors.begin();
-            lastInitAttemptMs = millis();
-            Serial.println(sensorsReady ? "[SensorSample] Hardware ready." :
-                                          "[SensorSample] MPU6050 unavailable; will retry.");
-            // Initialisation can span multiple periods; avoid catch-up bursts.
-            xLastWakeTime = xTaskGetTickCount();
-            continue;
-        }
-
-        TelemetryPacket packet = {};
-
-        packet.sample_index = current_index++;
-        packet.timestamp_ms = millis();
-
-        if (!sensors.read(packet)) {
-            // Skip invalid/stale data. The skipped sequence marks the failed sample.
-            sensorsReady = false;
-            lastInitAttemptMs = millis();
-            Serial.println("[SensorSample] MPU6050 read failed; will reinitialise.");
-            xLastWakeTime = xTaskGetTickCount();
-            continue;
-        }
-        packet.crc32 = telemetryCrc32(
-            reinterpret_cast<const uint8_t*>(&packet), offsetof(TelemetryPacket, crc32)
-        );
-
-        // ----------------------------------
-        // Push into queue
-        // ----------------------------------
-        //
-        // If full, discard the oldest sample
-        // and insert the newest one.
-        //
-
-        if (xQueueSend(telemetryQueue, &packet, 0) == errQUEUE_FULL) {
-            TelemetryPacket discarded;
-
-            if (xQueueReceive(telemetryQueue, &discarded, 0) == pdTRUE) {
-                ++queueDrops;
-            }
-            // NetworkTask may have drained the queue since the failed send.
-            // Retry even when no oldest sample remains to remove.
-            if (xQueueSend(telemetryQueue, &packet, 0) != pdTRUE) ++enqueueFailures;
+        vTaskDelayUntil(&lastWake, SENSOR_PERIOD_TICKS);
+        updateHardware(demoMode.load() == AUTO, hapticRequested.exchange(false));
+        // Startup/end melodies and MPU initialization can block. Resume from
+        // now rather than generating a burst of stale catch-up samples.
+        if (xTaskGetTickCount() - lastWake >= SENSOR_PERIOD_TICKS) {
+            lastWake = xTaskGetTickCount();
         }
     }
+}
+
+// Transport encoding only: invert MotionSensor's SI conversion to retain the
+// current 27-byte packet and all existing consumers. No hardware reads here.
+int16_t telemetryCounts(float value, float countsPerUnit) {
+    const float counts = value * countsPerUnit;
+    if (counts >= INT16_MAX) return INT16_MAX;
+    if (counts <= INT16_MIN) return INT16_MIN;
+    return static_cast<int16_t>(lroundf(counts));
+}
+
+bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
+                         uint16_t touchMask, bool streamStart, bool changeGated) {
+    if (!std::isfinite(a.acceleration.x) || !std::isfinite(a.acceleration.y) ||
+        !std::isfinite(a.acceleration.z) || !std::isfinite(g.gyro.x) ||
+        !std::isfinite(g.gyro.y) || !std::isfinite(g.gyro.z)) return false;
+
+    // Sequence counts transmission attempts; timestamps track sensor time.
+    // This distinguishes intentional silence from dropped queued packets.
+    static uint32_t sequence = 0;
+    TelemetryPacket packet = {};
+    packet.sample_index = sequence++;
+    packet.timestamp_ms = static_cast<uint32_t>(a.timestamp);
+    packet.accel_x = telemetryCounts(a.acceleration.x, 4096.0f / SENSORS_GRAVITY_STANDARD);
+    packet.accel_y = telemetryCounts(a.acceleration.y, 4096.0f / SENSORS_GRAVITY_STANDARD);
+    packet.accel_z = telemetryCounts(a.acceleration.z, 4096.0f / SENSORS_GRAVITY_STANDARD);
+    packet.gyro_x = telemetryCounts(g.gyro.x, 65.5f / SENSORS_DPS_TO_RADS);
+    packet.gyro_y = telemetryCounts(g.gyro.y, 65.5f / SENSORS_DPS_TO_RADS);
+    packet.gyro_z = telemetryCounts(g.gyro.z, 65.5f / SENSORS_DPS_TO_RADS);
+    packet.touch_mask = touchMask;
+    packet.flags = (changeGated ? TELEMETRY_CHANGE_GATED : 0) |
+        (streamStart ? TELEMETRY_STREAM_START : 0) |
+        (touchMask ? TELEMETRY_ANY_TOUCH : 0);
+    packet.crc32 = telemetryCrc32(
+        reinterpret_cast<const uint8_t*>(&packet), offsetof(TelemetryPacket, crc32));
+
+    if (xQueueSend(telemetryQueue, &packet, 0) == pdTRUE) return true;
+    TelemetryPacket discarded;
+    if (xQueueReceive(telemetryQueue, &discarded, 0) == pdTRUE) ++queueDrops;
+    if (xQueueSend(telemetryQueue, &packet, 0) == pdTRUE) return true;
+    ++enqueueFailures;
+    return false;
 }
 
 // ==========================================
@@ -782,7 +779,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
             Serial.printf("[DEMO] Mode confirmed: %s\n", modeNames[selected]);
         }
     } else if (strcmp(topic, topic_haptic) == 0 && demoMode.load() == AUTO) {
-        buzzer.beep(); // Thread-safe API; loop() owns PWM and duration.
+        hapticRequested.store(true); // Hardware task calls the existing buzzer object.
     }
     // In manual modes the Ultra96 subscribes to Haptic commands as Send triggers.
 }
