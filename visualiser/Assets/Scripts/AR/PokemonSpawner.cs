@@ -119,7 +119,7 @@ public class PokemonSpawner : MonoBehaviour
             float upDot = Vector3.Dot(hit.normal, Vector3.up);
             if (upDot < 0.7f) continue;
 
-            // Check clearance — no walls nearby and flat ground around the point
+            // Check clearance: no walls nearby and flat ground around the point
             if (!HasClearance(hit.point)) continue;
 
             position = hit.point;

@@ -9,8 +9,7 @@ title CG4002 Pokemon AR - Module Architecture
 
 rectangle "Unity AR Application" as App {
 
-    rectangle "SshMqttClient\n(SSH tunnels + MQTT transport)" as Comms
-    rectangle "NetworkManager\n(settings, lifecycle, filtering, main-thread delivery)\nMQTT over TCP via SSH" as NetworkMgr
+    rectangle "NetworkManager\n(UDP port 8888)" as NetworkMgr
     rectangle "GestureEvents\n(Global event bus)" as GestureEvt
 
     rectangle "CatchManager\n- Pokeball arc\n- Jiggle seq\n- Occluded VFX" as CatchMgr
@@ -29,12 +28,7 @@ rectangle "Unity AR Application" as App {
     }
 }
 
-rectangle "Ultra96 classifier → visualiser_protocol.py\naction, gesture_id, confidence, timestamp" as Ultra96
-
 ' === Connections ===
-Ultra96 -down-> Comms : "ultra96/<model_id>/inference"
-NetworkMgr -up-> Comms : "Create / RunAsync / cancel"
-Comms -down-> NetworkMgr : "TryDequeue"
 NetworkMgr -down-> GestureEvt : "Deserialize JSON"
 
 GestureEvt -down-> CatchMgr : "OnGestureReceived"

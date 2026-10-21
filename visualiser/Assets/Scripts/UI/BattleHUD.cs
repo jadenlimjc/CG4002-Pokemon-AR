@@ -18,22 +18,31 @@ public class BattleHUD : MonoBehaviour
     [SerializeField] private TextMeshProUGUI wildHPText;
     [SerializeField] private TextMeshProUGUI wildNameText;
 
-    [Header("Move Indicators")]
+    [Header("Move Display Tiles (4)")]
     [SerializeField] private GameObject movePanel;
-    [SerializeField] private TextMeshProUGUI move1Text;
-    [SerializeField] private TextMeshProUGUI move2Text;
-    [SerializeField] private TextMeshProUGUI move3Text;
-    [SerializeField] private TextMeshProUGUI move4Text;
+    [SerializeField] private GameObject[] moveTiles = new GameObject[4];
+    [SerializeField] private TextMeshProUGUI[] moveTileTexts = new TextMeshProUGUI[4];
+    [SerializeField] private Image[] moveTileImages = new Image[4];
 
-    [Header("Action Indicators")]
-    [SerializeField] private TextMeshProUGUI actionLabelsText;
+    [Header("Action Display Tiles")]
+    [SerializeField] private GameObject actionPanel;
+    [SerializeField] private GameObject catchTile;
+    [SerializeField] private GameObject pokemonTile;
+    [SerializeField] private GameObject itemTile;
+    [SerializeField] private GameObject runTile;
+
+    [Header("Prompt")]
+    [SerializeField] private TextMeshProUGUI promptText;
 
     [Header("Battle Messages")]
     [SerializeField] private TextMeshProUGUI messageText;
     [SerializeField] private float messageDisplayTime = 2f;
 
     [Header("Reticle")]
-    [SerializeField] private GameObject reticleObject; // Crosshair image centered on screen
+    [SerializeField] private GameObject reticleObject;
+
+    [Header("Feedback")]
+    [SerializeField] private float flashDuration = 0.2f;
 
     private void OnEnable()
     {
@@ -66,6 +75,9 @@ public class BattleHUD : MonoBehaviour
             CatchManager.Instance.OnCatchResult -= HandleCatchResult;
             CatchManager.Instance.OnCatchResult += HandleCatchResult;
         }
+
+        GestureEvents.OnGestureReceived -= HandleGestureVisual;
+        GestureEvents.OnGestureReceived += HandleGestureVisual;
     }
 
     private void OnDisable()
@@ -80,14 +92,13 @@ public class BattleHUD : MonoBehaviour
         }
 
         if (CatchManager.Instance != null)
-        {
             CatchManager.Instance.OnCatchResult -= HandleCatchResult;
-        }
+
+        GestureEvents.OnGestureReceived -= HandleGestureVisual;
     }
 
     private void HandlePhaseChanged(GamePhase oldPhase, GamePhase newPhase)
     {
-        // Show/hide panels based on phase
         battleHUDPanel?.SetActive(
             newPhase == GamePhase.BattleActive ||
             newPhase == GamePhase.BattleEntry
@@ -100,9 +111,6 @@ public class BattleHUD : MonoBehaviour
                 break;
             case GamePhase.BattleResult:
                 ShowBattleResult();
-                break;
-            case GamePhase.CatchResult:
-                // Handled by CatchManager event
                 break;
             case GamePhase.Idle:
                 HideAll();
@@ -117,30 +125,38 @@ public class BattleHUD : MonoBehaviour
 
         if (battle == null) return;
 
-        // Set names
         if (playerNameText != null)
             playerNameText.text = battle.PlayerPokemon?.pokemonName ?? "???";
         if (wildNameText != null && spawner?.CurrentPokemonData != null)
             wildNameText.text = spawner.CurrentPokemonData.pokemonName;
 
-        // Set move labels
+        if (promptText != null)
+            promptText.text = $"What will {battle.PlayerPokemon?.pokemonName ?? "???"} do?";
+
         if (battle.PlayerPokemon?.moves != null)
         {
             var moves = battle.PlayerPokemon.moves;
-            if (move1Text != null && moves.Length > 0) move1Text.text = $"1: {moves[0].moveName}";
-            if (move2Text != null && moves.Length > 1) move2Text.text = $"2: {moves[1].moveName}";
-            if (move3Text != null && moves.Length > 2) move3Text.text = $"3: {moves[2].moveName}";
-            if (move4Text != null && moves.Length > 3) move4Text.text = $"4: {moves[3].moveName}";
+            for (int i = 0; i < 4; i++)
+            {
+                if (i < moves.Length && moveTiles[i] != null)
+                {
+                    moveTiles[i].SetActive(true);
+                    if (moveTileTexts[i] != null)
+                        moveTileTexts[i].text = moves[i].moveName;
+                    if (moveTileImages[i] != null)
+                        moveTileImages[i].color = GetTypeColor(moves[i].moveType);
+                }
+                else if (moveTiles[i] != null)
+                {
+                    moveTiles[i].SetActive(false);
+                }
+            }
         }
 
-        if (actionLabelsText != null)
-            actionLabelsText.text = "5: Run  |  6: Switch  |  7: Item  |  8: Catch";
-
-        // Initialize HP bars
         UpdateHP(battle.PlayerHP, battle.WildHP);
 
-        if (movePanel != null)
-            movePanel.SetActive(true);
+        if (movePanel != null) movePanel.SetActive(true);
+        if (actionPanel != null) actionPanel.SetActive(true);
     }
 
     private void UpdateHP(int playerHP, int wildHP)
@@ -193,12 +209,77 @@ public class BattleHUD : MonoBehaviour
 
         bool playerWon = battle.WildHP <= 0;
         ShowMessage(playerWon ? "You won the battle!" : "You lost the battle...");
+
+        if (movePanel != null) movePanel.SetActive(false);
+        if (actionPanel != null) actionPanel.SetActive(false);
     }
 
     private void HideAll()
     {
         battleHUDPanel?.SetActive(false);
         reticleObject?.SetActive(false);
+        if (movePanel != null) movePanel.SetActive(false);
+        if (actionPanel != null) actionPanel.SetActive(false);
         if (messageText != null) messageText.text = "";
+    }
+
+    private void HandleGestureVisual(GestureAction action, float confidence)
+    {
+        if (GameStateManager.Instance == null ||
+            GameStateManager.Instance.CurrentPhase != GamePhase.BattleActive)
+            return;
+
+        GameObject target = action switch
+        {
+            GestureAction.BATTLE_MOVE_1 => moveTiles.Length > 0 ? moveTiles[0] : null,
+            GestureAction.BATTLE_MOVE_2 => moveTiles.Length > 1 ? moveTiles[1] : null,
+            GestureAction.BATTLE_MOVE_3 => moveTiles.Length > 2 ? moveTiles[2] : null,
+            GestureAction.BATTLE_MOVE_4 => moveTiles.Length > 3 ? moveTiles[3] : null,
+            GestureAction.BATTLE_CATCH => catchTile,
+            GestureAction.BATTLE_SWITCH => pokemonTile,
+            GestureAction.BATTLE_ITEM => itemTile,
+            GestureAction.BATTLE_RUN => runTile,
+            _ => null
+        };
+
+        if (target != null)
+            StartCoroutine(FlashTile(target));
+    }
+
+    private IEnumerator FlashTile(GameObject tile)
+    {
+        Image img = tile.GetComponent<Image>();
+        if (img == null) yield break;
+
+        Color original = img.color;
+        img.color = Color.Lerp(original, Color.white, 0.6f);
+        yield return new WaitForSeconds(flashDuration);
+        img.color = original;
+    }
+
+    public static Color GetTypeColor(PokemonType type)
+    {
+        return type switch
+        {
+            PokemonType.Normal   => new Color(0.66f, 0.65f, 0.48f),
+            PokemonType.Fire     => new Color(0.93f, 0.51f, 0.19f),
+            PokemonType.Water    => new Color(0.39f, 0.56f, 0.94f),
+            PokemonType.Grass    => new Color(0.47f, 0.78f, 0.30f),
+            PokemonType.Electric => new Color(0.97f, 0.82f, 0.17f),
+            PokemonType.Ice      => new Color(0.59f, 0.85f, 0.84f),
+            PokemonType.Fighting => new Color(0.76f, 0.18f, 0.16f),
+            PokemonType.Poison   => new Color(0.63f, 0.24f, 0.63f),
+            PokemonType.Ground   => new Color(0.88f, 0.75f, 0.40f),
+            PokemonType.Flying   => new Color(0.66f, 0.56f, 0.95f),
+            PokemonType.Psychic  => new Color(0.98f, 0.33f, 0.53f),
+            PokemonType.Bug      => new Color(0.65f, 0.73f, 0.10f),
+            PokemonType.Rock     => new Color(0.71f, 0.63f, 0.21f),
+            PokemonType.Ghost    => new Color(0.44f, 0.34f, 0.59f),
+            PokemonType.Dragon   => new Color(0.44f, 0.21f, 0.99f),
+            PokemonType.Dark     => new Color(0.44f, 0.34f, 0.27f),
+            PokemonType.Steel    => new Color(0.72f, 0.72f, 0.81f),
+            PokemonType.Fairy    => new Color(0.84f, 0.52f, 0.68f),
+            _                    => new Color(0.50f, 0.50f, 0.50f),
+        };
     }
 }
