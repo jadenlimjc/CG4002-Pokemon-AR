@@ -352,15 +352,7 @@ void SensorSampleTask(void* pvParameters) {
     }
 }
 
-// Transport encoding only: invert MotionSensor's SI conversion to retain the
-// current 27-byte packet and all existing consumers. No hardware reads here.
-int16_t telemetryCounts(float value, float countsPerUnit) {
-    const float counts = value * countsPerUnit;
-    if (counts >= INT16_MAX) return INT16_MAX;
-    if (counts <= INT16_MIN) return INT16_MIN;
-    return static_cast<int16_t>(lroundf(counts));
-}
-
+// Copy MotionSensor's getEvent() readings directly into the float32 packet.
 bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
                          uint16_t touchMask, bool streamStart, bool changeGated) {
     if (!std::isfinite(a.acceleration.x) || !std::isfinite(a.acceleration.y) ||
@@ -373,12 +365,12 @@ bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
     TelemetryPacket packet = {};
     packet.sample_index = sequence++;
     packet.timestamp_ms = static_cast<uint32_t>(a.timestamp);
-    packet.accel_x = telemetryCounts(a.acceleration.x, 4096.0f / SENSORS_GRAVITY_STANDARD);
-    packet.accel_y = telemetryCounts(a.acceleration.y, 4096.0f / SENSORS_GRAVITY_STANDARD);
-    packet.accel_z = telemetryCounts(a.acceleration.z, 4096.0f / SENSORS_GRAVITY_STANDARD);
-    packet.gyro_x = telemetryCounts(g.gyro.x, 65.5f / SENSORS_DPS_TO_RADS);
-    packet.gyro_y = telemetryCounts(g.gyro.y, 65.5f / SENSORS_DPS_TO_RADS);
-    packet.gyro_z = telemetryCounts(g.gyro.z, 65.5f / SENSORS_DPS_TO_RADS);
+    packet.accel_x = a.acceleration.x;
+    packet.accel_y = a.acceleration.y;
+    packet.accel_z = a.acceleration.z;
+    packet.gyro_x = g.gyro.x;
+    packet.gyro_y = g.gyro.y;
+    packet.gyro_z = g.gyro.z;
     packet.touch_mask = touchMask;
     packet.flags = (changeGated ? TELEMETRY_CHANGE_GATED : 0) |
         (streamStart ? TELEMETRY_STREAM_START : 0) |
@@ -680,7 +672,7 @@ void printGesturePacket(const char* direction, const TelemetryPacket& p) {
     Serial.printf("  %s seq=%lu device_ms=%lu CRC=OK (%08lx)\n",
                   direction, (unsigned long)p.sample_index,
                   (unsigned long)p.timestamp_ms, (unsigned long)p.crc32);
-    Serial.printf("  accel=(%d,%d,%d) gyro=(%d,%d,%d) touch_mask=0x%04x flags=0x%02x\n",
+    Serial.printf("  accel=(%.4f,%.4f,%.4f) m/s^2 gyro=(%.4f,%.4f,%.4f) rad/s touch_mask=0x%04x flags=0x%02x\n",
                   p.accel_x, p.accel_y, p.accel_z, p.gyro_x, p.gyro_y,
                   p.gyro_z, p.touch_mask, p.flags);
 }

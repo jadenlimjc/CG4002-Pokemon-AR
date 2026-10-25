@@ -1,6 +1,7 @@
 """Hardware-free checks of the packet viewer and processing trace."""
 
 from types import SimpleNamespace
+import struct
 import unittest
 from unittest.mock import Mock
 import zlib
@@ -9,13 +10,13 @@ import numpy as np
 
 from packet_viewer import PacketViewer, packet_line
 from processing_demo import ProcessingDemo, ResultTrace
-from process_telemetry import BODY, CRC, InferenceWindow, PacketError
+from process_telemetry import BODY, CRC, InferenceWindow, PacketError, decode_packet
 from main import InferenceWorker
 
 
-def payload(sequence=0, *, checked=True, flags=0x81, ax=4096):
-    body = BODY.pack(sequence, sequence * 10, ax, -4096, 2048,
-                     16384, -16384, 0, 5, flags)
+def payload(sequence=0, *, checked=True, flags=0x81, ax=9.80665):
+    body = BODY.pack(sequence, sequence * 10, ax, -9.80665, 4.903325,
+                     0.125, -0.25, 0.5, 5, flags)
     return body + CRC.pack(zlib.crc32(body)) if checked else body
 
 
@@ -25,11 +26,31 @@ def message(data=None, topic="esp32/board1/telemetry", retain=False):
 
 
 class PacketViewerTests(unittest.TestCase):
+    def test_esp32_float32_layout_and_crc(self):
+        # Independent wire fixture: do not derive its format from BODY.
+        values = (1.25, -2.5, 9.80665, 0.125, -0.25, 0.5)
+        body = struct.pack("<II6fHB", 0xffffffff, 1234, *values, 5, 0x81)
+        data = body + struct.pack("<I", zlib.crc32(body))
+        self.assertEqual(len(data), 39)
+        packet = decode_packet(data, require_crc=True)
+        self.assertEqual((packet.sequence, packet.timestamp_ms), (0xffffffff, 1234))
+        np.testing.assert_allclose(packet.features[:6], values, rtol=1e-7)
+        self.assertEqual(packet.features[6:], (5, 0x81))
+        for offset in (8, 34, 35, 38):
+            damaged = bytearray(data)
+            damaged[offset] ^= 1
+            with self.assertRaisesRegex(PacketError, "bad_crc"):
+                decode_packet(damaged, require_crc=True)
+        old_body = struct.pack("<II6hHB", 1, 10, 1, 2, 3, 4, 5, 6, 5, 0)
+        for old in (old_body, old_body + struct.pack("<I", zlib.crc32(old_body))):
+            with self.assertRaisesRegex(PacketError, "bad_length"):
+                decode_packet(old)
+
     def test_all_wire_fields_and_crc_are_printed(self):
         line = packet_line("board1", payload(7))
         for field in ("[board1]", "sample_index=7", "timestamp_ms=70",
-                      "accel_x=4096", "accel_y=-4096", "accel_z=2048",
-                      "gyro_x=16384", "gyro_y=-16384", "gyro_z=0",
+                      "accel_x=9.80665", "accel_y=-9.80665", "accel_z=4.903325",
+                      "gyro_x=0.125", "gyro_y=-0.25", "gyro_z=0.5",
                       "touch_mask=0x0005", "flags=0x81",
                       f"crc32=0x{zlib.crc32(payload(7)[:-4]):08x} (valid)"):
             self.assertIn(field, line)

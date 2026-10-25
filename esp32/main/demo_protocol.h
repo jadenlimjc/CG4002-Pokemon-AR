@@ -88,8 +88,8 @@ public:
             TelemetryPacket p;
             memcpy(&p, data, sizeof(p));
             if (p.crc32 != telemetryCrc32(data, offsetof(TelemetryPacket, crc32))) return 0;
-            // Visible, deterministic modification; safe even at int16 extremes.
-            p.accel_x = -1 - p.accel_x;
+            // Visible, deterministic modification for the manual float32 demo.
+            p.accel_x = -1.0f - p.accel_x;
             p.flags ^= 0x02;
             p.timestamp_ms = now;
             p.crc32 = telemetryCrc32(reinterpret_cast<const uint8_t*>(&p), offsetof(TelemetryPacket, crc32));

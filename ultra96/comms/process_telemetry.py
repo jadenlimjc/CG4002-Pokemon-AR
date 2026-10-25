@@ -1,25 +1,17 @@
 from collections import deque
 from dataclasses import dataclass
 from queue import Full, Queue
-from pathlib import Path
 import struct
-import sys
 import time
 import zlib
 
 import numpy as np
 
-# Reuse the training implementation, including when main.py is run directly.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from real_data.preprocess_real_gestures import (
-    ACCEL_RANGE_G, GRAVITY_M_S2, GYRO_RANGE_DPS, normalize_samples,
-)
-
-# The packet adapter reverses main_oop MotionSensor's Adafruit SI conversion.
-# Match Adafruit's sensitivity, especially 65.5 rather than 32768 / 500.
-SIGNED_SENSOR_COUNTS = 1 << 15
-ACCEL_SCALE = 1.0 / 4096.0
-GYRO_SCALE = 1.0 / 65.5
+# ESP32 sends float32 SI readings; the buffer keeps g and degrees/s.
+ACCEL_RANGE_G = 8.0
+GYRO_RANGE_DPS = 500.0
+ACCEL_SCALE = 1.0 / 9.80665
+GYRO_SCALE = 180.0 / np.pi
 
 
 def model_input(features):
@@ -31,18 +23,16 @@ def model_input(features):
     features = np.asarray(features)
     if features.shape != (256, 8):
         raise ValueError(f"Expected live window (256, 8), got {features.shape}")
-    physical = np.array(features[:, :6], dtype=np.float32, copy=True)
-    physical[:, :3] *= GRAVITY_M_S2
-    physical[:, 3:] = np.deg2rad(physical[:, 3:])
-    return np.ascontiguousarray(normalize_samples(physical).T)
+    scales = np.array([ACCEL_RANGE_G] * 3 + [GYRO_RANGE_DPS] * 3, dtype=np.float32)
+    result = np.ascontiguousarray((features[:, :6] / scales).T, dtype=np.float32)
+    if not np.isfinite(result).all():
+        raise ValueError("Non-finite IMU input")
+    return result
 
 
 # ESP32 wire format: sequence, milliseconds, IMU, touch mask, flags, optional CRC.
-BODY = struct.Struct("<IIhhhhhhHB")
+BODY = struct.Struct("<II6fHB")
 CRC = struct.Struct("<I")
-CHANGE_GATED = 0x02
-STREAM_START = 0x04
-SAMPLE_PERIOD_MS = 10
 
 
 class PacketError(ValueError):
@@ -118,7 +108,6 @@ class TelemetryBuffer:
         self.buffer = deque(maxlen=window_size)
         self.expected_seq = None
         self.sequence_stats = SequenceStats()
-        self.last_gated_timestamp = None
 
     def _convert_units(self, raw_readings: tuple) -> list:
         ax, ay, az, gx, gy, gz, touch_mask, flags = raw_readings
@@ -148,15 +137,6 @@ class TelemetryBuffer:
 
         converted = self._convert_units(raw_features)
 
-        if raw_features[-1] & CHANGE_GATED:
-            self._add_change_gated(packet, converted)
-            return
-        if self.last_gated_timestamp is not None:
-            self.buffer.clear()
-            self.step_counter = 0
-            self.expected_seq = None
-            self.last_gated_timestamp = None
-
         if self.expected_seq is None:
             self.expected_seq = sample_index
 
@@ -181,31 +161,6 @@ class TelemetryBuffer:
             self.step_counter = 0
             self._push_and_emit(converted, sample_index, packet.timestamp_ms)
             self.expected_seq = (sample_index + 1) & 0xffffffff
-
-    def _add_change_gated(self, packet, converted):
-        """Restore 10 ms slots using the last received value (lossy hold).
-
-        Gated sequence numbers count transmissions, so a sequence gap means
-        actual missing data, not intentional suppression. Never bridge that
-        gap, a restart, or a switch from the continuous protocol. Work remains
-        bounded to one window even after hours without significant motion.
-        """
-        elapsed = (None if self.last_gated_timestamp is None else
-                   (packet.timestamp_ms - self.last_gated_timestamp) & 0xffffffff)
-        if (elapsed is None or elapsed == 0 or elapsed >= 0x80000000
-                or packet.sequence != self.expected_seq
-                or packet.features[-1] & STREAM_START):
-            self.buffer.clear()
-            self.step_counter = 0
-        elif self.buffer:
-            slots = max(1, (elapsed + SAMPLE_PERIOD_MS // 2) // SAMPLE_PERIOD_MS)
-            missing = min(slots - 1, self.window_size - 1)
-            self.buffer.extend([self.buffer[-1]] * missing)
-            self.step_counter += missing
-        self.last_gated_timestamp = packet.timestamp_ms
-        self.expected_seq = (packet.sequence + 1) & 0xffffffff
-        # Emit only at the real packet, not a burst of stale synthetic windows.
-        self._push_and_emit(converted, packet.sequence, packet.timestamp_ms)
 
     def _push_and_emit(self, frame: list, sequence, timestamp_ms):
         self.buffer.append(frame)
