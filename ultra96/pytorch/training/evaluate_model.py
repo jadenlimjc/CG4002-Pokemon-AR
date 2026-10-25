@@ -1,3 +1,15 @@
+"""Evaluate a trained software model on the default test split or --data NPZ.
+
+Example from the repository root:
+    python ultra96/pytorch/training/evaluate_model.py --data \
+        ultra96/real_data/processed/jaden_recordings_22_oct__yiyang_recordings_22_oct_test.npz
+
+Use --checkpoint to choose trained weights and --output to choose the
+confusion-matrix image. No training is performed.
+Defaults to the real test split. UTD NPZs are identified by their
+source_action_ids metadata and select the UTD checkpoint automatically.
+"""
+
 import torch
 from torch.utils.data import DataLoader
 import numpy as np
@@ -71,14 +83,20 @@ def main(args=None):
     
     # --- Configuration ---
     args = args or parse_args()
-    default_data_dir, file_prefix = DATASET_CONFIGS[args.dataset]
+    default_data_dir, file_prefix = DATASET_CONFIGS["real"]
     data_dir = args.data_dir or default_data_dir
+    test_path = args.data or os.path.join(data_dir, f"{file_prefix}_test.npz")
+    print(f"Loading evaluation data from '{test_path}'...")
+    test_dataset = NPZIMUDataset(test_path)
+    if not len(test_dataset):
+        raise ValueError(f"{test_path}: evaluation dataset is empty")
+    # The UTD preprocessor records its proxy actions in this metadata field.
+    # Inspect the file contents so renamed UTD NPZs also select UTD weights.
+    with np.load(test_path) as data:
+        dataset_name = "utd" if "source_action_ids" in data else "real"
     best_model_path = args.checkpoint or os.path.join(
         PYTORCH_DIR, "saved_checkpoints",
-        f"gesture_1dcnn_{args.dataset}_100hz_256_best.pth"
-    )
-    test_dataset = NPZIMUDataset(
-        os.path.join(data_dir, f"{file_prefix}_test.npz")
+        f"gesture_1dcnn_{dataset_name}_100hz_256_best.pth"
     )
     gesture_map = dict(enumerate(test_dataset.class_names))
     output_path = args.output
@@ -101,9 +119,12 @@ def main(args=None):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", choices=DATASET_CONFIGS, default="real")
-    parser.add_argument("--data-dir", default=None,
-                        help="override the selected dataset processed directory")
+    data_source = parser.add_mutually_exclusive_group()
+    data_source.add_argument("--data", default=None,
+                             help="evaluate an NPZ directly; defaults to the real test "
+                                  "split, UTD metadata selects UTD weights")
+    data_source.add_argument("--data-dir", default=None,
+                             help="directory containing real_gestures_test.npz")
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--output", default=os.path.join(
         SCRIPT_DIR, "real_gestures_confusion_matrix.png"))
