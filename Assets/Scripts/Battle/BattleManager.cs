@@ -184,12 +184,58 @@ public class BattleManager : MonoBehaviour
         PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
         wildPokemonData = spawner.CurrentPokemonData;
 
-        // Initialize HP
         playerHP = playerPokemon.maxHP;
         wildHP = wildPokemonData.maxHP;
 
-        // Spawn player's Pokemon
-        SpawnPlayerPokemon();
+        OnHPChanged?.Invoke(playerHP, wildHP);
+
+        StartCoroutine(BattleEntrySequence(spawner));
+    }
+
+    private IEnumerator BattleEntrySequence(PokemonSpawner spawner)
+    {
+        // Calculate player pokemon spawn position
+        Transform cam = Camera.main.transform;
+        Vector3 spawnPos = cam.position
+            + cam.forward * playerPokemonDistance
+            + cam.right * playerPokemonSide;
+        spawnPos.y -= 0.5f;
+
+        // Throw pokeball from slightly behind-left of camera to spawn position
+        Vector3 throwStart = cam.position - cam.right * 0.3f - cam.up * 0.3f + cam.forward * 0.3f;
+
+        GameObject pokeball;
+        if (pokeballPrefab != null)
+            pokeball = Instantiate(pokeballPrefab, throwStart, Quaternion.identity);
+        else
+        {
+            pokeball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            pokeball.transform.position = throwStart;
+            pokeball.transform.localScale = Vector3.one * 0.1f;
+        }
+
+        float duration = 0.8f;
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / duration;
+            Vector3 pos = Vector3.Lerp(throwStart, spawnPos, t);
+            pos.y += throwArc * Mathf.Sin(t * Mathf.PI);
+            pokeball.transform.position = pos;
+            pokeball.transform.Rotate(Vector3.right * 720 * Time.deltaTime);
+            yield return null;
+        }
+
+        pokeball.transform.rotation = Quaternion.identity;
+        pokeball.transform.position = spawnPos;
+
+        yield return new WaitForSeconds(0.3f);
+
+        Destroy(pokeball);
+
+        // Spawn pokemon at the pre-calculated position
+        SpawnPlayerPokemon(spawnPos);
 
         // Get wild Pokemon animator and face the player's Pokemon
         if (spawner.CurrentWildPokemon != null)
@@ -212,22 +258,16 @@ public class BattleManager : MonoBehaviour
         isPlayerTurn = true;
         isProcessingMove = false;
 
-        OnHPChanged?.Invoke(playerHP, wildHP);
         OnBattleMessage?.Invoke($"Go, {playerPokemon.pokemonName}!");
 
-        // Transition to active after a short delay
-        StartCoroutine(DelayedTransition(GamePhase.BattleActive, 2f));
+        yield return new WaitForSeconds(2f);
+
+        GameStateManager.Instance.TransitionTo(GamePhase.BattleActive);
     }
 
-    private void SpawnPlayerPokemon()
+    private void SpawnPlayerPokemon(Vector3 spawnPos)
     {
         if (playerPokemon.modelPrefab == null) return;
-
-        Transform cam = Camera.main.transform;
-        Vector3 spawnPos = cam.position
-            + cam.forward * playerPokemonDistance
-            + cam.right * playerPokemonSide;
-        spawnPos.y -= 0.5f; // slightly below eye level
 
         playerPokemonInstance = Instantiate(
             playerPokemon.modelPrefab,
@@ -236,7 +276,6 @@ public class BattleManager : MonoBehaviour
         );
         playerPokemonInstance.transform.localScale = Vector3.one * playerPokemon.spawnScale;
 
-        // Face the wild Pokemon
         PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
         if (spawner.CurrentWildPokemon != null)
         {
