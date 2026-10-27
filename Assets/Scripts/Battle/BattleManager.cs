@@ -403,6 +403,7 @@ public class BattleManager : MonoBehaviour
             yield return null;
         }
 
+        activePokeball.transform.rotation = Quaternion.identity;
         spawner.CurrentWildPokemon.SetActive(false);
         activePokeball.transform.position = targetPos;
 
