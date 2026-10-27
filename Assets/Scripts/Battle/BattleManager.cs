@@ -86,6 +86,10 @@ public class BattleManager : MonoBehaviour
         {
             StartBattle();
         }
+        else if (newPhase == GamePhase.BattleResult)
+        {
+            StartCoroutine(DelayedTransition(GamePhase.Idle, 3f));
+        }
         else if (newPhase == GamePhase.Idle)
         {
             CleanupBattle();
