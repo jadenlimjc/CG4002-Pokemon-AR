@@ -6,6 +6,16 @@ transport; future inference implementations can call this same boundary.
 
 import math
 import time
+from dataclasses import dataclass
+
+DEFAULT_CONFIDENCE_THRESHOLD = 0.90
+
+
+def confidence_threshold(value):
+    value = float(value)
+    if not math.isfinite(value) or not 0 <= value <= 1:
+        raise ValueError("confidence threshold must be finite and between 0 and 1")
+    return value
 
 # Canonical labels for the new gesture set. IDs are game move slots, not CNN class indices.
 GESTURE_MAPPING = {
@@ -49,44 +59,99 @@ def create_gesture_payload(predicted_action, confidence, *, timestamp_ms=None):
     }
 
 
+@dataclass(frozen=True)
+class SequenceState:
+    name: str = "NEUTRAL"
+    last_action: str | None = None
+
+
+@dataclass(frozen=True)
+class GestureDecision:
+    """A proposed transition. Publishing callers commit only after acceptance."""
+    before: SequenceState
+    after: SequenceState
+    payload: dict | None
+    reason: str
+    detail: str
+
+
 class GestureSequence:
-    """Per-device recognition state, independent of transport and game phase.
+    """Per-device confidence gate and catch sequencing, owned by inference.
 
     Aim arms one throw. Stop Aim or Neutral cancels/rearms; after a throw that
-    reset is required before another gesture is accepted. Repeated windows of
-    the same non-neutral gesture produce one event, until the label changes.
-    """
-    def __init__(self):
-        self.aiming = False
-        self.awaiting_reset = False
-        self.last_action = None
+    reset is required before another gesture. A held battle gesture emits once
+    until a different accepted gesture or confident Neutral. Rejected labels,
+    including Stop Aim while idle, never clear the repeat latch.
 
-    def consume(self, predicted_action, confidence, *, timestamp_ms=None):
-        # Validate before changing state, including for a neutral observation.
-        payload = create_gesture_payload(predicted_action, confidence, timestamp_ms=timestamp_ms)
+    No voting, dwell time, cooldown, or changes to the model window are applied.
+    evaluate() is pure; commit() lets transport failure leave the state intact.
+    """
+    def __init__(self, threshold=DEFAULT_CONFIDENCE_THRESHOLD):
+        self.confidence_threshold = confidence_threshold(threshold)
+        self._state = SequenceState()
+
+    @property
+    def state(self):
+        return self._state.name
+
+    @property
+    def aiming(self):
+        return self.state == "AIMING"
+
+    @property
+    def awaiting_reset(self):
+        return self.state == "AWAITING_RESET"
+
+    @property
+    def last_action(self):
+        return self._state.last_action
+
+    def evaluate(self, predicted_action, confidence, *, timestamp_ms=None):
+        payload = create_gesture_payload(predicted_action, confidence,
+                                         timestamp_ms=timestamp_ms)
+        before = self._state
+
+        def reject(reason, detail):
+            return GestureDecision(before, before, None, reason, detail)
+
+        if payload["confidence"] < self.confidence_threshold:
+            return reject("LOW_CONFIDENCE", f"Confidence {payload['confidence']:.2%} is below "
+                          f"{self.confidence_threshold:.2%}; state and repeat latch unchanged.")
         if predicted_action in ("NEUTRAL", "STOP_AIMING"):
-            had_catch_sequence = self.aiming or self.awaiting_reset
-            self.aiming = False
-            self.awaiting_reset = False
-            self.last_action = None
-            if had_catch_sequence:
-                return create_gesture_payload("STOP_AIMING", confidence,
-                                              timestamp_ms=payload["timestamp"])
-            return None
+            if self.aiming or self.awaiting_reset:
+                cancel = create_gesture_payload("STOP_AIMING", confidence,
+                                                timestamp_ms=payload["timestamp"])
+                return GestureDecision(before, SequenceState(), cancel, "RESET",
+                                       "Return to neutral; send CANCEL and rearm gestures.")
+            if predicted_action == "STOP_AIMING":
+                return reject("NOT_AIMING", "STOP_AIMING is invalid while neutral; repeat latch unchanged.")
+            return GestureDecision(before, SequenceState(), None, "NEUTRAL",
+                                   "Confident neutral; repeat latch cleared. No gameplay event needed.")
         if self.awaiting_reset:
-            return None
+            return reject("AWAITING_RESET", "Throw already sent; return to NEUTRAL or STOP_AIMING first.")
         if predicted_action == "AIM":
             if self.aiming:
-                return None
-            self.aiming = True
+                return reject("ALREADY_AIMING", "AIM already sent; waiting for THROW, STOP_AIMING or NEUTRAL.")
+            after = SequenceState("AIMING", predicted_action)
         elif predicted_action == "THROW":
             if not self.aiming:
-                return None
-            self.aiming = False
-            self.awaiting_reset = True
+                return reject("NOT_AIMING", "THROW is invalid until AIM has been sent.")
+            after = SequenceState("AWAITING_RESET", predicted_action)
         elif self.aiming:
-            return None  # Finish/cancel the catch sequence before another action.
+            return reject("AIMING_LOCK", "Finish with THROW or cancel with STOP_AIMING / NEUTRAL first.")
         elif predicted_action == self.last_action:
-            return None
-        self.last_action = predicted_action
-        return payload
+            return reject("REPEATED", f"{predicted_action} already sent; waiting for neutral or a different accepted gesture.")
+        else:
+            after = SequenceState("NEUTRAL", predicted_action)
+        return GestureDecision(before, after, payload, "VALID", "Confidence and gesture sequence are valid.")
+
+    def commit(self, decision):
+        if self._state != decision.before:
+            raise ValueError("Cannot commit a decision from an outdated gesture state")
+        self._state = decision.after
+
+    def consume(self, predicted_action, confidence, *, timestamp_ms=None):
+        """Convenience for transport-free consumers; live sends use evaluate/commit."""
+        decision = self.evaluate(predicted_action, confidence, timestamp_ms=timestamp_ms)
+        self.commit(decision)
+        return decision.payload
