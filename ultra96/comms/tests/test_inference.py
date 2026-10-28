@@ -147,7 +147,9 @@ class GameplayTests(unittest.TestCase):
         results = []
         for label in (1, 3, 4, 0, 4, 4):  # Aim, throw, blocked punch, reset, punch, repeat.
             self.accelerator.label = label
-            results.append(self.processor.run_inference(live_window()))
+            for _ in range(3):
+                result = self.processor.run_inference(live_window())
+            results.append(result)
         self.assertEqual([r['status'] for r in results],
                          ['PUBLISHED', 'PUBLISHED', 'SUPPRESSED', 'PUBLISHED', 'PUBLISHED', 'SUPPRESSED'])
         events = [json.loads(call.args[1]) for call in self.client.publish.call_args_list]
@@ -163,18 +165,58 @@ class GameplayTests(unittest.TestCase):
         self.assertGreaterEqual(events[-1]['timing_ms']['receive_to_result'],
                                 events[-1]['timing_ms']['inference'])
         other = TelemetryProcessor(self.client, 'B', self.worker)
+        for _ in range(2):
+            self.assertEqual(other.run_inference(live_window())['status'], 'CONFIRMING')
         self.assertEqual(other.run_inference(live_window())['status'], 'PUBLISHED')
         self.assertEqual(self.client.publish.call_args.args[0], 'ultra96/B/inference')
 
     def test_low_confidence_does_not_change_sequence_or_publish(self):
         self.accelerator.label = 1
-        self.processor.run_inference(live_window())
+        for _ in range(3):
+            self.processor.run_inference(live_window())
         self.client.reset_mock()
         self.accelerator.predict_logits_timed = lambda _: (np.zeros(11), SimpleNamespace(as_dict=lambda: {}))
         result = self.processor.run_inference(live_window())
         self.assertEqual(result['status'], 'LOW_CONFIDENCE')
         self.assertTrue(self.processor.gesture_sequence.aiming)
         self.client.publish.assert_not_called()
+
+    def test_transient_wrong_label_is_not_published(self):
+        results = []
+        for label in (5, 4, 4, 4, 4):  # Brief swipe B, then sustained punch A.
+            self.accelerator.label = label
+            results.append(self.processor.run_inference(live_window()))
+        self.assertEqual([r['status'] for r in results],
+                         ['CONFIRMING', 'CONFIRMING', 'CONFIRMING', 'PUBLISHED', 'SUPPRESSED'])
+        self.assertEqual([r['confirmation_count'] for r in results], [1, 1, 2, 3, 3])
+        self.client.publish.assert_called_once()
+        event = json.loads(self.client.publish.call_args.args[1])
+        self.assertEqual(event['predicted_action'], 'PUNCH')
+
+    def test_low_confidence_restarts_confirmation(self):
+        for _ in range(2):
+            self.processor.run_inference(live_window())
+        original = self.accelerator.predict_logits_timed
+        self.accelerator.predict_logits_timed = lambda _: (np.zeros(11), SimpleNamespace(as_dict=lambda: {}))
+        result = self.processor.run_inference(live_window())
+        self.assertEqual(result['confirmation_count'], 0)
+        self.accelerator.predict_logits_timed = original
+        for _ in range(2):
+            self.assertEqual(self.processor.run_inference(live_window())['status'], 'CONFIRMING')
+        self.client.publish.assert_not_called()
+        self.assertEqual(self.processor.run_inference(live_window())['status'], 'PUBLISHED')
+
+    def test_unconfirmed_neutral_does_not_rearm_gesture(self):
+        for _ in range(3):
+            self.processor.run_inference(live_window())
+        self.accelerator.label = 0
+        self.assertEqual(self.processor.run_inference(live_window())['status'], 'CONFIRMING')
+        self.assertEqual(self.processor.gesture_sequence.last_action, 'PUNCH')
+        self.accelerator.label = 4
+        for _ in range(3):
+            result = self.processor.run_inference(live_window())
+        self.assertEqual(result['status'], 'SUPPRESSED')
+        self.client.publish.assert_called_once()
 
     def test_softmax_stability_and_invalid_fpga_outputs(self):
         self.accelerator.predict_logits_timed = lambda _: (
@@ -190,7 +232,8 @@ class GameplayTests(unittest.TestCase):
 
     def test_publish_failure_is_not_reported_as_published(self):
         self.client.publish.return_value.rc = 4
-        result = self.processor.run_inference(live_window())
+        for _ in range(3):
+            result = self.processor.run_inference(live_window())
         self.assertEqual(result['status'], 'PUBLISH_FAILED')
 
 
@@ -245,7 +288,7 @@ class SchedulingTests(unittest.TestCase):
 
         class Processor(ProbeProcessor):
             def __init__(self, client, model_id, worker):
-                super().__init__(client, model_id, worker, trace)
+                super().__init__(client, model_id, worker, trace, confirmation_steps=1)
 
             def run_inference(self, window):
                 result = super().run_inference(window)

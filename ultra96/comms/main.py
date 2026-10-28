@@ -193,7 +193,13 @@ class InferenceWorker:
 
 
 class TelemetryProcessor:
-    def __init__(self, client, model_id, worker, window_size=256, hop_size=25):
+    def __init__(self, client, model_id, worker, window_size=256, hop_size=25,
+                 confirmation_steps=3):
+        if type(confirmation_steps) is not int or confirmation_steps < 1:
+            raise ValueError("confirmation_steps must be a positive integer")
+        self.confirmation_steps = confirmation_steps
+        self.candidate_action = None
+        self.confirmation_count = 0
         self.client = client
         self.model_id = validate_model_id(model_id)
         self.topics = device_topics(model_id)
@@ -237,14 +243,28 @@ class TelemetryProcessor:
         timing["receive_to_result"] = None if window.received_at is None else (completed - window.received_at) * 1000
         event = None
         status = "LOW_CONFIDENCE"
-        if confidence >= self.worker.confidence_threshold:
-            event = self.gesture_sequence.consume(predicted_action, confidence,
-                                                  timestamp_ms=timestamp_ms)
-            status = "SUPPRESSED" if event is None else "DETECTED"
+        # Confirm all labels, including neutral/cancel, before changing gameplay
+        # state. Raw predictions remain available for diagnostics.
+        if confidence < self.worker.confidence_threshold:
+            self.candidate_action = None
+            self.confirmation_count = 0
+        else:
+            if predicted_action != self.candidate_action:
+                self.candidate_action = predicted_action
+                self.confirmation_count = 0
+            self.confirmation_count = min(self.confirmation_count + 1,
+                                          self.confirmation_steps)
+            status = "CONFIRMING"
+            if self.confirmation_count >= self.confirmation_steps:
+                event = self.gesture_sequence.consume(predicted_action, confidence,
+                                                      timestamp_ms=timestamp_ms)
+                status = "SUPPRESSED" if event is None else "DETECTED"
         result = {
             "model_id": self.model_id,
             "predicted_action": predicted_action,
             "confidence": confidence,
+            "confirmation_count": self.confirmation_count,
+            "confirmation_steps": self.confirmation_steps,
             "inference_source": "fpga",
             "window_shape": list(window.features.shape),
             "model_input_shape": [6, 256],
