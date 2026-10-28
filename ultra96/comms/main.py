@@ -94,8 +94,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 def create_accelerator():
     # Import only when starting inference, so packet-only tools need no PYNQ.
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from fpga.cnn_pynq_ultra96 import GestureCNNAccelerator
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from ultra96.fpga.deployment.cnn_pynq_ultra96 import GestureCNNAccelerator
     return GestureCNNAccelerator()
 
 

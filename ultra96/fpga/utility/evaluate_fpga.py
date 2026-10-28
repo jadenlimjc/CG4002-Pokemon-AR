@@ -3,17 +3,37 @@
 import argparse
 import csv
 import os
+from pathlib import Path
+import sys
 
 import numpy as np
 
 if __package__:
-    from .cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, OVERLAY_PATH
+    from ..deployment.cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, OVERLAY_PATH
     from .evaluation_data import NPZIMUDataSource
 else:
-    # Support copying these scripts to one directory on the Ultra96 and
-    # invoking this file directly with ``python3 evaluate_fpga.py``.
-    from cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, OVERLAY_PATH
-    from evaluation_data import NPZIMUDataSource
+    # Find the sibling deployment directory even outside the repository root.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from deployment.cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, OVERLAY_PATH
+    from utility.evaluation_data import NPZIMUDataSource
+
+
+DEPLOYMENT_DIR = Path(__file__).resolve().parents[1] / "deployment"
+
+
+def resolve_data_path(value):
+    """Honor explicit paths; also find bundled datasets by filename."""
+    path = Path(value).expanduser()
+    if path.is_file():
+        return str(path.resolve())
+    if not path.is_absolute() and path.parent == Path("."):
+        bundled = DEPLOYMENT_DIR / path
+        if bundled.is_file():
+            return str(bundled)
+    raise FileNotFoundError(
+        f"Dataset not found: {path.resolve()}. "
+        f"Place dataset filenames in {DEPLOYMENT_DIR}, or pass an existing path."
+    )
 
 
 def evaluate(accelerator, data_source, warmup=10, show_predictions=False):
@@ -131,8 +151,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--overlay", default=OVERLAY_PATH)
     parser.add_argument(
-        "--data", required=True,
-        help="NPZ with X [N,6,256], y [N], and optional class_names"
+        "--data", default=str(DEPLOYMENT_DIR / "real_gestures_test.npz"),
+        help="NPZ with X [N,6,256], y [N], and class_names; defaults to the deployment dataset"
     )
     parser.add_argument("--warmup", type=int, default=10,
                         help="initial inferences excluded from performance results")
@@ -155,7 +175,7 @@ def main():
     args = parse_args()
     if args.warmup < 0:
         raise ValueError("--warmup must be non-negative")
-    source = NPZIMUDataSource(args.data)
+    source = NPZIMUDataSource(resolve_data_path(args.data))
     if len(source.class_names) != NUM_CLASSES:
         raise ValueError(
             f"Dataset has {len(source.class_names)} classes but overlay expects "

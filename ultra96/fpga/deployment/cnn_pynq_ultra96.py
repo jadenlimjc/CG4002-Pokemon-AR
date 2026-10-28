@@ -1,6 +1,7 @@
 from pynq import Overlay, allocate
 import numpy as np
 import os
+import logging
 from dataclasses import asdict, dataclass
 from time import perf_counter_ns, sleep
 
@@ -19,8 +20,19 @@ OUTPUT_DATA_SIZE = NUM_CLASSES             # 11 floats (logits)
 # PYNQ loads the Vivado-generated .bit file and parses a same-named .hwh file.
 # Resolve it relative to this script so the bundle can be moved as a unit.
 OVERLAY_PATH = os.path.join(SCRIPT_DIR, "gesture_cnn.bit")
-INPUT_PATH = os.path.join(SCRIPT_DIR, "golden_input.dat")
-REFERENCE_OUTPUT_PATH = os.path.join(SCRIPT_DIR, "golden_output.dat")
+
+
+def golden_vector_path(filename):
+    """Prefer a board-local vector, then the repository's Vitis export."""
+    local = os.path.join(SCRIPT_DIR, filename)
+    if os.path.isfile(local):
+        return local
+    exported = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", "vitis", filename))
+    return exported if os.path.isfile(exported) else local
+
+
+INPUT_PATH = golden_vector_path("golden_input.dat")
+REFERENCE_OUTPUT_PATH = golden_vector_path("golden_output.dat")
 
 # PyTorch is floating-point while the accelerator is fixed-point, so these
 # tolerances measure quantization error rather than bit-exact equivalence.
@@ -108,10 +120,33 @@ def get_cnn_instance(ol):
     return get_overlay_ip(ol, cnn_names[0])
 
 
+def clear_stale_overlay_state():
+    """Recover when PYNQ remembers a bitstream that has been moved/deleted."""
+    from pynq.pl_server.global_state import (
+        clear_global_state, global_state_file_exists, load_global_state,
+    )
+
+    if not global_state_file_exists():
+        return
+    try:
+        load_global_state()
+    except FileNotFoundError as error:
+        # Loading state hashes the previously loaded bitstream. Only recover
+        # that failure; malformed state and unrelated missing files must surface.
+        missing = os.fsdecode(error.filename) if error.filename is not None else ""
+        if not missing.lower().endswith(".bit") or os.path.exists(missing):
+            raise
+        logging.getLogger(__name__).warning(
+            "Clearing stale PYNQ state referencing missing bitstream: %s", missing
+        )
+        clear_global_state()
+
+
 class GestureCNNAccelerator:
     """Low-level Overlay, DMA, and MMIO driver used by evaluate_fpga.py."""
 
     def __init__(self, overlay_path=OVERLAY_PATH):
+        overlay_path = os.path.abspath(os.path.expanduser(os.fspath(overlay_path)))
         hwh_path = os.path.splitext(overlay_path)[0] + ".hwh"
         if not os.path.exists(overlay_path):
             raise FileNotFoundError(f"Bitstream not found: {overlay_path}")
@@ -122,6 +157,7 @@ class GestureCNNAccelerator:
             )
 
         # Program the FPGA and discover IP blocks from the matching HWH file.
+        clear_stale_overlay_state()
         self.overlay = Overlay(overlay_path)
         self.dma = get_dma_instance(self.overlay)
         self.cnn = get_cnn_instance(self.overlay)

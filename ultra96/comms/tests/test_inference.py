@@ -87,7 +87,7 @@ class ModelTests(unittest.TestCase):
 
     def test_worker_factory_constructs_existing_driver_directly(self):
         driver = SimpleNamespace(GestureCNNAccelerator=Mock())
-        with patch.dict(sys.modules, {'fpga.cnn_pynq_ultra96': driver}):
+        with patch.dict(sys.modules, {'ultra96.fpga.deployment.cnn_pynq_ultra96': driver}):
             self.assertIs(create_accelerator(), driver.GestureCNNAccelerator.return_value)
         driver.GestureCNNAccelerator.assert_called_once_with()
 
