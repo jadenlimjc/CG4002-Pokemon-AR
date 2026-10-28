@@ -8,20 +8,20 @@
 
 // =================================================================================
 // Round to nearest, ties to even, and saturate at every narrowing boundary.
-// data_t: [-32, 32 - 2^-10]; result_t: [-2048, 2048 - 2^-12].
-// A data_t product has 20 fractional bits. Preserve all of them in MACs.
+// data_t: [-32, 32 - 2^-12]; result_t: [-2048, 2048 - 2^-12].
+// A data_t product has 24 fractional bits. Preserve all of them in MACs.
 // With at most 192 products, |sum| <= 192 * 32 * 32 + 32 = 196640;
 // 28 integer bits (including sign) also leave headroom for BN coefficients.
-// Keep operand multipliers at 16 bits rather than multiplying widened MACs.
-using data_t   = ap_fixed<16, 6, AP_RND_CONV, AP_SAT>;
-using accum_t  = ap_fixed<48, 28, AP_RND_CONV, AP_SAT>;
+// Keep operand multipliers at 18 bits rather than multiplying widened MACs.
+using data_t = ap_fixed<18, 6, AP_RND_CONV, AP_SAT>;
+using accum_t  = ap_fixed<52, 28, AP_RND_CONV, AP_SAT>;
 using result_t = ap_fixed<24, 12, AP_RND_CONV, AP_SAT>;
 
 // HLS math overloads accept default-mode ap_fixed arguments. The conversion
 // preserves every bit because width and binary point match accum_t. Variance
 // is positive and its square root fits this format, so no wrapping occurs.
 inline accum_t sqrt_variance(const accum_t& variance) {
-    using sqrt_arg_t = ap_fixed<48, 28>;
+    using sqrt_arg_t = ap_fixed<accum_t::width, accum_t::iwidth>;
     return accum_t(hls::sqrt(sqrt_arg_t(variance)));
 }
 
@@ -29,7 +29,7 @@ inline accum_t sqrt_variance(const accum_t& variance) {
 // Check before conversion because ap_fixed conversion of NaN/Inf is undefined.
 inline data_t quantize_input(float value) {
     if (value != value) return data_t(0);
-    if (value >= 32.0f) return data_t(31.9990234375f);
+    if (value >= 32.0f) return data_t(32); // AP_SAT selects the maximum representable value.
     if (value <= -32.0f) return data_t(-32);
     return data_t(value);
 }
@@ -160,12 +160,12 @@ constexpr int pool_guard_bits(int n) {
 template<int CH, int IN_LEN>
 void adaptive_avg_pool(hls::stream<data_t>& in_stream, data_t out_vec[CH]) {
     static_assert(CH > 0 && IN_LEN > 0, "Pooling dimensions must be positive");
-    // Preserve the input's 10 fractional bits and add ceil(log2(IN_LEN))
-    // integer guard bits. For 64 timesteps this is a 22-bit exact sum.
+    // Preserve the input's fractional bits and add ceil(log2(IN_LEN))
+    // integer guard bits. For 64 timesteps this is a 24-bit exact sum.
     // No rounding or saturation is needed during summation: even IN_LEN
     // copies of either data_t endpoint fit. Saturate only the final output.
     constexpr int GUARD = pool_guard_bits(IN_LEN);
-    using pool_sum_t = ap_fixed<16 + GUARD, 6 + GUARD>;
+    using pool_sum_t = ap_fixed<data_t::width + GUARD, data_t::iwidth + GUARD>;
     pool_sum_t sums[CH];
     #pragma HLS BIND_STORAGE variable=sums type=ram_t2p impl=bram
 

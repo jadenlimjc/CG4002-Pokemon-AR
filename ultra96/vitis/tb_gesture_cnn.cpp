@@ -138,7 +138,7 @@ void gesture_cnn_ref(
 
 // Exercise numeric boundaries independently of the golden inference fixture.
 bool test_quantization_boundaries() {
-    const double lsb = 1.0 / 1024.0;
+    const double lsb = std::ldexp(1.0, data_t::iwidth - data_t::width);
     bool ok = true;
     ok &= data_t(1000).to_double() == 32.0 - lsb;
     ok &= data_t(-1000).to_double() == -32.0;

@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -109,7 +110,15 @@ def main(args=None):
         return
 
     print(f"Loading best model from '{best_model_path}' for evaluation...")
-    model = Gesture1DCNN(in_channels=6, num_classes=len(gesture_map)).to(device)
+    config_path = Path(best_model_path).with_suffix(".json")
+    config = {"in_channels": 6, "num_classes": len(gesture_map)}
+    if config_path.is_file():
+        metadata = json.loads(config_path.read_text())
+        if metadata["class_names"] != test_dataset.class_names:
+            raise ValueError("Checkpoint configuration and dataset have different classes")
+        config = metadata["model_config"]
+        print(f"Loading model configuration from '{config_path}'")
+    model = Gesture1DCNN(**config).to(device)
     model.load_state_dict(torch.load(best_model_path, map_location=device))
 
     # --- Evaluate ---
