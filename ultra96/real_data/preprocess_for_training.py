@@ -48,8 +48,8 @@ FILENAME_PATTERN = re.compile(r"^(?P<prefix>[a-z]+)(?P<trial>\d+)\.csv$", re.I)
 # Repeat this pattern for every ten trials; assignments stay stable as data grows.
 # Split by recording number so one recording never crosses data splits.
 SPLIT_TRIALS = {"train": set(range(1, 7)), "val": {7, 8}, "test": {9, 10}}
-# Three nearby training windows add variation without leaking into val/test.
-TRAIN_OFFSETS = (-32, 0, 32)
+# Five training windows span +/-0.64 s at 100 Hz; val/test stay centred.
+TRAIN_OFFSETS = (-64, -32, 0, 32, 64)
 
 
 def split_for_trial(trial):
