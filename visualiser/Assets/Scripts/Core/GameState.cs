@@ -58,6 +58,7 @@ public class GameStateManager : MonoBehaviour
             (GamePhase.Encounter, GamePhase.CatchAttempt) => true,
             (GamePhase.Encounter, GamePhase.BattleEntry) => true,
             (GamePhase.CatchAttempt, GamePhase.CatchResult) => true,
+            (GamePhase.CatchAttempt, GamePhase.Encounter) => true,  // pokeball miss, same pokemon
             (GamePhase.CatchResult, GamePhase.Idle) => true,
             (GamePhase.CatchResult, GamePhase.Encounter) => true,  // catch failed, pokemon still there
             (GamePhase.BattleEntry, GamePhase.BattleActive) => true,

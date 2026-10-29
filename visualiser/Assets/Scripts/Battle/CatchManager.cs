@@ -57,7 +57,7 @@ public class CatchManager : MonoBehaviour
 
         switch (action)
         {
-            case GestureAction.ARM_PULLBACK: 
+            case GestureAction.ARM_PULLBACK:
                 isAiming = true;
                 ShowReticle();
                 break;
@@ -205,6 +205,8 @@ public class CatchManager : MonoBehaviour
             yield return null;
         }
 
+        activePokeball.transform.rotation = Quaternion.identity;
+
         if (hit)
         {
             yield return StartCoroutine(CatchSequence(spawner));
@@ -223,10 +225,7 @@ public class CatchManager : MonoBehaviour
         Destroy(activePokeball);
         activePokeball = null;
 
-        OnCatchResult?.Invoke(false, FindFirstObjectByType<PokemonSpawner>()?.CurrentPokemonData?.pokemonName ?? "???");
-        GameStateManager.Instance.TransitionTo(GamePhase.CatchResult);
-
-        yield return new WaitForSeconds(2f);
+        yield return new WaitForSeconds(0.5f);
 
         GameStateManager.Instance.TransitionTo(GamePhase.Encounter);
     }
@@ -243,7 +242,7 @@ public class CatchManager : MonoBehaviour
             Instantiate(smokeVFX, targetPos, Quaternion.identity);
 
         // Pokeball lands at target
-        activePokeball.transform.position = new Vector3(targetPos.x, targetPos.y - 0.5f, targetPos.z);
+        activePokeball.transform.position = targetPos;
 
         // Calculate catch success via jiggle sequence
         float catchRate = spawner.CurrentPokemonData.baseCatchRate;
