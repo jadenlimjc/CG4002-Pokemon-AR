@@ -70,18 +70,19 @@ ultra96/pytorch/error_inspection
 # ==========================================
 # 4. Visualiser - Unity (/visualiser)
 # ==========================================
-# This repository distributes scripts to import into a separately created Unity
-# project (see visualiser/README.md), not scenes or a complete Unity project.
-# Keep only C# sources under the existing Scripts layout.
-visualiser/Assets/**
-!visualiser/Assets/Scripts/
-!visualiser/Assets/Scripts/**/
-!visualiser/Assets/Scripts/**/*.cs
-# Keep credentials ignored even when their filename ends in .cs.
-visualiser/Assets/**/*secrets*
+# Track scripts, scenes, models, prefabs, animators, materials, and data assets.
+# .meta files are committed alongside their assets so scene/prefab GUIDs stay
+# consistent across machines. Auto-generated directories already exclude theirs.
 
-# Unity generates metadata locally; no serialized scene/prefab GUIDs are shipped.
-visualiser/**/*.meta
+# Secrets — never commit
+visualiser/Assets/**/*secrets*
+visualiser/Assets/StreamingAssets/
+
+# NuGet DLLs — reinstall via NuGetForUnity, not committed
+visualiser/Assets/Packages/
+
+# TextMesh Pro — reinstall via Window > TMP > Import TMP Essential Resources
+visualiser/Assets/TextMesh Pro/
 visualiser/Packages/
 visualiser/ProjectSettings/
 visualiser/.utmp/
