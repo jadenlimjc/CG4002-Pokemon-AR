@@ -207,7 +207,7 @@ public class BattleHUD : MonoBehaviour
         BattleManager battle = BattleManager.Instance;
         if (battle == null) return;
 
-        bool playerWon = battle.WildHP <= 0;
+        bool playerWon = battle.PlayerHP > 0;
         ShowMessage(playerWon ? "You won the battle!" : "You lost the battle...");
 
         if (movePanel != null) movePanel.SetActive(false);
