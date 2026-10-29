@@ -1,0 +1,52 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f8e2066a63ac547bf887cecba4e562e6, type: 3}
+  m_Name: ArcanineData
+  m_EditorClassIdentifier: 
+  pokemonName: Arcanine
+  pokedexNumber: 3
+  primaryType: 2
+  secondaryType: 13
+  maxHP: 100
+  attack: 50
+  defense: 50
+  speed: 50
+  spawnBehavior: 0
+  spawnScale: 1.3
+  moveSpeed: 1
+  baseCatchRate: 0.5
+  moves:
+  - moveName: Close Combat
+    moveType: 7
+    power: 120
+    accuracy: 100
+    isProtect: 0
+    animationTrigger: isAttacking
+  - moveName: Protect
+    moveType: 1
+    power: 0
+    accuracy: 100
+    isProtect: 1
+    animationTrigger: 
+  - moveName: Brick Break
+    moveType: 7
+    power: 75
+    accuracy: 100
+    isProtect: 0
+    animationTrigger: isAttacking
+  - moveName: Fire Blask
+    moveType: 2
+    power: 120
+    accuracy: 80
+    isProtect: 0
+    animationTrigger: isAttacking
+  modelPrefab: {fileID: 7600498124883070985, guid: 32cf43764c44a4087bed17dd16c94f0f, type: 3}
