@@ -1,0 +1,11 @@
+FROM alpine:3.21
+
+RUN apk add --no-cache iproute2 socat tcpdump
+
+COPY start-gate.sh /usr/local/bin/start-gate
+
+RUN chmod 0755 /usr/local/bin/start-gate
+
+EXPOSE 2222
+ENTRYPOINT ["/usr/local/bin/start-gate"]
+

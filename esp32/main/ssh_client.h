@@ -4,20 +4,19 @@
 // ==========================================================
 // Two-hop SSH forwarding client.
 //
-// stujump's sshd only permits a direct-tcpip channel to
-// ultra96:22 (that's what `ssh -J` uses under the hood).
-// It will not open a channel straight to ultra96:1883.
+// The campus profile uses stujump and Ultra96. A local profile can point the
+// same two real SSH sessions at the controllable mock lab.
 //
 // Topology:
 //
-//   ESP32 --session1(SSH)--> stujump --channel1(direct-tcpip)--> ultra96:22
+//   ESP32 --session1(SSH)--> jump --channel1(direct-tcpip)--> target:22
 //                                                                    |
 //                                          (channel1 bytes are the transport
 //                                           for a second SSH handshake, via
 //                                           a local loopback socket pair)
 //                                                                    |
-//   ESP32 --session2(SSH, over the bridge)------------------------> ultra96
-//                                          --channel2(direct-tcpip)--> ultra96:1883 (localhost)
+//   ESP32 --session2(SSH, over the bridge)------------------------> target
+//                                          --channel2(direct-tcpip)--> service
 //
 // session1/channel1 are created here, then handed off to a
 // dedicated task that owns them exclusively for the rest of
@@ -42,22 +41,13 @@
 #include <libssh/libssh.h>
 #include "libssh_esp32.h"
 #include "secrets.h"
+#include "network_profile.h"
 
 class SSHForwardClient : public Client {
 private:
-    // ---- Stage 1: ESP32 -> stujump ----
-    static constexpr const char *STUJUMP_HOST = "stujump.comp.nus.edu.sg";
-    static constexpr unsigned int STUJUMP_PORT = 22;
-
-    // ---- Stage 2: stujump -> ultra96 (the only forward PermitOpen allows) ----
-    static constexpr const char *ULTRA96_HOST = "makerslab-fpga-38.ddns.comp.nus.edu.sg";
-    static constexpr unsigned int ULTRA96_SSH_PORT = 22;
-    static constexpr uint16_t MQTT_PORT = 1883;
-
-    static constexpr const char *ULTRA96_USERNAME = "xilinx";
-    static constexpr const char *ULTRA96_PASSWORD = "xilinx";
-
     static constexpr size_t BRIDGE_BUF_SIZE = 2048;
+    static constexpr uint32_t SSH_WRITE_BUDGET_MS = 350;
+    static constexpr uint32_t BRIDGE_STOP_WAIT_MS = 100;
 
     struct PumpTaskParams {
         ssh_session session1;
@@ -83,6 +73,77 @@ private:
     SemaphoreHandle_t pump_done_sem = nullptr;
 
     bool is_connected = false;
+
+    template <typename Function>
+    static int sshCall(TransportDebug::Lane lane, TransportDebug::Op op,
+                       ssh_session session, ssh_channel channel, uint32_t requested, Function function) {
+        TransportDebug::Call call(lane, op, requested,
+            channel ? ssh_channel_window_size(channel) : UINT32_MAX);
+        const bool writing = op == TransportDebug::Write1 || op == TransportDebug::Write2;
+        if (writing) SshStageDebug::begin(lane, session, requested);
+        errno = 0;
+        const int result = function();
+        const int savedErrno = errno;
+        if (writing) SshStageDebug::finish(lane, result);
+        call.finish(result, result < 0 ? savedErrno : 0,
+            result < 0 ? ssh_get_error_code(session) : 0,
+            result < 0 ? ssh_get_error(session) : nullptr,
+            channel ? ssh_channel_window_size(channel) : UINT32_MAX);
+        return result;
+    }
+    template <typename Function>
+    static int socketCall(TransportDebug::Op op, uint32_t requested, Function function) {
+        TransportDebug::Call call(TransportDebug::Bridge, op, requested);
+        errno = 0;
+        const int result = function();
+        const int savedErrno = errno;
+        call.finish(result, result < 0 ? savedErrno : 0);
+        return result;
+    }
+    template <typename Function>
+    static bool phase(TransportDebug::Op op, Function function) {
+        TransportDebug::Call call(TransportDebug::Network, op);
+        const bool result = function();
+        call.finish(result ? 1 : 0, 0, 0, nullptr, UINT32_MAX, !result);
+        return result;
+    }
+    template <typename Function>
+    static void cleanup(TransportDebug::Lane lane, TransportDebug::Op op, Function function) {
+        TransportDebug::Call call(lane, op);
+        function(); call.finish(0);
+    }
+
+    static bool writeChannelWithinBudget(TransportDebug::Lane lane, TransportDebug::Op op,
+                                         ssh_session session, ssh_channel channel,
+                                         const uint8_t *buffer, size_t length,
+                                         const std::atomic<bool> *keep_running = nullptr) {
+        const uint32_t started = millis();
+        size_t written = 0;
+        while (written < length && (!keep_running || keep_running->load())) {
+            const uint32_t remaining = static_cast<uint32_t>(length - written);
+            const int rc = sshCall(lane, op, session, channel, remaining, [&] {
+                return ssh_channel_write(channel, buffer + written, remaining);
+            });
+            if (rc > 0) {
+                written += static_cast<size_t>(rc);
+                continue;
+            }
+            if (rc != SSH_AGAIN) return false;
+            if (static_cast<uint32_t>(millis() - started) >= SSH_WRITE_BUDGET_MS) {
+                debugSerial.printf("[SSH] %s write exceeded %lu ms; abandoning tunnel.\n",
+                                   lane == TransportDebug::Network ? "inner" : "outer",
+                                   (unsigned long)SSH_WRITE_BUDGET_MS);
+                return false;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+        return written == length;
+    }
+
+    void abandonTunnel() {
+        is_connected = false;
+        if (cli_sock >= 0) shutdown(cli_sock, SHUT_RDWR);
+    }
 
     // ----------------------------------------------------------------
     // Public-key auth first then password. Same pattern as before,
@@ -307,19 +368,9 @@ private:
                     break;
                 }
 
-                int written = 0;
-                bool write_broke = false;
-
-                while (written < n) {
-                    int w = ssh_channel_write(p->channel1, buf + written, n - written);
-                    if (w <= 0) {
-                        write_broke = true;
-                        break;
-                    }
-                    written += w;
-                }
-
-                if (write_broke) {
+                if (!writeChannelWithinBudget(TransportDebug::Bridge, TransportDebug::Write1,
+                                              p->session1, p->channel1, buf, n,
+                                              p->keep_running)) {
                     Serial.println("[BRIDGE] srv_sock -> channel1 relay broke.");
                     break;
                 }
@@ -356,7 +407,7 @@ public:
     int connect(IPAddress ip, uint16_t port) override {
         (void)ip;
         (void)port;
-        return connect(STUJUMP_HOST, STUJUMP_PORT);
+        return connect(NetworkProfile::SERVICE_HOST, NetworkProfile::SERVICE_PORT);
     }
 
     int connect(const char *host, uint16_t port) override {
@@ -365,9 +416,11 @@ public:
 
         stop();
 
-        // ================= Stage 1: ESP32 -> stujump =================
+        // ================= Stage 1: ESP32 -> jump host =================
 
-        Serial.println("[SSH] Stage 1: connecting to stujump.");
+        Serial.printf("[SSH] Network profile: %s\n", NetworkProfile::NAME);
+        Serial.printf("[SSH] Stage 1: connecting to jump host %s:%u.\n",
+                      NetworkProfile::JUMP_HOST, NetworkProfile::JUMP_PORT);
 
         session1 = ssh_new();
         if (!session1) {
@@ -375,13 +428,13 @@ public:
             return 0;
         }
 
-        unsigned int stujump_port_u = STUJUMP_PORT;
+        unsigned int jump_port = NetworkProfile::JUMP_PORT;
         int process_config_off = 0;
         int no_delay = 1;
 
-        if (ssh_options_set(session1, SSH_OPTIONS_HOST, STUJUMP_HOST) != SSH_OK ||
-            ssh_options_set(session1, SSH_OPTIONS_PORT, &stujump_port_u) != SSH_OK ||
-            ssh_options_set(session1, SSH_OPTIONS_USER, SOC_USERNAME) != SSH_OK ||
+        if (ssh_options_set(session1, SSH_OPTIONS_HOST, NetworkProfile::JUMP_HOST) != SSH_OK ||
+            ssh_options_set(session1, SSH_OPTIONS_PORT, &jump_port) != SSH_OK ||
+            ssh_options_set(session1, SSH_OPTIONS_USER, NetworkProfile::JUMP_USERNAME) != SSH_OK ||
             ssh_options_set(session1, SSH_OPTIONS_NODELAY, &no_delay) != SSH_OK ||
             ssh_options_set(session1, SSH_OPTIONS_PROCESS_CONFIG, &process_config_off) != SSH_OK) {
 
@@ -396,13 +449,14 @@ public:
             return 0;
         }
 
-        if (!authenticate(session1, SOC_USERNAME, SOC_PASSWORD)) {
+        TcpDebug::attach(ssh_get_fd(session1));
+
+        if (!phase(TransportDebug::Auth1, [&] { return authenticate(session1, NetworkProfile::JUMP_USERNAME, NetworkProfile::JUMP_PASSWORD); })) {
             stop();
             return 0;
         }
 
-        // direct-tcpip to ultra96:22, exactly what `ssh -J` uses, and
-        // the only remote target stujump's PermitOpen allows.
+        // direct-tcpip to the target SSH server, exactly what `ssh -J` uses.
         jump_channel = ssh_channel_new(session1);
         if (!jump_channel) {
             Serial.printf("[SSH] jump_channel alloc failed: %s\n", ssh_get_error(session1));
@@ -410,13 +464,15 @@ public:
             return 0;
         }
 
-        if (ssh_channel_open_forward(jump_channel, ULTRA96_HOST, ULTRA96_SSH_PORT, "localhost", 0) != SSH_OK) {
-            Serial.printf("[SSH] jump_channel open_forward failed: %s\n", ssh_get_error(session1));
+        if (sshCall(TransportDebug::Network, TransportDebug::Forward1, session1, jump_channel, 0, [&] { return ssh_channel_open_forward(jump_channel, NetworkProfile::TARGET_HOST, NetworkProfile::TARGET_SSH_PORT, "localhost", 0); }) != SSH_OK) {
+            debugSerial.printf("[SSH] jump_channel open_forward failed: %s\n", ssh_get_error(session1));
             stop();
             return 0;
         }
 
-        Serial.println("[SSH] channel1 open (stujump -> ultra96:22).");
+        Serial.printf("[SSH] channel1 open (%s -> %s:%u).\n",
+                      NetworkProfile::JUMP_HOST, NetworkProfile::TARGET_HOST,
+                      NetworkProfile::TARGET_SSH_PORT);
 
         // ================= Bridge: local loopback pair =================
 
@@ -436,6 +492,7 @@ public:
         pump_params->done_sem = pump_done_sem;
 
         pump_keep_running = true;
+        ssh_set_blocking(session1, 0);
 
         BaseType_t pump_result = xTaskCreate(bridgePumpTask, "SSHBridge", 8192, pump_params, 3, &pump_task_handle);
 
@@ -460,9 +517,10 @@ public:
         session1 = nullptr;
         jump_channel = nullptr;
 
-        // ================= Stage 2: ESP32 -> [bridge] -> ultra96 =================
+        // ================= Stage 2: ESP32 -> [bridge] -> target =================
 
-        Serial.println("[SSH] Stage 2: connecting to ultra96 via bridge.");
+        Serial.printf("[SSH] Stage 2: connecting to %s via jump host.\n",
+                      NetworkProfile::TARGET_HOST);
 
         session2 = ssh_new();
         if (!session2) {
@@ -475,7 +533,7 @@ public:
         int process_config_off2 = 0;
 
         if (ssh_options_set(session2, SSH_OPTIONS_FD, &fd) != SSH_OK ||
-            ssh_options_set(session2, SSH_OPTIONS_USER, ULTRA96_USERNAME) != SSH_OK ||
+            ssh_options_set(session2, SSH_OPTIONS_USER, NetworkProfile::TARGET_USERNAME) != SSH_OK ||
             ssh_options_set(session2, SSH_OPTIONS_PROCESS_CONFIG, &process_config_off2) != SSH_OK) {
 
             Serial.printf("[SSH] session2 options failed: %s\n", ssh_get_error(session2));
@@ -489,14 +547,12 @@ public:
             return 0;
         }
 
-        // Assumes the same key works on ultra96; ULTRA96_PASSWORD is its
-        // own credential, distinct from stujump's SOC_PASSWORD.
-        if (!authenticate(session2, ULTRA96_USERNAME, ULTRA96_PASSWORD)) {
+        if (!phase(TransportDebug::Auth2, [&] { return authenticate(session2, NetworkProfile::TARGET_USERNAME, NetworkProfile::TARGET_PASSWORD); })) {
             stop();
             return 0;
         }
 
-        // ================= Forward: ultra96 -> its own localhost:1883 =================
+        // ================= Forward: target -> configured service =================
 
         channel2 = ssh_channel_new(session2);
         if (!channel2) {
@@ -505,16 +561,19 @@ public:
             return 0;
         }
 
-        if (ssh_channel_open_forward(channel2, "localhost", MQTT_PORT, "localhost", 0) != SSH_OK) {
-            Serial.printf("[SSH] channel2 open_forward failed: %s\n", ssh_get_error(session2));
+        if (sshCall(TransportDebug::Network, TransportDebug::Forward2, session2, channel2, 0, [&] { return ssh_channel_open_forward(channel2, NetworkProfile::SERVICE_HOST, NetworkProfile::SERVICE_PORT, "localhost", 0); }) != SSH_OK) {
+            debugSerial.printf("[SSH] channel2 open_forward failed: %s\n", ssh_get_error(session2));
             stop();
             return 0;
         }
 
+        ssh_set_blocking(session2, 0);
+
         is_connected = true;
 
-        Serial.println("[SSH] Tunnel established:");
-        Serial.println("      ESP32 -> stujump -> ultra96 -> localhost:1883");
+        Serial.printf("[SSH] Tunnel established: ESP32 -> %s -> %s -> %s:%u\n",
+                      NetworkProfile::JUMP_HOST, NetworkProfile::TARGET_HOST,
+                      NetworkProfile::SERVICE_HOST, NetworkProfile::SERVICE_PORT);
 
         return 1;
     }
@@ -528,8 +587,12 @@ public:
             return 0;
         }
 
-        int rc = ssh_channel_write(channel2, buf, static_cast<uint32_t>(size));
-        return (rc > 0) ? static_cast<size_t>(rc) : 0;
+        if (writeChannelWithinBudget(TransportDebug::Network, TransportDebug::Write2,
+                                     session2, channel2, buf, size)) {
+            return size;
+        }
+        abandonTunnel();
+        return 0;
     }
 
     int available() override {
@@ -539,7 +602,7 @@ public:
 
         int rc = ssh_channel_poll(channel2, 0);
 
-        if (rc == SSH_ERROR || rc == SSH_EOF) {
+        if (rc <= 0) {
             return 0;
         }
 
@@ -559,14 +622,11 @@ public:
             return 0;
         }
 
-        int rc = ssh_channel_read(channel2, buf, static_cast<uint32_t>(size), 0);
-
-        if (rc == SSH_ERROR || rc == SSH_EOF) {
+        int rc = sshCall(TransportDebug::Network, TransportDebug::Read2, session2, channel2, size, [&] { return ssh_channel_read(channel2, buf, static_cast<uint32_t>(size), 0); });
+        if (rc == SSH_AGAIN || rc < 0) {
             return 0;
         }
-
         return rc;
-    }
 
     int peek() override {
         return -1;
@@ -598,8 +658,16 @@ public:
         // ---- Session1/jump_channel/srv_sock are owned by the pump task. ----
         if (pump_task_handle) {
             pump_keep_running = false;
-            xSemaphoreTake(pump_done_sem, pdMS_TO_TICKS(500));
-            pump_task_handle = nullptr;
+            TransportDebug::Call wait(TransportDebug::Network, TransportDebug::WaitBridge);
+            const bool stopped = xSemaphoreTake(pump_done_sem, pdMS_TO_TICKS(BRIDGE_STOP_WAIT_MS)) == pdTRUE;
+            wait.finish(stopped ? 1 : 0, 0, 0, nullptr, UINT32_MAX, !stopped);
+            if (stopped) {
+                pump_task_handle = nullptr;
+            } else {
+                // Preserve ownership and keep the stop flag false. connect()
+                // must not spawn another pump or revive this one on timeout.
+                Serial.println("[SSH] Bridge cleanup pending; resources retained until exit.");
+            }
         }
 
         // Only reached if connect() failed before the pump task started;

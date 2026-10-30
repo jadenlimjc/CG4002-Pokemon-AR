@@ -1,0 +1,78 @@
+name: cg4002-ssh-lab
+
+services:
+  jump:
+    build:
+      context: .
+      dockerfile: Dockerfile.ssh
+    environment:
+      SSH_USER: jumper
+      SSH_PASSWORD: jumper
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "22"]
+      interval: 2s
+      timeout: 1s
+      retries: 15
+    networks: [lab]
+
+  target:
+    build:
+      context: .
+      dockerfile: Dockerfile.ssh
+    environment:
+      SSH_USER: target
+      SSH_PASSWORD: target
+    depends_on:
+      broker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "22"]
+      interval: 2s
+      timeout: 1s
+      retries: 15
+    networks: [lab]
+
+  broker:
+    image: eclipse-mosquitto:2
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-t", "lab/health", "-m", "ok"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+    networks: [lab]
+
+  inner-gate:
+    build:
+      context: .
+      dockerfile: Dockerfile.gate
+    cap_add: [NET_ADMIN]
+    environment:
+      LISTEN_PORT: 2222
+      UPSTREAM_HOST: target
+      UPSTREAM_PORT: 22
+    depends_on:
+      target:
+        condition: service_healthy
+    networks: [lab]
+
+  outer-gate:
+    build:
+      context: .
+      dockerfile: Dockerfile.gate
+    cap_add: [NET_ADMIN]
+    environment:
+      LISTEN_PORT: 2222
+      UPSTREAM_HOST: jump
+      UPSTREAM_PORT: 22
+    ports:
+      - "2222:2222"
+    depends_on:
+      jump:
+        condition: service_healthy
+    networks: [lab]
+
+networks:
+  lab:
+    driver: bridge
