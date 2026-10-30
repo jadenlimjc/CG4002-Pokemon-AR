@@ -74,64 +74,22 @@ private:
 
     bool is_connected = false;
 
-    template <typename Function>
-    static int sshCall(TransportDebug::Lane lane, TransportDebug::Op op,
-                       ssh_session session, ssh_channel channel, uint32_t requested, Function function) {
-        TransportDebug::Call call(lane, op, requested,
-            channel ? ssh_channel_window_size(channel) : UINT32_MAX);
-        const bool writing = op == TransportDebug::Write1 || op == TransportDebug::Write2;
-        if (writing) SshStageDebug::begin(lane, session, requested);
-        errno = 0;
-        const int result = function();
-        const int savedErrno = errno;
-        if (writing) SshStageDebug::finish(lane, result);
-        call.finish(result, result < 0 ? savedErrno : 0,
-            result < 0 ? ssh_get_error_code(session) : 0,
-            result < 0 ? ssh_get_error(session) : nullptr,
-            channel ? ssh_channel_window_size(channel) : UINT32_MAX);
-        return result;
-    }
-    template <typename Function>
-    static int socketCall(TransportDebug::Op op, uint32_t requested, Function function) {
-        TransportDebug::Call call(TransportDebug::Bridge, op, requested);
-        errno = 0;
-        const int result = function();
-        const int savedErrno = errno;
-        call.finish(result, result < 0 ? savedErrno : 0);
-        return result;
-    }
-    template <typename Function>
-    static bool phase(TransportDebug::Op op, Function function) {
-        TransportDebug::Call call(TransportDebug::Network, op);
-        const bool result = function();
-        call.finish(result ? 1 : 0, 0, 0, nullptr, UINT32_MAX, !result);
-        return result;
-    }
-    template <typename Function>
-    static void cleanup(TransportDebug::Lane lane, TransportDebug::Op op, Function function) {
-        TransportDebug::Call call(lane, op);
-        function(); call.finish(0);
-    }
-
-    static bool writeChannelWithinBudget(TransportDebug::Lane lane, TransportDebug::Op op,
-                                         ssh_session session, ssh_channel channel,
+    static bool writeChannelWithinBudget(ssh_session session, ssh_channel channel,
                                          const uint8_t *buffer, size_t length,
-                                         const std::atomic<bool> *keep_running = nullptr) {
+                                         const volatile bool *keep_running = nullptr) {
+        (void)session;
         const uint32_t started = millis();
         size_t written = 0;
-        while (written < length && (!keep_running || keep_running->load())) {
+        while (written < length && (!keep_running || *keep_running)) {
             const uint32_t remaining = static_cast<uint32_t>(length - written);
-            const int rc = sshCall(lane, op, session, channel, remaining, [&] {
-                return ssh_channel_write(channel, buffer + written, remaining);
-            });
+            const int rc = ssh_channel_write(channel, buffer + written, remaining);
             if (rc > 0) {
                 written += static_cast<size_t>(rc);
                 continue;
             }
             if (rc != SSH_AGAIN) return false;
             if (static_cast<uint32_t>(millis() - started) >= SSH_WRITE_BUDGET_MS) {
-                debugSerial.printf("[SSH] %s write exceeded %lu ms; abandoning tunnel.\n",
-                                   lane == TransportDebug::Network ? "inner" : "outer",
+                Serial.printf("[SSH] write exceeded %lu ms; abandoning tunnel.\n",
                                    (unsigned long)SSH_WRITE_BUDGET_MS);
                 return false;
             }
@@ -368,8 +326,7 @@ private:
                     break;
                 }
 
-                if (!writeChannelWithinBudget(TransportDebug::Bridge, TransportDebug::Write1,
-                                              p->session1, p->channel1, buf, n,
+                if (!writeChannelWithinBudget(p->session1, p->channel1, buf, n,
                                               p->keep_running)) {
                     Serial.println("[BRIDGE] srv_sock -> channel1 relay broke.");
                     break;
@@ -449,9 +406,7 @@ public:
             return 0;
         }
 
-        TcpDebug::attach(ssh_get_fd(session1));
-
-        if (!phase(TransportDebug::Auth1, [&] { return authenticate(session1, NetworkProfile::JUMP_USERNAME, NetworkProfile::JUMP_PASSWORD); })) {
+        if (!authenticate(session1, NetworkProfile::JUMP_USERNAME, NetworkProfile::JUMP_PASSWORD)) {
             stop();
             return 0;
         }
@@ -464,8 +419,8 @@ public:
             return 0;
         }
 
-        if (sshCall(TransportDebug::Network, TransportDebug::Forward1, session1, jump_channel, 0, [&] { return ssh_channel_open_forward(jump_channel, NetworkProfile::TARGET_HOST, NetworkProfile::TARGET_SSH_PORT, "localhost", 0); }) != SSH_OK) {
-            debugSerial.printf("[SSH] jump_channel open_forward failed: %s\n", ssh_get_error(session1));
+        if (ssh_channel_open_forward(jump_channel, NetworkProfile::TARGET_HOST, NetworkProfile::TARGET_SSH_PORT, "localhost", 0) != SSH_OK) {
+            Serial.printf("[SSH] jump_channel open_forward failed: %s\n", ssh_get_error(session1));
             stop();
             return 0;
         }
@@ -547,7 +502,7 @@ public:
             return 0;
         }
 
-        if (!phase(TransportDebug::Auth2, [&] { return authenticate(session2, NetworkProfile::TARGET_USERNAME, NetworkProfile::TARGET_PASSWORD); })) {
+        if (!authenticate(session2, NetworkProfile::TARGET_USERNAME, NetworkProfile::TARGET_PASSWORD)) {
             stop();
             return 0;
         }
@@ -561,8 +516,8 @@ public:
             return 0;
         }
 
-        if (sshCall(TransportDebug::Network, TransportDebug::Forward2, session2, channel2, 0, [&] { return ssh_channel_open_forward(channel2, NetworkProfile::SERVICE_HOST, NetworkProfile::SERVICE_PORT, "localhost", 0); }) != SSH_OK) {
-            debugSerial.printf("[SSH] channel2 open_forward failed: %s\n", ssh_get_error(session2));
+        if (ssh_channel_open_forward(channel2, NetworkProfile::SERVICE_HOST, NetworkProfile::SERVICE_PORT, "localhost", 0) != SSH_OK) {
+            Serial.printf("[SSH] channel2 open_forward failed: %s\n", ssh_get_error(session2));
             stop();
             return 0;
         }
@@ -587,8 +542,7 @@ public:
             return 0;
         }
 
-        if (writeChannelWithinBudget(TransportDebug::Network, TransportDebug::Write2,
-                                     session2, channel2, buf, size)) {
+        if (writeChannelWithinBudget(session2, channel2, buf, size)) {
             return size;
         }
         abandonTunnel();
@@ -622,11 +576,12 @@ public:
             return 0;
         }
 
-        int rc = sshCall(TransportDebug::Network, TransportDebug::Read2, session2, channel2, size, [&] { return ssh_channel_read(channel2, buf, static_cast<uint32_t>(size), 0); });
+        int rc = ssh_channel_read(channel2, buf, static_cast<uint32_t>(size), 0);
         if (rc == SSH_AGAIN || rc < 0) {
             return 0;
         }
         return rc;
+    }
 
     int peek() override {
         return -1;
@@ -658,9 +613,7 @@ public:
         // ---- Session1/jump_channel/srv_sock are owned by the pump task. ----
         if (pump_task_handle) {
             pump_keep_running = false;
-            TransportDebug::Call wait(TransportDebug::Network, TransportDebug::WaitBridge);
             const bool stopped = xSemaphoreTake(pump_done_sem, pdMS_TO_TICKS(BRIDGE_STOP_WAIT_MS)) == pdTRUE;
-            wait.finish(stopped ? 1 : 0, 0, 0, nullptr, UINT32_MAX, !stopped);
             if (stopped) {
                 pump_task_handle = nullptr;
             } else {

@@ -52,6 +52,8 @@ services:
       LISTEN_PORT: 2222
       UPSTREAM_HOST: target
       UPSTREAM_PORT: 22
+    command: sh -c "tc qdisc add dev eth0 root netem delay 0ms loss 0% &&
+      exec /usr/local/bin/start-gate.sh"
     depends_on:
       target:
         condition: service_healthy
@@ -66,6 +68,8 @@ services:
       LISTEN_PORT: 2222
       UPSTREAM_HOST: jump
       UPSTREAM_PORT: 22
+    command: sh -c "tc qdisc add dev eth0 root netem delay 0ms loss 0% &&
+      exec /usr/local/bin/start-gate.sh"
     ports:
       - "2222:2222"
     depends_on:
