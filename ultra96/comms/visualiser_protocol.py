@@ -8,7 +8,7 @@ import math
 import time
 from dataclasses import dataclass
 
-DEFAULT_CONFIDENCE_THRESHOLD = 0.90
+DEFAULT_CONFIDENCE_THRESHOLD = 0.75
 
 
 def confidence_threshold(value):

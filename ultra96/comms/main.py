@@ -283,6 +283,10 @@ class TelemetryProcessor:
                 status = "SUPPRESSED"
                 reason, detail = decision.reason, decision.detail
 
+                if event is None:
+                    # Confident neutral can clear the repeat latch without sending.
+                    self.gesture_sequence.commit(decision)
+
         result = {
             "model_id": self.model_id,
             "predicted_action": predicted_action,
@@ -316,9 +320,6 @@ class TelemetryProcessor:
                 detail = (f"Valid gesture, but MQTT rejected the send (rc={info.rc}); "
                           "state unchanged. A later valid prediction may retry.")
                 logging.error("[%s] Gesture publish failed: %s", self.model_id, info.rc)
-        else:
-            # Confident neutral can clear the repeat latch without sending.
-            self.gesture_sequence.commit(decision)
         result.update(action=predicted_action, status=status,
                       reason=reason, detail=detail, state=self.gesture_sequence.state,
                       attempted_action=None if event is None else event["action"],
