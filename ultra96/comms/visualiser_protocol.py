@@ -79,9 +79,10 @@ class GestureSequence:
     """Per-device confidence gate and catch sequencing, owned by inference.
 
     Aim arms one throw. Stop Aim or Neutral cancels/rearms; after a throw that
-    reset is required before another gesture. A held battle gesture emits once
-    until a different accepted gesture or confident Neutral. Rejected labels,
-    including Stop Aim while idle, never clear the repeat latch.
+    reset is required before another gesture. A battle gesture enters RECOVERING;
+    only confident Neutral rearms recognition. Rejected labels, including Stop
+    Aim during recovery, never clear the repeat latch. Live callers confirm
+    labels before evaluating them here.
 
     No voting, dwell time, cooldown, or changes to the model window are applied.
     evaluate() is pure; commit() lets transport failure leave the state intact.
@@ -129,6 +130,10 @@ class GestureSequence:
                                    "Confident neutral; repeat latch cleared. No gameplay event needed.")
         if self.awaiting_reset:
             return reject("AWAITING_RESET", "Throw already sent; return to NEUTRAL or STOP_AIMING first.")
+        if self.state == "RECOVERING":
+            if predicted_action == self.last_action:
+                return reject("REPEATED", f"{predicted_action} already sent; return to confirmed NEUTRAL first.")
+            return reject("RECOVERING", "Battle action already sent; return to confirmed NEUTRAL before another gesture.")
         if predicted_action == "AIM":
             if self.aiming:
                 return reject("ALREADY_AIMING", "AIM already sent; waiting for THROW, STOP_AIMING or NEUTRAL.")
@@ -139,10 +144,8 @@ class GestureSequence:
             after = SequenceState("AWAITING_RESET", predicted_action)
         elif self.aiming:
             return reject("AIMING_LOCK", "Finish with THROW or cancel with STOP_AIMING / NEUTRAL first.")
-        elif predicted_action == self.last_action:
-            return reject("REPEATED", f"{predicted_action} already sent; waiting for neutral or a different accepted gesture.")
         else:
-            after = SequenceState("NEUTRAL", predicted_action)
+            after = SequenceState("RECOVERING", predicted_action)
         return GestureDecision(before, after, payload, "VALID", "Confidence and gesture sequence are valid.")
 
     def commit(self, decision):

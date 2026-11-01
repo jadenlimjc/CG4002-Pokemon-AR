@@ -218,6 +218,23 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual(result['status'], 'SUPPRESSED')
         self.client.publish.assert_called_once()
 
+    def test_return_motion_stays_blocked_until_three_neutral_predictions(self):
+        def predict(label, count):
+            self.accelerator.label = label
+            return [self.processor.run_inference(live_window()) for _ in range(count)]
+
+        self.assertEqual(predict(6, 3)[-1]['status'], 'PUBLISHED')  # Guard.
+        returning = predict(5, 3)[-1]  # Lowering the hand resembles Swipe.
+        self.assertEqual(returning['reason'], 'RECOVERING')
+        self.assertEqual(returning['status'], 'SUPPRESSED')
+        predict(0, 2)  # Two neutral predictions cannot rearm recognition.
+        self.assertEqual(self.processor.gesture_sequence.state, 'RECOVERING')
+        self.assertEqual(predict(5, 3)[-1]['reason'], 'RECOVERING')
+        predict(0, 3)
+        self.assertEqual(self.processor.gesture_sequence.state, 'NEUTRAL')
+        self.assertEqual(predict(5, 3)[-1]['status'], 'PUBLISHED')
+        self.assertEqual(self.client.publish.call_count, 2)
+
     def test_softmax_stability_and_invalid_fpga_outputs(self):
         self.accelerator.predict_logits_timed = lambda _: (
             np.array([0] * 10 + [10000]), SimpleNamespace(as_dict=lambda: {}))
