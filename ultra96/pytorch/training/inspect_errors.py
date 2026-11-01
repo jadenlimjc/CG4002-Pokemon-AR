@@ -44,6 +44,7 @@ def main():
         names = data["class_names"].tolist()
         filenames = data["filenames"].tolist()
         offsets = data["centre_offsets"].copy()
+        centres = data["window_centres"].copy() if "window_centres" in data else None
         subjects = data["subjects"].tolist()
         sessions = data["sessions"].tolist()
     model = Gesture1DCNN(num_classes=len(names))
@@ -85,7 +86,8 @@ def main():
         for i in list(errors) + sorted(references):
             path = args.data_root / filenames[i]
             signal = load_csv(path)
-            centre = (len(signal) // 2 if labels[i] == 0 else motion_centre(signal)) + int(offsets[i])
+            centre = (int(centres[i]) if centres is not None else
+                      (len(signal) // 2 if labels[i] == 0 else motion_centre(signal)) + int(offsets[i]))
             start = centre - WINDOW_SIZE // 2
             end = start + WINDOW_SIZE
             time = np.arange(len(signal)) / SAMPLE_RATE_HZ
