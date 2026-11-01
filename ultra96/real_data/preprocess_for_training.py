@@ -125,6 +125,7 @@ def convert(input_dir, output_dir):
     paths = sorted(
         path for path in input_dir.rglob("*.csv")
         if not path.is_relative_to(output_dir)
+        and not path.is_relative_to(Path(__file__).resolve().parent / "rename_logs")
     )
     if not paths:
         raise RuntimeError(f"no CSV recordings found in {input_dir}")
