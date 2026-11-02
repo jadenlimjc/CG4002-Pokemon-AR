@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 
@@ -46,7 +47,7 @@ public class VRModeManager : MonoBehaviour
         originalOrientation = Screen.orientation;
 
         if (startInVR)
-            EnableVR();
+            StartCoroutine(EnableVRDelayed());
     }
 
     private void Update()
@@ -55,6 +56,12 @@ public class VRModeManager : MonoBehaviour
         if (Input.GetKeyDown(vrToggleKey))
             ToggleVR();
 #endif
+    }
+
+    private IEnumerator EnableVRDelayed()
+    {
+        yield return new WaitForSeconds(1f);
+        EnableVR();
     }
 
     public void ToggleVR()
