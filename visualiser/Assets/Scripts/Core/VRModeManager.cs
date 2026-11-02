@@ -149,6 +149,8 @@ public class VRModeManager : MonoBehaviour
 
         rightEyeCamera = rightEyeObject.AddComponent<Camera>();
         rightEyeCamera.CopyFrom(mainCamera);
+        rightEyeCamera.ResetWorldToCameraMatrix();
+        rightEyeCamera.ResetProjectionMatrix();
         rightEyeCamera.rect = new Rect(0.5f, 0f, 0.5f, 1f);
         rightEyeCamera.tag = "Untagged";
         rightEyeCamera.depth = mainCamera.depth + 1;
