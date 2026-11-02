@@ -2,6 +2,9 @@
 
 Each CSV is one 100 Hz recording.  A 2.56 second window is centred on the
 strongest smoothed motion; neutral recordings use their temporal centre.
+Use --centre-overrides CSV to specify filename,centre_seconds instead;
+filenames are relative to --input. Training offsets still apply to that centre.
+If --input/centre_overrides.csv exists, it is loaded automatically.
 An optional timestamp_ms column is accepted and excluded from model inputs.
 Training recordings produce small centre-offset variants, while validation
 and test recordings produce exactly one window each.  Splits are made by
@@ -15,6 +18,8 @@ Uppercut is the final class (label 10), even when absent from a session.
 """
 
 import argparse
+import csv
+import math
 import re
 from pathlib import Path
 
@@ -119,15 +124,57 @@ def validate_session_recordings(session, seen):
         print(f"Warning: missing recordings in {session} (skipped): {missing}")
 
 
-def convert(input_dir, output_dir):
+def load_centre_overrides(path):
+    """Read recording paths relative to --input and centre times in seconds."""
+    if path is None:
+        return {}
+    overrides = {}
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames != ["filename", "centre_seconds"]:
+            raise ValueError("Centre overrides header must be filename,centre_seconds")
+        for line, row in enumerate(reader, start=2):
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError(f"{path}:{line}: expected two CSV fields")
+            name = row["filename"].strip().replace("\\", "/")
+            relative = Path(name)
+            if not name or relative.is_absolute() or ":" in name or ".." in relative.parts:
+                raise ValueError(f"{path}:{line}: filename must be relative to --input")
+            name = relative.as_posix()
+            if name in overrides:
+                raise ValueError(f"{path}:{line}: duplicate override for {name}")
+            try:
+                seconds = float(row["centre_seconds"])
+            except ValueError:
+                raise ValueError(f"{path}:{line}: invalid centre_seconds") from None
+            if not math.isfinite(seconds) or seconds < 0:
+                raise ValueError(f"{path}:{line}: centre_seconds must be finite and nonnegative")
+            overrides[name] = seconds
+    return overrides
+
+
+def convert(input_dir, output_dir, centre_overrides=None):
     if not input_dir.is_dir():
         raise ValueError(f"input directory does not exist: {input_dir}")
+    if centre_overrides is None:
+        default_overrides = input_dir / "centre_overrides.csv"
+        if default_overrides.is_file():
+            centre_overrides = default_overrides
+    overrides = load_centre_overrides(centre_overrides)
+    if centre_overrides is not None:
+        print(f"Loaded {len(overrides)} centre overrides from {centre_overrides}")
     paths = sorted(
         path for path in input_dir.rglob("*.csv")
         if not path.is_relative_to(output_dir)
+        and not path.is_relative_to(Path(__file__).resolve().parent / "rename_logs")
+        and path.name.lower() != "centre_overrides.csv"
+        and (centre_overrides is None or path.resolve() != centre_overrides.resolve())
     )
     if not paths:
         raise RuntimeError(f"no CSV recordings found in {input_dir}")
+    unknown = overrides.keys() - {path.relative_to(input_dir).as_posix() for path in paths}
+    if unknown:
+        raise ValueError(f"Override filenames not found under --input: {sorted(unknown)}")
     records = {split: [] for split in SPLIT_TRIALS}
     seen_by_session = {}
     for path in paths:
@@ -149,12 +196,18 @@ def convert(input_dir, output_dir):
         signal = load_csv(path)
         # Neutral uses the recording centre; gestures use the motion peak.
         base_centre = len(signal) // 2 if prefix == "neutral" else motion_centre(signal)
+        filename = path.relative_to(input_dir).as_posix()
+        if filename in overrides:
+            seconds = overrides[filename]
+            if seconds > (len(signal) - 1) / SAMPLE_RATE_HZ:
+                raise ValueError(f"{filename}: centre {seconds}s is outside the recording")
+            base_centre = round(seconds * SAMPLE_RATE_HZ)
         offsets = TRAIN_OFFSETS if split == "train" else (0,)
         for offset in offsets:
             records[split].append(
                 (extract_window(signal, base_centre + offset), label, trial,
                  path.relative_to(input_dir).as_posix(), offset,
-                 session.parent.name, session.name)
+                 session.parent.name, session.name, base_centre + offset)
             )
 
     for session, seen in seen_by_session.items():
@@ -180,7 +233,7 @@ def convert(input_dir, output_dir):
 
     output_dir.mkdir(parents=True, exist_ok=True)
     for split, split_records in records.items():
-        windows, labels, trials, filenames, offsets, subjects, sessions = zip(*split_records)
+        windows, labels, trials, filenames, offsets, subjects, sessions, centres = zip(*split_records)
         x = np.stack(windows).astype(np.float32)
         y = np.asarray(labels, dtype=np.int64)
         destination = output_dir / f"real_gestures_{split}.npz"
@@ -188,6 +241,7 @@ def convert(input_dir, output_dir):
             destination, X=x, y=y, class_names=CLASS_NAMES,
             trials=np.asarray(trials, dtype=np.int64),
             filenames=np.asarray(filenames), centre_offsets=np.asarray(offsets),
+            window_centres=np.asarray(centres, dtype=np.int64),
             subjects=np.asarray(subjects), sessions=np.asarray(sessions),
             channel_names=CHANNEL_NAMES,
             sample_rate_hz=np.asarray(SAMPLE_RATE_HZ),
@@ -207,9 +261,12 @@ def parse_args():
     parser.add_argument("--input", type=Path, default=script_dir,
                         help="Data root, subject folder, or dated session (default: real_data)")
     parser.add_argument("--output", type=Path, default=script_dir / "processed")
+    parser.add_argument("--centre-overrides", type=Path,
+                        help="CSV with filename,centre_seconds; paths relative to --input "
+                             "(default: centre_overrides.csv inside --input, if present)")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    convert(args.input.resolve(), args.output.resolve())
+    convert(args.input.resolve(), args.output.resolve(), args.centre_overrides)

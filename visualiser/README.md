@@ -281,8 +281,19 @@ sequencing. It accepts Aim followed by Throw, then requires Stop Aim or Neutral
 before another gesture. Stop Aim before Throw cancels; *Neutral also emits
 `CANCEL` when returning from an active catch sequence, otherwise it sends nothing.
 Throw without Aim is ignored. Repeated windows of a held gesture emit only one
-message until the recognized label changes/reset occurs. Touch does not change
-Throw into battle entry in this gesture set.
+message until a different gesture is accepted or confident Neutral resets it.
+Stop Aim while already neutral is ignored and does not clear that repeat filter.
+All transitions, including Neutral/reset, require confidence at or above 90%
+by default. A rejected MQTT publish leaves the sequence unchanged so a later
+valid prediction can retry. MQTT QoS 0 acceptance does not confirm AR delivery.
+Touch does not change Throw into battle entry in this gesture set.
+
+For live testing, `ultra96/comms/tests/gesture_demo.py` uses the same inference
+path and shows the current prediction, explicit decision reason, last sent
+gesture, and sequence state in fixed dashboard rows. See
+[`ultra96/comms/tests/README.md`](../ultra96/comms/tests/README.md) for commands
+and the test procedure. The 256-sample inference window and 25-sample hop are
+unchanged.
 
 `NetworkManager` translates Aim into the existing `BATTLE_CATCH` preparation event
 followed by `ARM_PULLBACK`; catch preparation is ignored in the encounter phase.

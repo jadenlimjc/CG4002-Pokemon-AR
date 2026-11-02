@@ -1,0 +1,12 @@
+FROM alpine:3.21
+
+RUN apk add --no-cache openssh-server
+
+COPY sshd_config /etc/ssh/sshd_config
+COPY start-sshd.sh /usr/local/bin/start-sshd
+
+RUN chmod 0755 /usr/local/bin/start-sshd
+
+EXPOSE 22
+ENTRYPOINT ["/usr/local/bin/start-sshd"]
+

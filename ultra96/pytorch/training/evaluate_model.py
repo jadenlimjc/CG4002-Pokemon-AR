@@ -51,7 +51,9 @@ def evaluate_and_generate_confusion_matrix(model, data_loader, device, class_map
 
     # Rows are true classes; columns are predicted classes.
     cm = confusion_matrix(all_targets, all_preds, labels=range(len(class_map)))
-    accuracy = 100.0 * np.sum(np.diag(cm)) / np.sum(cm)
+    correct = int(np.sum(np.diag(cm)))
+    total = int(np.sum(cm))
+    accuracy = 100.0 * correct / total
     # Balanced accuracy averages recall so every gesture counts equally.
     recalls = np.diag(cm) / np.maximum(cm.sum(axis=1), 1)
     balanced_accuracy = 100.0 * np.mean(recalls)
@@ -69,7 +71,8 @@ def evaluate_and_generate_confusion_matrix(model, data_loader, device, class_map
     plt.ylabel('True Label')
     plt.title(
         f'Confusion Matrix (Accuracy: {accuracy:.2f}%, '
-        f'Balanced: {balanced_accuracy:.2f}%)'
+        f'Balanced: {balanced_accuracy:.2f}%)\n'
+        f'Correctly predicted: {correct} / {total}'
     )
     plt.tight_layout()
     plt.savefig(filename, bbox_inches="tight")

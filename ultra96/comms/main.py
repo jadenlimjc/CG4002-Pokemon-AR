@@ -2,7 +2,8 @@
 
 import argparse
 import asyncio
-from collections import OrderedDict
+from collections import Counter, OrderedDict
+from copy import deepcopy
 from enum import Enum
 import json
 import logging
@@ -11,7 +12,7 @@ from pathlib import Path
 from queue import Empty
 import re
 import sys
-from threading import Condition, Event, Thread
+from threading import Condition, Event, Lock, Thread
 import time
 
 from dotenv import find_dotenv, load_dotenv
@@ -19,7 +20,10 @@ import paho.mqtt.client as mqtt
 import numpy as np
 
 from process_telemetry import PacketError, TelemetryBuffer, decode_packet, model_input
-from visualiser_protocol import GestureSequence
+from visualiser_protocol import (
+    DEFAULT_CONFIDENCE_THRESHOLD, GestureSequence,
+    confidence_threshold as validate_confidence_threshold,
+)
 
 load_dotenv(find_dotenv())
 
@@ -106,11 +110,10 @@ class InferenceWorker:
     other waiting devices. The condition protects scheduling only, never DMA
     or inference. MQTT callbacks therefore remain independent of inference.
     """
-    def __init__(self, accelerator_factory=None, confidence_threshold=0.75):
-        if not 0 <= confidence_threshold <= 1:
-            raise ValueError("confidence_threshold must be between 0 and 1")
+    def __init__(self, accelerator_factory=None,
+                 confidence_threshold=DEFAULT_CONFIDENCE_THRESHOLD):
         self.accelerator_factory = accelerator_factory or create_accelerator
-        self.confidence_threshold = confidence_threshold
+        self.confidence_threshold = validate_confidence_threshold(confidence_threshold)
         self.accelerator = None
         self.ready = Event()
         self.failed = Event()
@@ -204,7 +207,12 @@ class TelemetryProcessor:
         self.model_id = validate_model_id(model_id)
         self.topics = device_topics(model_id)
         self.worker = worker
-        self.gesture_sequence = GestureSequence()
+        self.gesture_sequence = GestureSequence(worker.confidence_threshold)
+        self.result_lock = Lock()
+        self.latest_result = None
+        self.last_sent = None
+        self.decision_counts = Counter()
+        self.result_updated_at = None
         self.skipped_windows = 0
         self.ack_errors = 0
         self.health_report = None
@@ -212,7 +220,7 @@ class TelemetryProcessor:
 
     def process_packet(self, payload: bytes, received_at=None):
         # Paho supplies the entire MQTT message, even if TCP fragmented it.
-        # Only the MQTT thread touches this device's buffer and sequence state.
+        # MQTT owns the sample buffer; the worker owns gesture sequencing.
         self.buffer.add_packet(payload, received_at=received_at)
         while True:
             try:
@@ -241,24 +249,44 @@ class TelemetryProcessor:
         timing["inference"] = (completed - started) * 1000
         timing["queue"] = None if window.queued_at is None else (started - window.queued_at) * 1000
         timing["receive_to_result"] = None if window.received_at is None else (completed - window.received_at) * 1000
+
+        decision = None
         event = None
-        status = "LOW_CONFIDENCE"
-        # Confirm all labels, including neutral/cancel, before changing gameplay
-        # state. Raw predictions remain available for diagnostics.
-        if confidence < self.worker.confidence_threshold:
+
+        if confidence < self.gesture_sequence.confidence_threshold:
             self.candidate_action = None
             self.confirmation_count = 0
+            status = reason = "LOW_CONFIDENCE"
+            detail = "Confidence below threshold; confirmation reset."
         else:
             if predicted_action != self.candidate_action:
                 self.candidate_action = predicted_action
                 self.confirmation_count = 0
-            self.confirmation_count = min(self.confirmation_count + 1,
-                                          self.confirmation_steps)
-            status = "CONFIRMING"
-            if self.confirmation_count >= self.confirmation_steps:
-                event = self.gesture_sequence.consume(predicted_action, confidence,
-                                                      timestamp_ms=timestamp_ms)
-                status = "SUPPRESSED" if event is None else "DETECTED"
+
+            self.confirmation_count = min(
+                self.confirmation_count + 1,
+                self.confirmation_steps,
+            )
+
+            if self.confirmation_count < self.confirmation_steps:
+                status = reason = "CONFIRMING"
+                detail = (
+                    f"Confirming {predicted_action}: "
+                    f"{self.confirmation_count}/{self.confirmation_steps}."
+                )
+            else:
+                decision = self.gesture_sequence.evaluate(
+                    predicted_action, confidence,
+                    timestamp_ms=timestamp_ms,
+                )
+                event = decision.payload
+                status = "SUPPRESSED"
+                reason, detail = decision.reason, decision.detail
+
+                if event is None:
+                    # Confident neutral can clear the repeat latch without sending.
+                    self.gesture_sequence.commit(decision)
+
         result = {
             "model_id": self.model_id,
             "predicted_action": predicted_action,
@@ -273,21 +301,49 @@ class TelemetryProcessor:
             "skipped_windows": self.skipped_windows,
             "timestamp_ms": timestamp_ms,
             "timing_ms": timing,
+            "confidence_threshold": self.gesture_sequence.confidence_threshold,
         }
+        sent = None
         if event is not None:
             event.update(result)
             info = self.client.publish(self.topics["inference"], json.dumps(event), qos=0, retain=False)
             status = "PUBLISHED" if info.rc == 0 else "PUBLISH_FAILED"
-            if info.rc != 0:
+            if info.rc == 0:
+                self.gesture_sequence.commit(decision)
+                # QoS 0 acceptance is not a receipt from the broker or AR app.
+                sent = {"predicted_action": predicted_action, "action": event["action"],
+                        "gesture_id": event["gesture_id"], "confidence": confidence,
+                        "timestamp_ms": timestamp_ms}
+                detail += " MQTT accepted the send (QoS 0; delivery unconfirmed)."
+            else:
+                reason = "PUBLISH_FAILED"
+                detail = (f"Valid gesture, but MQTT rejected the send (rc={info.rc}); "
+                          "state unchanged. A later valid prediction may retry.")
                 logging.error("[%s] Gesture publish failed: %s", self.model_id, info.rc)
         result.update(action=predicted_action, status=status,
-                      published_action=None if event is None else event["action"])
-        logging.info("[%s] %s %.1f%% %s | inference=%.2f ms queue=%s ms skipped=%s",
-                     self.model_id, predicted_action, confidence * 100, status,
+                      reason=reason, detail=detail, state=self.gesture_sequence.state,
+                      attempted_action=None if event is None else event["action"],
+                      published_action=None if sent is None else sent["action"])
+        with self.result_lock:
+            self.latest_result = deepcopy(result)
+            self.result_updated_at = time.monotonic()
+            self.decision_counts[reason] += 1
+            if sent is not None:
+                self.last_sent = sent
+        logging.info("[%s] %s %.1f%% %s (%s) state=%s | inference=%.2f ms queue=%s ms skipped=%s",
+                     self.model_id, predicted_action, confidence * 100, status, reason, result["state"],
                      timing["inference"], timing["queue"], self.skipped_windows)
         # Every prediction is available to the diagnostic UI, even when gameplay
         # suppresses neutral, low-confidence or repeated/out-of-order gestures.
         return result
+
+    def inference_snapshot(self):
+        """One coherent copy for dashboards; logs cannot overwrite these fields."""
+        with self.result_lock:
+            return deepcopy({"current": self.latest_result, "last_sent": self.last_sent,
+                             "updated_at": self.result_updated_at,
+                             "state": "NEUTRAL" if self.latest_result is None else self.latest_result["state"],
+                             "decision_counts": dict(self.decision_counts)})
 
     def trigger_haptic(self, cmd="1"):
         self.client.publish(self.topics["haptic"], cmd)
@@ -387,6 +443,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--max-devices", type=int, default=64,
                         help="maximum distinct device buffers per run (default: 64)")
+    parser.add_argument("--confidence-threshold", type=validate_confidence_threshold,
+                        default=DEFAULT_CONFIDENCE_THRESHOLD,
+                        help="minimum confidence, 0..1 (default: 0.90)")
     args = parser.parse_args()
     if args.max_devices < 1:
         parser.error("--max-devices must be positive")
@@ -395,7 +454,7 @@ def main():
         sys.exit(1)
 
     client = create_mqtt_client()
-    worker = InferenceWorker()
+    worker = InferenceWorker(confidence_threshold=args.confidence_threshold)
     service = TelemetryService(client, worker, args.max_devices)
 
     def on_connect(cli, userdata, flags, reason_code, properties=None):

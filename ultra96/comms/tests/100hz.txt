@@ -1,0 +1,209 @@
+[DIAG t=200310 boot=1623344255 episode=19] RECOVERED queue=0/20 mqtt_state=0 mqtt_op=idle elapsed_ms=0 published=18245 first_fault_t=18237 frozen=8
+[LOSS] overflow=911 enqueue_fail=0 publish_fail=0 disconnected=0 mode_resets=0 invalid=0 mqtt_loop_fail=0 rtt_timeout=1 slow_publish=3 slow_loop=0
+[IO t=200310] lane=network active=idle elapsed_ms=0 req=0 window=2073454 last=ssh2_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=57891 slow=7 errors=0 short=0 tx=1302683 rx=4250 tx_at=200327 rx_at=200103 max_ms=1237
+[IO t=200310] lane=bridge active=bridge_select elapsed_ms=4294967276 req=0 window=-1 last=ssh1_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=73882 slow=1 errors=0 short=0 tx=2137899 rx=2137899 tx_at=200329 rx_at=200328 max_ms=381
+[IO_HISTORY] total=8 retained=8 overwritten=0
+[IO_EVENT id=5 t=88851] lane=bridge op=ssh1_write ms=381 req=116 rc=116 errno=0 ssh_error=0 window_before=2066760 error=
+[IO_EVENT id=6 t=89735] lane=network op=ssh2_write ms=1110 req=71 rc=71 errno=0 ssh_error=0 window_before=2028232 error=
+[IO_EVENT id=7 t=139781] lane=network op=ssh2_write ms=1199 req=71 rc=71 errno=0 ssh_error=0 window_before=2087840 error=
+[IO_EVENT id=8 t=143784] lane=network op=ssh2_write ms=1237 req=71 rc=71 errno=0 ssh_error=0 window_before=2068058 error=
+[TCP1 t=200310] generation=1 local_port=64423 peer_port=22 target=1 sample_generation=1 age_ms=100 found=1 state=4 nrtx=0 dupacks=0 rto_ms=1500 flags=0x1040 snd_wnd=65535 rcv_wnd=5760 cwnd=65535 snd_free=5416 queued_pbufs=2 unacked=2 unsent=0 ack=127994159 snd_next=127994487 rcv_next=693017204 persist=0 probe_pending=0 post_failures=0
+[WIFI t=200310] status=3 ap_valid=1 ap_rc=0 rssi=-66 channel=3 bssid=c0:bc:9a:e4:c5:f2 ps=1 ps_rc=0 events=2 disconnects=0 sample_age_ms=595
+[WIFI_EVENT id=1 t=2863] type=112 reason=0 rssi=0 channel=3 bssid=c0:bc:9a:e4:c5:f2
+[WIFI_EVENT id=2 t=4961] type=115 reason=0 rssi=0 channel=0 bssid=00:00:00:00:00:00
+[MEM t=200469] RECOVERED internal_free=65572 internal_min=29272 largest=57332 allocated=181568 alloc_blocks=552 free_blocks=24 dma_free=65572 dma_largest=57332 alloc_failures=0
+[MEM] stack_min_bytes sensor=2336/4096 network=3532/16384 bridge=2808/8192 loop=5116/8192 (-1=not_sampled)
+[RTOS t=200310] tasks=15 table_capacity=32 sample_age_ms=595 interval_us=1015905 core0_busy_permille=632 core1_busy_permille=516 snapshot_us=7247 failures=0 runtime_valid=1
+[TASK_PROGRESS] role=sensor age_ms=-185 max_gap_ms=377
+[TASK_PROGRESS] role=network age_ms=-202 max_gap_ms=7030
+[TASK_PROGRESS] role=bridge age_ms=-190 max_gap_ms=389
+[TASK_PROGRESS] role=observer age_ms=0 max_gap_ms=978
+[TASK t=199715] id=12 role=system state=ready priority=18 affinity=0 cpu_permille_one_core=119 stack_min_bytes=3064
+[TASK t=199715] id=8 role=observer state=running priority=1 affinity=1 cpu_permille_one_core=7 stack_min_bytes=5116
+[TASK t=199715] id=5 role=idle0 state=ready priority=0 affinity=0 cpu_permille_one_core=368 stack_min_bytes=440
+[TASK t=199715] id=6 role=idle1 state=ready priority=0 affinity=1 cpu_permille_one_core=484 stack_min_bytes=560
+[TASK t=199715] id=10 role=sensor state=blocked priority=3 affinity=0 cpu_permille_one_core=123 stack_min_bytes=2336
+[TASK t=199715] id=17 role=bridge state=blocked priority=3 affinity=-1 cpu_permille_one_core=349 stack_min_bytes=2808
+[TASK t=199715] id=11 role=network state=blocked priority=2 affinity=-1 cpu_permille_one_core=344 stack_min_bytes=3532
+[TASK t=199715] id=15 role=system state=blocked priority=23 affinity=0 cpu_permille_one_core=200 stack_min_bytes=4308
+[MEM] LOW_HEADROOM (advisory: free<64KiB, largest<32KiB or stack<1KiB)
+[MEM t=205789] low_headroom internal_free=60864 internal_min=29272 largest=57332 allocated=186188 alloc_blocks=558 free_blocks=22 dma_free=58428 dma_largest=55284 alloc_failures=0
+[MEM] stack_min_bytes sensor=2336/4096 network=3532/16384 bridge=2808/8192 loop=5116/8192 (-1=not_sampled)
+[MEM] LOW_HEADROOM (advisory: free<64KiB, largest<32KiB or stack<1KiB)
+[MEM t=215950] low_headroom internal_free=62000 internal_min=29272 largest=57332 allocated=185060 alloc_blocks=557 free_blocks=25 dma_free=62000 dma_largest=57332 alloc_failures=0
+[MEM] stack_min_bytes sensor=2336/4096 network=3532/16384 bridge=2808/8192 loop=5116/8192 (-1=not_sampled)
+[MEM] LOW_HEADROOM (advisory: free<64KiB, largest<32KiB or stack<1KiB)
+[MEM t=226219] low_headroom internal_free=64008 internal_min=29272 largest=57332 allocated=183100 alloc_blocks=554 free_blocks=23 dma_free=64008 dma_largest=57332 alloc_failures=0
+[MEM] stack_min_bytes sensor=2336/4096 network=3532/16384 bridge=2808/8192 loop=5116/8192 (-1=not_sampled)
+[DIAG t=230343 boot=1623344255 episode=20] STALL_BEGIN queue=0/20 mqtt_state=0 mqtt_op=idle elapsed_ms=0 published=21223 first_fault_t=18237 frozen=8
+[LOSS] overflow=911 enqueue_fail=0 publish_fail=0 disconnected=0 mode_resets=0 invalid=0 mqtt_loop_fail=0 rtt_timeout=1 slow_publish=3 slow_loop=0
+[IO t=230343] lane=network active=idle elapsed_ms=0 req=0 window=2057692 last=ssh2_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=67257 slow=7 errors=0 short=0 tx=1515138 rx=4970 tx_at=230360 rx_at=230183 max_ms=1237
+[IO t=230343] lane=bridge active=bridge_select elapsed_ms=4294967276 req=0 window=-1 last=ssh1_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=85885 slow=1 errors=0 short=0 tx=2485903 rx=2485903 tx_at=230362 rx_at=230361 max_ms=381
+[IO_HISTORY] total=8 retained=8 overwritten=0
+[IO_EVENT id=5 t=88851] lane=bridge op=ssh1_write ms=381 req=116 rc=116 errno=0 ssh_error=0 window_before=2066760 error=
+[IO_EVENT id=6 t=89735] lane=network op=ssh2_write ms=1110 req=71 rc=71 errno=0 ssh_error=0 window_before=2028232 error=
+[IO_EVENT id=7 t=139781] lane=network op=ssh2_write ms=1199 req=71 rc=71 errno=0 ssh_error=0 window_before=2087840 error=
+[IO_EVENT id=8 t=143784] lane=network op=ssh2_write ms=1237 req=71 rc=71 errno=0 ssh_error=0 window_before=2068058 error=
+[TCP1 t=230343] generation=1 local_port=64423 peer_port=22 target=1 sample_generation=1 age_ms=4 found=1 state=4 nrtx=0 dupacks=0 rto_ms=1500 flags=0x1040 snd_wnd=65535 rcv_wnd=5760 cwnd=65535 snd_free=5580 queued_pbufs=1 unacked=1 unsent=0 ack=128485531 snd_next=128485695 rcv_next=693019496 persist=0 probe_pending=0 post_failures=0
+[WIFI t=230343] status=3 ap_valid=1 ap_rc=0 rssi=-67 channel=3 bssid=c0:bc:9a:e4:c5:f2 ps=1 ps_rc=0 events=2 disconnects=0 sample_age_ms=7
+[WIFI_EVENT id=1 t=2863] type=112 reason=0 rssi=0 channel=3 bssid=c0:bc:9a:e4:c5:f2
+[WIFI_EVENT id=2 t=4961] type=115 reason=0 rssi=0 channel=0 bssid=00:00:00:00:00:00
+[MEM t=230502] STALL_BEGIN internal_free=62372 internal_min=29272 largest=57332 allocated=184712 alloc_blocks=556 free_blocks=23 dma_free=62372 dma_largest=57332 alloc_failures=0
+[MEM] stack_min_bytes sensor=2336/4096 network=3532/16384 bridge=2808/8192 loop=5116/8192 (-1=not_sampled)
+[RTOS t=230343] tasks=15 table_capacity=32 sample_age_ms=7 interval_us=1015009 core0_busy_permille=638 core1_busy_permille=557 snapshot_us=2751 failures=0 runtime_valid=1
+[TASK_PROGRESS] role=sensor age_ms=-185 max_gap_ms=377
+[TASK_PROGRESS] role=network age_ms=-200 max_gap_ms=7030
+[TASK_PROGRESS] role=bridge age_ms=-211 max_gap_ms=389
+[TASK_PROGRESS] role=observer age_ms=7 max_gap_ms=978
+[TASK t=230336] id=12 role=system state=ready priority=18 affinity=0 cpu_permille_one_core=122 stack_min_bytes=3064
+[TASK t=230336] id=8 role=observer state=running priority=1 affinity=1 cpu_permille_one_core=7 stack_min_bytes=5116
+[TASK t=230336] id=5 role=idle0 state=ready priority=0 affinity=0 cpu_permille_one_core=362 stack_min_bytes=440
+[TASK t=230336] id=6 role=idle1 state=ready priority=0 affinity=1 cpu_permille_one_core=443 stack_min_bytes=560
+[TASK t=230336] id=10 role=sensor state=blocked priority=3 affinity=0 cpu_permille_one_core=120 stack_min_bytes=2336
+[TASK t=230336] id=17 role=bridge state=blocked priority=3 affinity=-1 cpu_permille_one_core=359 stack_min_bytes=2808
+[TASK t=230336] id=11 role=network state=blocked priority=2 affinity=-1 cpu_permille_one_core=380 stack_min_bytes=3532
+[TASK t=230336] id=15 role=system state=blocked priority=23 affinity=0 cpu_permille_one_core=201 stack_min_bytes=4308
+[DIAG t=232411 boot=1623344255 episode=20] RECOVERED queue=0/20 mqtt_state=0 mqtt_op=idle elapsed_ms=0 published=21413 first_fault_t=18237 frozen=8
+[LOSS] overflow=911 enqueue_fail=0 publish_fail=0 disconnected=0 mode_resets=0 invalid=0 mqtt_loop_fail=0 rtt_timeout=1 slow_publish=3 slow_loop=0
+[IO t=232411] lane=network active=idle elapsed_ms=0 req=0 window=2044273 last=ssh2_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=67884 slow=7 errors=0 short=0 tx=1528557 rx=5018 tx_at=232429 rx_at=232192 max_ms=1237
+[IO t=232411] lane=bridge active=bridge_select elapsed_ms=4294967275 req=0 window=-1 last=ssh1_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=86640 slow=1 errors=0 short=0 tx=2507911 rx=2507911 tx_at=232431 rx_at=232430 max_ms=381
+[IO_HISTORY] total=8 retained=8 overwritten=0
+[IO_EVENT id=5 t=88851] lane=bridge op=ssh1_write ms=381 req=116 rc=116 errno=0 ssh_error=0 window_before=2066760 error=
+[IO_EVENT id=6 t=89735] lane=network op=ssh2_write ms=1110 req=71 rc=71 errno=0 ssh_error=0 window_before=2028232 error=
+[IO_EVENT id=7 t=139781] lane=network op=ssh2_write ms=1199 req=71 rc=71 errno=0 ssh_error=0 window_before=2087840 error=
+[IO_EVENT id=8 t=143784] lane=network op=ssh2_write ms=1237 req=71 rc=71 errno=0 ssh_error=0 window_before=2068058 error=
+[TCP1 t=232411] generation=1 local_port=64423 peer_port=22 target=1 sample_generation=1 age_ms=204 found=1 state=4 nrtx=0 dupacks=0 rto_ms=1500 flags=0x1040 snd_wnd=65535 rcv_wnd=5760 cwnd=65535 snd_free=5416 queued_pbufs=2 unacked=2 unsent=0 ack=128512919 snd_next=128513247 rcv_next=693019628 persist=0 probe_pending=0 post_failures=0
+[WIFI t=232411] status=3 ap_valid=1 ap_rc=0 rssi=-68 channel=3 bssid=c0:bc:9a:e4:c5:f2 ps=1 ps_rc=0 events=2 disconnects=0 sample_age_ms=56
+[WIFI_EVENT id=1 t=2863] type=112 reason=0 rssi=0 channel=3 bssid=c0:bc:9a:e4:c5:f2
+[WIFI_EVENT id=2 t=4961] type=115 reason=0 rssi=0 channel=0 bssid=00:00:00:00:00:00
+[MEM t=232570] RECOVERED internal_free=65572 internal_min=29272 largest=57332 allocated=181568 alloc_blocks=552 free_blocks=24 dma_free=65572 dma_largest=57332 alloc_failures=0
+[MEM] stack_min_bytes sensor=2336/4096 network=3532/16384 bridge=2808/8192 loop=5116/8192 (-1=not_sampled)
+[RTOS t=232411] tasks=15 table_capacity=32 sample_age_ms=56 interval_us=1013023 core0_busy_permille=619 core1_busy_permille=532 snapshot_us=2751 failures=0 runtime_valid=1
+[TASK_PROGRESS] role=sensor age_ms=-185 max_gap_ms=377
+[TASK_PROGRESS] role=network age_ms=-201 max_gap_ms=7030
+[TASK_PROGRESS] role=bridge age_ms=-212 max_gap_ms=389
+[TASK_PROGRESS] role=observer age_ms=0 max_gap_ms=978
+[TASK t=232355] id=10 role=sensor state=ready priority=3 affinity=0 cpu_permille_one_core=118 stack_min_bytes=2336
+[TASK t=232355] id=8 role=observer state=running priority=1 affinity=1 cpu_permille_one_core=7 stack_min_bytes=5116
+[TASK t=232355] id=5 role=idle0 state=ready priority=0 affinity=0 cpu_permille_one_core=381 stack_min_bytes=440
+[TASK t=232355] id=6 role=idle1 state=ready priority=0 affinity=1 cpu_permille_one_core=468 stack_min_bytes=560
+[TASK t=232355] id=12 role=system state=blocked priority=18 affinity=0 cpu_permille_one_core=118 stack_min_bytes=3064
+[TASK t=232355] id=17 role=bridge state=blocked priority=3 affinity=-1 cpu_permille_one_core=351 stack_min_bytes=2808
+[TASK t=232355] id=11 role=network state=blocked priority=2 affinity=-1 cpu_permille_one_core=369 stack_min_bytes=3532
+[TASK t=232355] id=15 role=system state=blocked priority=23 affinity=0 cpu_permille_one_core=182 stack_min_bytes=4308
+[DIAG t=233366 boot=1623344255 episode=21] STALL_BEGIN queue=0/20 mqtt_state=0 mqtt_op=idle elapsed_ms=0 published=21490 first_fault_t=18237 frozen=8
+[LOSS] overflow=911 enqueue_fail=0 publish_fail=0 disconnected=0 mode_resets=0 invalid=0 mqtt_loop_fail=0 rtt_timeout=1 slow_publish=3 slow_loop=0
+[IO t=233366] lane=network active=idle elapsed_ms=0 req=0 window=2038735 last=ssh2_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=68122 slow=7 errors=0 short=0 tx=1534095 rx=5018 tx_at=233386 rx_at=232192 max_ms=1237
+[IO t=233366] lane=bridge active=bridge_select elapsed_ms=4294967270 req=0 window=-1 last=ssh1_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=86954 slow=1 errors=0 short=0 tx=2516959 rx=2516959 tx_at=233391 rx_at=233389 max_ms=381
+[IO_HISTORY] total=8 retained=8 overwritten=0
+[IO_EVENT id=5 t=88851] lane=bridge op=ssh1_write ms=381 req=116 rc=116 errno=0 ssh_error=0 window_before=2066760 error=
+[IO_EVENT id=6 t=89735] lane=network op=ssh2_write ms=1110 req=71 rc=71 errno=0 ssh_error=0 window_before=2028232 error=
+[IO_EVENT id=7 t=139781] lane=network op=ssh2_write ms=1199 req=71 rc=71 errno=0 ssh_error=0 window_before=2087840 error=
+[IO_EVENT id=8 t=143784] lane=network op=ssh2_write ms=1237 req=71 rc=71 errno=0 ssh_error=0 window_before=2068058 error=
+[TCP1 t=233366] generation=1 local_port=64423 peer_port=22 target=1 sample_generation=1 age_ms=106 found=1 state=4 nrtx=0 dupacks=0 rto_ms=1500 flags=0x1040 snd_wnd=65535 rcv_wnd=5760 cwnd=65535 snd_free=5744 queued_pbufs=0 unacked=0 unsent=0 ack=128527851 snd_next=128527851 rcv_next=693019628 persist=0 probe_pending=0 post_failures=0
+[WIFI t=233366] status=3 ap_valid=1 ap_rc=0 rssi=-64 channel=3 bssid=c0:bc:9a:e4:c5:f2 ps=1 ps_rc=0 events=2 disconnects=0 sample_age_ms=5
+[WIFI_EVENT id=1 t=2863] type=112 reason=0 rssi=0 channel=3 bssid=c0:bc:9a:e4:c5:f2
+[WIFI_EVENT id=2 t=4961] type=115 reason=0 rssi=0 channel=0 bssid=00:00:00:00:00:00
+[MEM t=233528] STALL_BEGIN internal_free=63944 internal_min=29272 largest=57332 allocated=183172 alloc_blocks=554 free_blocks=22 dma_free=63944 dma_largest=57332 alloc_failures=0
+[MEM] stack_min_bytes sensor=2336/4096 network=3532/16384 bridge=2808/8192 loop=5116/8192 (-1=not_sampled)
+[RTOS t=233366] tasks=15 table_capacity=32 sample_age_ms=5 interval_us=1005526 core0_busy_permille=554 core1_busy_permille=450 snapshot_us=2754 failures=0 runtime_valid=1
+[TASK_PROGRESS] role=sensor age_ms=-188 max_gap_ms=377
+[TASK_PROGRESS] role=network age_ms=-203 max_gap_ms=7030
+[TASK_PROGRESS] role=bridge age_ms=-215 max_gap_ms=389
+[TASK_PROGRESS] role=observer age_ms=5 max_gap_ms=978
+[TASK t=233361] id=8 role=observer state=running priority=1 affinity=1 cpu_permille_one_core=14 stack_min_bytes=5116
+[TASK t=233361] id=5 role=idle0 state=ready priority=0 affinity=0 cpu_permille_one_core=446 stack_min_bytes=440
+[TASK t=233361] id=6 role=idle1 state=ready priority=0 affinity=1 cpu_permille_one_core=550 stack_min_bytes=560
+[TASK t=233361] id=12 role=system state=blocked priority=18 affinity=0 cpu_permille_one_core=108 stack_min_bytes=3064
+[TASK t=233361] id=17 role=bridge state=blocked priority=3 affinity=-1 cpu_permille_one_core=291 stack_min_bytes=2808
+[TASK t=233361] id=10 role=sensor state=blocked priority=3 affinity=0 cpu_permille_one_core=104 stack_min_bytes=2336
+[TASK t=233361] id=11 role=network state=blocked priority=2 affinity=-1 cpu_permille_one_core=307 stack_min_bytes=3532
+[TASK t=233361] id=15 role=system state=blocked priority=23 affinity=0 cpu_permille_one_core=175 stack_min_bytes=4308
+[DIAG t=235463 boot=1623344255 episode=21] RECOVERED queue=0/20 mqtt_state=0 mqtt_op=idle elapsed_ms=0 published=21682 first_fault_t=18237 frozen=8
+[LOSS] overflow=911 enqueue_fail=0 publish_fail=0 disconnected=0 mode_resets=0 invalid=0 mqtt_loop_fail=0 rtt_timeout=1 slow_publish=3 slow_loop=0
+[IO t=235463] lane=network active=idle elapsed_ms=0 req=0 window=2025174 last=ssh2_poll duration_ms=2 rc=0 errno=0 ssh_error=0 calls=68761 slow=7 errors=0 short=0 tx=1547656 rx=5066 tx_at=235480 rx_at=234192 max_ms=1237
+[IO t=235463] lane=bridge active=bridge_select elapsed_ms=4294967276 req=0 window=-1 last=ssh1_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=87727 slow=1 errors=0 short=0 tx=2539199 rx=2539199 tx_at=235482 rx_at=235480 max_ms=381
+[IO_HISTORY] total=8 retained=8 overwritten=0
+[IO_EVENT id=5 t=88851] lane=bridge op=ssh1_write ms=381 req=116 rc=116 errno=0 ssh_error=0 window_before=2066760 error=
+[IO_EVENT id=6 t=89735] lane=network op=ssh2_write ms=1110 req=71 rc=71 errno=0 ssh_error=0 window_before=2028232 error=
+[IO_EVENT id=7 t=139781] lane=network op=ssh2_write ms=1199 req=71 rc=71 errno=0 ssh_error=0 window_before=2087840 error=
+[IO_EVENT id=8 t=143784] lane=network op=ssh2_write ms=1237 req=71 rc=71 errno=0 ssh_error=0 window_before=2068058 error=
+[TCP1 t=235463] generation=1 local_port=64423 peer_port=22 target=1 sample_generation=1 age_ms=205 found=1 state=4 nrtx=0 dupacks=0 rto_ms=1500 flags=0x1040 snd_wnd=65535 rcv_wnd=5760 cwnd=65535 snd_free=5416 queued_pbufs=2 unacked=2 unsent=0 ack=128557207 snd_next=128557535 rcv_next=693019760 persist=0 probe_pending=0 post_failures=0
+[WIFI t=235463] status=3 ap_valid=1 ap_rc=0 rssi=-67 channel=3 bssid=c0:bc:9a:e4:c5:f2 ps=1 ps_rc=0 events=2 disconnects=0 sample_age_ms=54
+[WIFI_EVENT id=1 t=2863] type=112 reason=0 rssi=0 channel=3 bssid=c0:bc:9a:e4:c5:f2
+[WIFI_EVENT id=2 t=4961] type=115 reason=0 rssi=0 channel=0 bssid=00:00:00:00:00:00
+[MEM t=235621] RECOVERED internal_free=64008 internal_min=29272 largest=57332 allocated=183108 alloc_blocks=554 free_blocks=23 dma_free=64008 dma_largest=57332 alloc_failures=0
+[MEM] stack_min_bytes sensor=2336/4096 network=3532/16384 bridge=2808/8192 loop=5116/8192 (-1=not_sampled)
+[RTOS t=235463] tasks=15 table_capacity=32 sample_age_ms=54 interval_us=1011004 core0_busy_permille=618 core1_busy_permille=514 snapshot_us=2751 failures=0 runtime_valid=1
+[TASK_PROGRESS] role=sensor age_ms=-185 max_gap_ms=377
+[TASK_PROGRESS] role=network age_ms=-200 max_gap_ms=7030
+[TASK_PROGRESS] role=bridge age_ms=-211 max_gap_ms=389
+[TASK_PROGRESS] role=observer age_ms=1 max_gap_ms=978
+[TASK t=235409] id=8 role=observer state=running priority=1 affinity=1 cpu_permille_one_core=7 stack_min_bytes=5116
+[TASK t=235409] id=5 role=idle0 state=ready priority=0 affinity=0 cpu_permille_one_core=382 stack_min_bytes=440
+[TASK t=235409] id=6 role=idle1 state=ready priority=0 affinity=1 cpu_permille_one_core=486 stack_min_bytes=560
+[TASK t=235409] id=12 role=system state=blocked priority=18 affinity=0 cpu_permille_one_core=118 stack_min_bytes=3064
+[TASK t=235409] id=17 role=bridge state=blocked priority=3 affinity=-1 cpu_permille_one_core=348 stack_min_bytes=2808
+[TASK t=235409] id=10 role=sensor state=blocked priority=3 affinity=0 cpu_permille_one_core=119 stack_min_bytes=2336
+[TASK t=235409] id=11 role=network state=blocked priority=2 affinity=-1 cpu_permille_one_core=349 stack_min_bytes=3532
+[TASK t=235409] id=15 role=system state=blocked priority=23 affinity=0 cpu_permille_one_core=185 stack_min_bytes=4308
+[MEM] LOW_HEADROOM (advisory: free<64KiB, largest<32KiB or stack<1KiB)
+[MEM t=236383] low_headroom internal_free=63636 internal_min=29272 largest=57332 allocated=183464 alloc_blocks=555 free_blocks=24 dma_free=63636 dma_largest=57332 alloc_failures=0
+[MEM] stack_min_bytes sensor=2336/4096 network=3532/16384 bridge=2808/8192 loop=5116/8192 (-1=not_sampled)
+[DIAG t=236464 boot=1623344255 episode=22] STALL_BEGIN queue=0/20 mqtt_state=0 mqtt_op=idle elapsed_ms=0 published=21761 first_fault_t=18237 frozen=8
+[LOSS] overflow=911 enqueue_fail=0 publish_fail=0 disconnected=0 mode_resets=0 invalid=0 mqtt_loop_fail=0 rtt_timeout=1 slow_publish=3 slow_loop=0
+[IO t=236464] lane=network active=idle elapsed_ms=0 req=0 window=2019494 last=ssh2_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=69104 slow=7 errors=0 short=0 tx=1553336 rx=5114 tx_at=236481 rx_at=236164 max_ms=1237
+[IO t=236464] lane=bridge active=bridge_select elapsed_ms=4294967275 req=0 window=-1 last=ssh1_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=88056 slow=1 errors=0 short=0 tx=2548563 rx=2548563 tx_at=236484 rx_at=236482 max_ms=381
+[IO_HISTORY] total=8 retained=8 overwritten=0
+[IO_EVENT id=5 t=88851] lane=bridge op=ssh1_write ms=381 req=116 rc=116 errno=0 ssh_error=0 window_before=2066760 error=
+[IO_EVENT id=6 t=89735] lane=network op=ssh2_write ms=1110 req=71 rc=71 errno=0 ssh_error=0 window_before=2028232 error=
+[IO_EVENT id=7 t=139781] lane=network op=ssh2_write ms=1199 req=71 rc=71 errno=0 ssh_error=0 window_before=2087840 error=
+[IO_EVENT id=8 t=143784] lane=network op=ssh2_write ms=1237 req=71 rc=71 errno=0 ssh_error=0 window_before=2068058 error=
+[TCP1 t=236464] generation=1 local_port=64423 peer_port=22 target=1 sample_generation=1 age_ms=139 found=1 state=4 nrtx=0 dupacks=0 rto_ms=1500 flags=0x1040 snd_wnd=65535 rcv_wnd=5760 cwnd=65535 snd_free=5744 queued_pbufs=0 unacked=0 unsent=0 ack=128571967 snd_next=128571967 rcv_next=693019892 persist=0 probe_pending=0 post_failures=0
+[WIFI t=236464] status=3 ap_valid=1 ap_rc=0 rssi=-68 channel=3 bssid=c0:bc:9a:e4:c5:f2 ps=1 ps_rc=0 events=2 disconnects=0 sample_age_ms=8
+[WIFI_EVENT id=1 t=2863] type=112 reason=0 rssi=0 channel=3 bssid=c0:bc:9a:e4:c5:f2
+[WIFI_EVENT id=2 t=4961] type=115 reason=0 rssi=0 channel=0 bssid=00:00:00:00:00:00
+[MEM t=236623] STALL_BEGIN internal_free=65572 internal_min=29272 largest=57332 allocated=181568 alloc_blocks=552 free_blocks=24 dma_free=65572 dma_largest=57332 alloc_failures=0
+[MEM] stack_min_bytes sensor=2336/4096 network=3532/16384 bridge=2808/8192 loop=5116/8192 (-1=not_sampled)
+[RTOS t=236464] tasks=15 table_capacity=32 sample_age_ms=8 interval_us=1047164 core0_busy_permille=532 core1_busy_permille=467 snapshot_us=2750 failures=0 runtime_valid=1
+[TASK_PROGRESS] role=sensor age_ms=-185 max_gap_ms=377
+[TASK_PROGRESS] role=network age_ms=-200 max_gap_ms=7030
+[TASK_PROGRESS] role=bridge age_ms=-212 max_gap_ms=389
+[TASK_PROGRESS] role=observer age_ms=8 max_gap_ms=978
+[TASK t=236456] id=12 role=system state=ready priority=18 affinity=0 cpu_permille_one_core=101 stack_min_bytes=3064
+[TASK t=236456] id=8 role=observer state=running priority=1 affinity=1 cpu_permille_one_core=15 stack_min_bytes=5116
+[TASK t=236456] id=5 role=idle0 state=ready priority=0 affinity=0 cpu_permille_one_core=468 stack_min_bytes=440
+[TASK t=236456] id=6 role=idle1 state=ready priority=0 affinity=1 cpu_permille_one_core=533 stack_min_bytes=560
+[TASK t=236456] id=10 role=sensor state=blocked priority=3 affinity=0 cpu_permille_one_core=99 stack_min_bytes=2336
+[TASK t=236456] id=17 role=bridge state=blocked priority=3 affinity=-1 cpu_permille_one_core=289 stack_min_bytes=2808
+[TASK t=236456] id=11 role=network state=blocked priority=2 affinity=-1 cpu_permille_one_core=329 stack_min_bytes=3532
+[TASK t=236456] id=15 role=system state=blocked priority=23 affinity=0 cpu_permille_one_core=160 stack_min_bytes=4308
+[DIAG t=238542 boot=1623344255 episode=22] RECOVERED queue=0/20 mqtt_state=0 mqtt_op=idle elapsed_ms=0 published=21951 first_fault_t=18237 frozen=8
+[LOSS] overflow=911 enqueue_fail=0 publish_fail=0 disconnected=0 mode_resets=0 invalid=0 mqtt_loop_fail=0 rtt_timeout=1 slow_publish=3 slow_loop=0
+[IO t=238542] lane=network active=idle elapsed_ms=0 req=0 window=2005993 last=ssh2_poll duration_ms=2 rc=0 errno=0 ssh_error=0 calls=69734 slow=7 errors=0 short=0 tx=1566837 rx=5162 tx_at=238560 rx_at=238178 max_ms=1237
+[IO t=238542] lane=bridge active=bridge_select elapsed_ms=4294967275 req=0 window=-1 last=ssh1_poll duration_ms=1 rc=0 errno=0 ssh_error=0 calls=88825 slow=1 errors=0 short=0 tx=2570687 rx=2570687 tx_at=238562 rx_at=238560 max_ms=381
+[IO_HISTORY] total=8 retained=8 overwritten=0
+[IO_EVENT id=5 t=88851] lane=bridge op=ssh1_write ms=381 req=116 rc=116 errno=0 ssh_error=0 window_before=2066760 error=
+[IO_EVENT id=6 t=89735] lane=network op=ssh2_write ms=1110 req=71 rc=71 errno=0 ssh_error=0 window_before=2028232 error=
+[IO_EVENT id=7 t=139781] lane=network op=ssh2_write ms=1199 req=71 rc=71 errno=0 ssh_error=0 window_before=2087840 error=
+[IO_EVENT id=8 t=143784] lane=network op=ssh2_write ms=1237 req=71 rc=71 errno=0 ssh_error=0 window_before=2068058 error=
+[TCP1 t=238542] generation=1 local_port=64423 peer_port=22 target=1 sample_generation=1 age_ms=212 found=1 state=4 nrtx=0 dupacks=0 rto_ms=1500 flags=0x1040 snd_wnd=65535 rcv_wnd=5760 cwnd=65535 snd_free=5580 queued_pbufs=1 unacked=1 unsent=0 ack=128601487 snd_next=128601651 rcv_next=693020024 persist=0 probe_pending=0 post_failures=0
+[WIFI t=238542] status=3 ap_valid=1 ap_rc=0 rssi=-69 channel=3 bssid=c0:bc:9a:e4:c5:f2 ps=1 ps_rc=0 events=2 disconnects=0 sample_age_ms=58
+[WIFI_EVENT id=1 t=2863] type=112 reason=0 rssi=0 channel=3 bssid=c0:bc:9a:e4:c5:f2
+[WIFI_EVENT id=2 t=4961] type=115 reason=0 rssi=0 channel=0 bssid=00:00:00:00:00:00
+[MEM t=238700] RECOVERED internal_free=63936 internal_min=29272 largest=57332 allocated=183172 alloc_blocks=554 free_blocks=23 dma_free=63936 dma_largest=57332 alloc_failures=0
+[MEM] stack_min_bytes sensor=2336/4096 network=3532/16384 bridge=2808/8192 loop=5116/8192 (-1=not_sampled)
+[RTOS t=238542] tasks=15 table_capacity=32 sample_age_ms=58 interval_us=1020995 core0_busy_permille=644 core1_busy_permille=565 snapshot_us=2750 failures=0 runtime_valid=1
+[TASK_PROGRESS] role=sensor age_ms=-184 max_gap_ms=377
+[TASK_PROGRESS] role=network age_ms=-200 max_gap_ms=7030
+[TASK_PROGRESS] role=bridge age_ms=-212 max_gap_ms=389
+[TASK_PROGRESS] role=observer age_ms=0 max_gap_ms=978
+[TASK t=238484] id=8 role=observer state=running priority=1 affinity=1 cpu_permille_one_core=7 stack_min_bytes=5116
+[TASK t=238484] id=5 role=idle0 state=ready priority=0 affinity=0 cpu_permille_one_core=356 stack_min_bytes=440
+[TASK t=238484] id=6 role=idle1 state=ready priority=0 affinity=1 cpu_permille_one_core=435 stack_min_bytes=560
+[TASK t=238484] id=17 role=bridge state=blocked priority=3 affinity=-1 cpu_permille_one_core=361 stack_min_bytes=2808
+[TASK t=238484] id=10 role=sensor state=blocked priority=3 affinity=0 cpu_permille_one_core=122 stack_min_bytes=2336
+[TASK t=238484] id=12 role=system state=blocked priority=18 affinity=0 cpu_permille_one_core=129 stack_min_bytes=3064
+[TASK t=238484] id=11 role=network state=blocked priority=2 affinity=-1 cpu_permille_one_core=373 stack_min_bytes=3532
+[TASK t=238484] id=15 role=system state=blocked priority=23 affinity=0 cpu_permille_one_core=211 stack_min_bytes=4308
+

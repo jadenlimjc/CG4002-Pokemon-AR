@@ -13,6 +13,7 @@
 #include "libssh_esp32.h"
 #include "ssh_client.h"
 #include "secrets.h"
+#include "network_profile.h"
 #include "telemetry_packet.h"
 #include "demo_protocol.h"
 
@@ -69,9 +70,9 @@ void initialiseMqttIdentity() {
     Serial.printf("[BOOT] Model ID: %s | MQTT client: %s\n", model_id, mqtt_client_id);
 }
 
-// MQTT / SSH forwarding destination
-char mqtt_server[128] = "makerslab-fpga-38.ddns.comp.nus.edu.sg";
-uint16_t mqtt_port = 1883;
+// PubSubClient is carried through SSHForwardClient to this final service.
+const char *mqtt_server = NetworkProfile::SERVICE_HOST;
+uint16_t mqtt_port = NetworkProfile::SERVICE_PORT;
 // Broker inactivity timeout is 1.5x this interval (~4.5 s).
 // Measured from its last received MQTT packet, not from physical power loss.
 constexpr uint16_t MQTT_KEEPALIVE_SECONDS = 3;
@@ -95,7 +96,8 @@ const uint8_t QUEUE_MAX_SIZE = 20;
 // These identify local discards, not loss somewhere on the network path.
 std::atomic<uint32_t> queueDrops{0}, enqueueFailures{0};
 uint32_t diagnosticBootId = 0, healthReportIndex = 0;
-uint32_t telemetryPublishFailures = 0, disconnectedDiscards = 0, publishedSamples = 0;
+std::atomic<uint32_t> telemetryPublishFailures{0}, disconnectedDiscards{0}, publishedSamples{0};
+std::atomic<uint32_t> staleTelemetryDiscards{0};
 uint32_t maximumPublishAgeMs = 0;
 uint64_t maximumPublishDurationUs = 0, lastHealthReportUs = 0;
 
@@ -115,12 +117,13 @@ void reportTelemetryHealth() {
     char payload[512];
     const int length = snprintf(payload, sizeof(payload),
         "{\"boot_id\":%lu,\"report_index\":%lu,\"queue_drops\":%lu,"
-        "\"enqueue_failures\":%lu,\"publish_failures\":%lu,\"disconnected_discards\":%lu,"
+        "\"enqueue_failures\":%lu,\"publish_failures\":%lu,\"disconnected_discards\":%lu,\"stale_discards\":%lu,"
         "\"published_samples\":%lu,\"queue_depth\":%u,\"max_publish_age_ms\":%lu,"
         "\"max_publish_duration_us\":%llu}",
         (unsigned long)diagnosticBootId, (unsigned long)++healthReportIndex,
         (unsigned long)queueDrops.load(), (unsigned long)enqueueFailures.load(),
         (unsigned long)telemetryPublishFailures, (unsigned long)disconnectedDiscards,
+        (unsigned long)staleTelemetryDiscards.load(),
         (unsigned long)publishedSamples, (unsigned)uxQueueMessagesWaiting(telemetryQueue),
         (unsigned long)maximumPublishAgeMs, (unsigned long long)maximumPublishDurationUs);
     if (length > 0 && static_cast<size_t>(length) < sizeof(payload)) {
@@ -448,6 +451,11 @@ void NetworkTask(void* pvParameters) {
         // ----------------------------------
 
         if (xQueueReceive(telemetryQueue, &packet, pdMS_TO_TICKS(5)) == pdTRUE) {
+            TelemetryPacket newer;
+            while (xQueueReceive(telemetryQueue, &newer, 0) == pdTRUE) {
+                packet = newer;
+                ++staleTelemetryDiscards;
+            }
             if (demoMode.load() == AUTO && WiFi.status() == WL_CONNECTED && client.connected()) {
                 // Millisecond subtraction remains valid across the device clock wrap.
                 const uint32_t ageMs = static_cast<uint32_t>(millis()) - packet.timestamp_ms;
@@ -541,45 +549,30 @@ void connectWiFi() {
     vTaskDelay(pdMS_TO_TICKS(100));
     WiFi.mode(WIFI_STA);
 
-    // --------------------------------------
-    // Configure WPA2 Enterprise
-    // --------------------------------------
+    if (NetworkProfile::WIFI_ENTERPRISE) {
+        Serial.println("[NetworkTask] Configuring WPA2-Enterprise...");
 
-    Serial.println("[NetworkTask] Configuring WPA2-Enterprise...");
+        esp_err_t err = esp_eap_client_set_identity(
+            (uint8_t*)WIFI_USER, strlen(WIFI_USER));
+        Serial.printf("[NetworkTask] EAP identity: 0x%x\n", err);
 
-    esp_err_t err;
-    err = esp_eap_client_set_identity(
-        (uint8_t*)WIFI_USER,
-        strlen(WIFI_USER)
-    );
+        err = esp_eap_client_set_username(
+            (uint8_t*)WIFI_USER, strlen(WIFI_USER));
+        Serial.printf("[NetworkTask] EAP username: 0x%x\n", err);
 
-    Serial.printf("[NetworkTask] EAP identity: 0x%x\n", err);
+        err = esp_eap_client_set_password(
+            (uint8_t*)NetworkProfile::WIFI_PASSWORD,
+            strlen(NetworkProfile::WIFI_PASSWORD));
+        Serial.printf("[NetworkTask] EAP password: 0x%x\n", err);
 
-    err = esp_eap_client_set_username(
-        (uint8_t*)WIFI_USER,
-        strlen(WIFI_USER)
-    );
-
-    Serial.printf("[NetworkTask] EAP username: 0x%x\n", err);
-
-    err = esp_eap_client_set_password(
-        (uint8_t*)WIFI_PASSWORD,
-        strlen(WIFI_PASSWORD)
-    );
-
-    Serial.printf("[NetworkTask] EAP password: 0x%x\n", err);
-
-    err = esp_wifi_sta_enterprise_enable();
-
-    Serial.printf("[NetworkTask] EAP enterprise enable: 0x%x\n", err);
-
-    // --------------------------------------
-    // Start connection
-    // --------------------------------------
-
-    Serial.println("[NetworkTask] Calling WiFi.begin()...");
-
-    WiFi.begin(WIFI_SSID);
+        err = esp_wifi_sta_enterprise_enable();
+        Serial.printf("[NetworkTask] EAP enterprise enable: 0x%x\n", err);
+        WiFi.begin(NetworkProfile::WIFI_SSID);
+    } else {
+        Serial.println("[NetworkTask] Configuring home WPA/WPA2 Wi-Fi...");
+        esp_wifi_sta_enterprise_disable();
+        WiFi.begin(NetworkProfile::WIFI_SSID, NetworkProfile::WIFI_PASSWORD);
+    }
 
     uint8_t retries = 0;
 
