@@ -4,6 +4,8 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
 import argparse
+from datetime import datetime, timedelta, timezone
+import json
 import os, numpy as np
 import sys
 from pathlib import Path
@@ -28,12 +30,12 @@ DATASET_CONFIGS = {
     "utd": (UTD_DATA_DIR, "utd_mhad"),
 }
 
-# Selected Optuna trial 7. Original baseline: lr=1e-3,
-# weight_decay=1e-4, dropout=0.3. Keep UTD training on those defaults.
+# Selected trial 42 from optuna_architecture_wide, retaining the original CNN.
+# UTD training keeps its original defaults below.
 REAL_TRAINING_PARAMS = {
-    "lr": 0.0004345454109729479,
-    "weight_decay": 1.461896279370496e-05,
-    "dropout": 0.34474115788895177,
+    "lr": 0.0011709413361488715,
+    "weight_decay": 0.00016330261109656093,
+    "dropout": 0.22214197961920232,
 }
 
 def set_seed(seed=42):
@@ -122,16 +124,17 @@ class RealTimeGesturePredictor:
 # =====================================================================
 # 3. TRAINING & VALIDATION PIPELINE
 # =====================================================================
-def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
+def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
+                 output_dir=None, evaluate=False, eval_data=None):
+    if num_epochs < 1:
+        raise ValueError("epochs must be positive")
+    if eval_data is not None and not evaluate:
+        raise ValueError("eval_data requires evaluate=True")
     # Set seed for deterministic results
     set_seed(42)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-
-    # Define and create the output directory for model checkpoints
-    checkpoint_dir = os.path.join(PYTORCH_DIR, "saved_checkpoints")
-    os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Load fixed [6, 256] windows; shuffle training only.
     default_data_dir, file_prefix = DATASET_CONFIGS[dataset]
@@ -144,6 +147,27 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
     num_classes = len(gesture_map)
     if val_dataset.class_names != train_dataset.class_names:
         raise ValueError("Training and validation datasets have different classes")
+    if not len(train_dataset) or not len(val_dataset):
+        raise ValueError("Training and validation datasets must not be empty")
+    evaluation_path = Path(eval_data or os.path.join(data_dir, f"{file_prefix}_test.npz"))
+    if evaluate:
+        evaluation_dataset = NPZIMUDataset(evaluation_path)
+        if (not len(evaluation_dataset) or
+                evaluation_dataset.class_names != train_dataset.class_names):
+            raise ValueError("Evaluation dataset must be nonempty and have the training class order")
+
+    # Every run owns its artifacts. Microseconds avoid collisions between fast runs.
+    requested_checkpoint = Path(checkpoint) if checkpoint else Path(checkpoint_name)
+    default_root = (requested_checkpoint.parent if requested_checkpoint.parent != Path(".")
+                    else Path(PYTORCH_DIR) / "saved_checkpoints")
+    output_root = Path(output_dir) if output_dir is not None else default_root
+    started_at = datetime.now(timezone(timedelta(hours=8), "Asia/Singapore"))
+    run_dir = output_root / started_at.strftime("%Y-%m-%d_%H-%M-%S_%f")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    best_model_path = run_dir / requested_checkpoint.name
+    plot_path = run_dir / f"gesture_1dcnn_{dataset}_loss.png"
+    matrix_path = run_dir / f"{file_prefix}_confusion_matrix.png"
+    print(f"Run folder (Singapore time): {run_dir.resolve()}")
 
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
@@ -167,10 +191,9 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
     optimizer = optim.Adam(model.parameters(), lr=params["lr"],
                            weight_decay=params["weight_decay"])
 
-    best_val_balanced_acc = 0.0
+    best_val_balanced_acc = -1.0
     best_val_loss = float('inf')
-    best_model_path = checkpoint or os.path.join(checkpoint_dir, checkpoint_name)
-    os.makedirs(os.path.dirname(os.path.abspath(best_model_path)), exist_ok=True)
+    best_epoch = 0
     train_losses = []
     val_losses = []
 
@@ -227,6 +250,7 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
                  avg_val_loss < best_val_loss)):
             best_val_balanced_acc = val_balanced_acc
             best_val_loss = avg_val_loss
+            best_epoch = epoch
             torch.save(model.state_dict(), best_model_path)
             print(f"  -> New best model saved to {best_model_path} (Val Balanced Acc: {best_val_balanced_acc:.2f}%, Val Loss: {best_val_loss:.4f})")
         else:
@@ -243,13 +267,37 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None):
         ax.legend()
         ax.grid(True, alpha=0.3)
         fig.tight_layout()
-        plot_path = os.path.join(SCRIPT_DIR, f"gesture_1dcnn_{dataset}_loss.png")
         fig.savefig(plot_path)
         plt.close(fig)
         print(f"Loss plot saved to '{plot_path}'")
 
     print("\n--- Training Complete ---")
     print(f"Best model saved to '{best_model_path}' with Validation Balanced Accuracy: {best_val_balanced_acc:.2f}%")
+    # The evaluator reads this sidecar to recover architecture and class order.
+    best_model_path.with_suffix(".json").write_text(json.dumps({
+        "model_config": {**model.config, "dropout": params["dropout"]},
+        "class_names": train_dataset.class_names, "params": params,
+        "metrics": {"seed": 42, "epoch": best_epoch,
+                    "balanced_accuracy": best_val_balanced_acc, "val_loss": best_val_loss},
+    }, indent=2) + "\n")
+    metadata = {"started_at": started_at.isoformat(), "dataset": dataset,
+                "data_dir": str(Path(data_dir).resolve()), "epochs": num_epochs,
+                "params": params, "checkpoint": best_model_path.name,
+                "loss_plot": plot_path.name, "best_epoch": best_epoch,
+                "best_val_balanced_accuracy": best_val_balanced_acc,
+                "train_losses": train_losses, "val_losses": val_losses,
+                "evaluation_data": str(evaluation_path.resolve()) if evaluate else None,
+                "evaluation_completed": False}
+    metadata_path = run_dir / "run.json"
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+    if evaluate:
+        # Reuse the standalone evaluator, explicitly loading the best saved epoch.
+        from ultra96.pytorch.training.evaluate_model import main as evaluate_model
+        evaluate_model(argparse.Namespace(data=str(evaluation_path), data_dir=None,
+                                         checkpoint=str(best_model_path), output=str(matrix_path)))
+        metadata.update(evaluation_completed=True, confusion_matrix=matrix_path.name)
+        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+    return run_dir
 
 
 def parse_args():
@@ -258,10 +306,23 @@ def parse_args():
     parser.add_argument("--dataset", choices=DATASET_CONFIGS, default="real")
     parser.add_argument("--data-dir", default=None,
                         help="override the selected dataset processed directory")
-    parser.add_argument("--checkpoint", default=None)
-    return parser.parse_args()
+    parser.add_argument("--checkpoint", default=None,
+                        help="checkpoint filename; a path uses its parent as the output root unless --output-dir is given")
+    parser.add_argument("--output-dir", type=Path, default=None,
+                        help="parent for dated run folders (default: pytorch/saved_checkpoints)")
+    parser.add_argument("--evaluate", action="store_true",
+                        help="evaluate the best checkpoint and save its confusion matrix in the run folder")
+    parser.add_argument("--eval-data", type=Path, default=None,
+                        help="evaluation NPZ for --evaluate; defaults to the selected dataset test split")
+    args = parser.parse_args()
+    if args.epochs < 1:
+        parser.error("--epochs must be positive")
+    if args.eval_data is not None and not args.evaluate:
+        parser.error("--eval-data requires --evaluate")
+    return args
 
 
 if __name__ == "__main__":
     args = parse_args()
-    run_pipeline(args.epochs, args.dataset, args.data_dir, args.checkpoint)
+    run_pipeline(args.epochs, args.dataset, args.data_dir, args.checkpoint,
+                 args.output_dir, args.evaluate, args.eval_data)

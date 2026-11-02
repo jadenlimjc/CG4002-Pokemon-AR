@@ -21,18 +21,25 @@ from ultra96.pytorch.training.train_baseline import (
     NPZIMUDataset, REAL_DATA_DIR, PYTORCH_DIR, REAL_TRAINING_PARAMS, set_seed,
 )
 
-BASE_ARCHITECTURE = {"base_channels": 32, "kernel1": 7, "kernel2": 5,
+BASE_ARCHITECTURE = {"channels1": 32, "channels2": 64, "channels3": 128,
+                     "kernel1": 7, "kernel2": 5,
                      "kernel3": 3, "hidden_features": 64}
-SEARCH_SPACE = {"base_channels": [16, 24, 32], "kernel1": [3, 5, 7],
-                "kernel2": [3, 5], "kernel3": [3, 5],
+SEARCH_SPACE = {"channels1": [16, 32, 48], "channels2": [32, 48, 64],
+                "channels3": [32, 64, 128], "kernel1": [3, 5, 7],
+                "kernel2": [3, 5, 7], "kernel3": [3, 5, 7],
                 "hidden_features": [32, 64, 128]}
 
 
 def model_config(params, classes):
     architecture = {**BASE_ARCHITECTURE, **params}
-    width = architecture["base_channels"]
+    # Existing studies used a single width and a fixed 1:2:4 channel ratio.
+    if "base_channels" in params:
+        width = params["base_channels"]
+        for i in (1, 2, 3):
+            if f"channels{i}" not in params:
+                architecture[f"channels{i}"] = width * 2 ** (i - 1)
     return {"in_channels": 6, "num_classes": classes,
-            "channels": [width, width * 2, width * 4],
+            "channels": [architecture[f"channels{i}"] for i in (1, 2, 3)],
             "kernel_sizes": [architecture[f"kernel{i}"] for i in (1, 2, 3)],
             "hidden_features": architecture["hidden_features"],
             "dropout": params["dropout"]}
@@ -115,21 +122,25 @@ def fit(params, seed, train, val, epochs, device, trial=None, checkpoint=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--trials", type=int, default=40)
+    parser.add_argument("--trials", type=int, default=60)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--data-dir", type=Path, default=Path(REAL_DATA_DIR))
     parser.add_argument("--output-dir", type=Path,
-                        default=Path(PYTORCH_DIR) / "saved_checkpoints" / "optuna_architecture")
+                        default=Path(PYTORCH_DIR) / "saved_checkpoints" / "optuna_architecture_wide")
     parser.add_argument("--search", choices=("architecture", "hyperparameters", "joint"),
-                        default="joint", help="architecture fixes training settings to the current tuned model")
-    parser.add_argument("--max-params", type=int, default=None,
+                        default="architecture", help="architecture fixes training settings to the current tuned model")
+    parser.add_argument("--finalists", type=int, default=3,
+                        help="number of distinct challengers to repeat across three seeds, plus baseline")
+    parser.add_argument("--max-params", type=int, default=100_000,
                         help="prune models above this trainable parameter budget")
-    parser.add_argument("--max-macs", type=int, default=None,
+    parser.add_argument("--max-macs", type=int, default=8_000_000,
                         help="prune models above this estimated Conv/Linear MAC budget per window")
     args = parser.parse_args()
     torch.set_num_threads(4)
     if args.trials < 1 or args.epochs < 1:
         parser.error("trials and epochs must be positive")
+    if args.finalists < 1:
+        parser.error("finalists must be positive")
     if any(value is not None and value < 1 for value in (args.max_params, args.max_macs)):
         parser.error("resource budgets must be positive")
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -191,20 +202,25 @@ def main():
 
     try:
         study.optimize(objective, n_trials=args.trials, n_jobs=1)
-        completed = sorted((t for t in study.trials
+        trials = study.trials
+        completed = sorted((t for t in trials
                             if t.state == optuna.trial.TrialState.COMPLETE),
                            key=lambda t: t.value, reverse=True)
     finally:
         # Release SQLite handles, including on Windows and interrupted searches.
         storage.remove_session()
         storage.engine.dispose()
-    # Include the baseline explicitly even when it is outside the top two.
+    (args.output_dir / "trials.json").write_text(json.dumps([
+        {"number": trial.number, "state": trial.state.name,
+         "balanced_accuracy": trial.value, "params": trial.params,
+         **trial.user_attrs} for trial in trials], indent=2) + "\n")
+    # Include the baseline explicitly even when it is outside the top finalists.
     candidates = [("baseline", baseline)]
     for trial in completed:
         params = trial.user_attrs["resolved_params"]
         if params not in [p for _, p in candidates]:
             candidates.append((f"trial_{trial.number}", params))
-        if len(candidates) == 3:
+        if len(candidates) == args.finalists + 1:
             break
     results = []
     for name, params in candidates:
@@ -226,6 +242,7 @@ def main():
             "data_dir": str(args.data_dir.resolve()),
             "search_space": SEARCH_SPACE if args.search != "hyperparameters" else {},
             "max_params": args.max_params, "max_macs": args.max_macs,
+            "finalists": args.finalists,
             "baseline_training_params": REAL_TRAINING_PARAMS,
             "class_names": train.class_names, "candidates": results,
             "test_evaluated": False}, indent=2) + "\n")

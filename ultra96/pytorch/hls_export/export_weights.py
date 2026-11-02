@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -20,6 +21,33 @@ DEFAULT_CHECKPOINT = os.path.join(
 DEFAULT_TEST_DATA = os.path.normpath(os.path.join(
     ULTRA96_DIR, "real_data", "processed", "real_gestures_test.npz"
 ))
+
+
+def resolve_checkpoint(model_path=None, checkpoint_dir=None):
+    """Prefer the latest completed dated real-data run; retain legacy fallback."""
+    if model_path is not None:
+        selected = Path(model_path).expanduser()
+    else:
+        root = Path(checkpoint_dir or Path(PYTORCH_DIR) / "saved_checkpoints")
+        runs = []
+        for folder in root.glob("????-??-??_*"):
+            metadata_path = folder / "run.json"
+            if not folder.is_dir() or not metadata_path.is_file():
+                continue
+            metadata = json.loads(metadata_path.read_text())
+            if metadata.get("dataset") == "real" and metadata.get("checkpoint"):
+                runs.append((folder, metadata))
+        if runs:
+            folder, metadata = max(runs, key=lambda run: run[0].name)
+            selected = folder / Path(metadata["checkpoint"]).name
+        else:
+            selected = root / Path(DEFAULT_CHECKPOINT).name
+    if not selected.is_file():
+        raise FileNotFoundError(
+            f"Checkpoint not found: {selected}. Train a model or pass --checkpoint PATH."
+        )
+    print(f"Selected checkpoint: {selected.resolve()}")
+    return selected
 
 # Map each trained PyTorch tensor to the name used by the HLS kernel.
 NAME_MAP = {
@@ -53,7 +81,7 @@ NAME_MAP = {
 
 
 def export_weights_and_vectors(
-    model_path=DEFAULT_CHECKPOINT,
+    model_path=None,
     test_data_path=DEFAULT_TEST_DATA,
     output_dir=None,
     hls_include_dir=None,
@@ -68,6 +96,7 @@ def export_weights_and_vectors(
     and XILINX_HLS/XILINX_VITIS). Re-export after changing BN parameters or the
     fixed-point types/epsilon in gesture_cnn.h and precompute_bn.cpp.
     """
+    model_path = resolve_checkpoint(model_path)
     # Define output directory for HLS export files
     output_dir = output_dir or DEFAULT_OUTPUT_DIR
     os.makedirs(output_dir, exist_ok=True)
@@ -152,7 +181,8 @@ def export_weights_and_vectors(
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT)
+    parser.add_argument("--checkpoint", default=None,
+                        help="checkpoint path; defaults to the latest completed dated real-data run, then the legacy checkpoint")
     parser.add_argument("--test-data", default=DEFAULT_TEST_DATA)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--hls-include-dir", help="Vitis include directory for exact BN precomputation")
