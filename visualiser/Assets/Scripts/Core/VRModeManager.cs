@@ -89,7 +89,6 @@ public class VRModeManager : MonoBehaviour
         Screen.sleepTimeout = SleepTimeout.NeverSleep;
 
         mainCamera.rect = new Rect(0f, 0f, 0.5f, 1f);
-        mainCamera.transform.localPosition = originalLocalPosition + Vector3.left * (ipd / 2f);
 
         CreateRightEyeCamera();
 
@@ -131,7 +130,8 @@ public class VRModeManager : MonoBehaviour
     {
         rightEyeObject = new GameObject("RightEyeCamera");
         rightEyeObject.transform.SetParent(mainCamera.transform.parent, false);
-        rightEyeObject.transform.localPosition = originalLocalPosition + Vector3.right * (ipd / 2f);
+        rightEyeObject.transform.localPosition = mainCamera.transform.localPosition
+            + mainCamera.transform.localRotation * Vector3.right * ipd;
         rightEyeObject.transform.localRotation = mainCamera.transform.localRotation;
 
         rightEyeCamera = rightEyeObject.AddComponent<Camera>();
@@ -162,10 +162,12 @@ public class VRModeManager : MonoBehaviour
         }
         else if (cam == rightEyeCamera)
         {
+            rightEyeObject.transform.localPosition = mainCamera.transform.localPosition
+                + mainCamera.transform.localRotation * Vector3.right * ipd;
+            rightEyeObject.transform.localRotation = mainCamera.transform.localRotation;
             rightEyeCamera.fieldOfView = mainCamera.fieldOfView;
             rightEyeCamera.nearClipPlane = mainCamera.nearClipPlane;
             rightEyeCamera.farClipPlane = mainCamera.farClipPlane;
-            rightEyeObject.transform.localRotation = mainCamera.transform.localRotation;
 
             Matrix4x4 proj = mainCamera.projectionMatrix;
             proj[0, 2] = -projectionOffset;
