@@ -91,7 +91,8 @@ public class VRModeManager : MonoBehaviour
         mainCamera.transform.localPosition = originalLocalPosition + Vector3.left * (ipd / 2f);
 
         CreateRightEyeCamera();
-        ApplyProjectionOffsets();
+
+        Camera.onPreRender += OnCameraPreRender;
 
         OnVRModeChanged?.Invoke(true);
         Debug.Log("[VR] VR mode enabled");
@@ -101,6 +102,8 @@ public class VRModeManager : MonoBehaviour
     {
         if (!IsVRMode) return;
         IsVRMode = false;
+
+        Camera.onPreRender -= OnCameraPreRender;
 
         if (mainCamera != null)
         {
@@ -146,32 +149,35 @@ public class VRModeManager : MonoBehaviour
         }
     }
 
-    private void ApplyProjectionOffsets()
+    private void OnCameraPreRender(Camera cam)
     {
-        if (projectionOffset <= 0f) return;
+        if (!IsVRMode || mainCamera == null) return;
 
-        Matrix4x4 leftProj = mainCamera.projectionMatrix;
-        leftProj[0, 2] += projectionOffset;
-        mainCamera.projectionMatrix = leftProj;
-
-        if (rightEyeCamera != null)
+        if (cam == mainCamera)
         {
-            Matrix4x4 rightProj = rightEyeCamera.projectionMatrix;
-            rightProj[0, 2] -= projectionOffset;
-            rightEyeCamera.projectionMatrix = rightProj;
+            // Left eye: read AR Foundation's matrix, shift right (toward nose)
+            Matrix4x4 proj = mainCamera.projectionMatrix;
+            proj[0, 2] += projectionOffset;
+            mainCamera.projectionMatrix = proj;
         }
-    }
+        else if (cam == rightEyeCamera)
+        {
+            // Sync right eye with main camera's current settings
+            rightEyeCamera.fieldOfView = mainCamera.fieldOfView;
+            rightEyeCamera.nearClipPlane = mainCamera.nearClipPlane;
+            rightEyeCamera.farClipPlane = mainCamera.farClipPlane;
+            rightEyeObject.transform.localRotation = mainCamera.transform.localRotation;
 
-    private void LateUpdate()
-    {
-        if (!IsVRMode || rightEyeObject == null || mainCamera == null) return;
-
-        rightEyeObject.transform.localRotation = mainCamera.transform.localRotation;
-        ApplyProjectionOffsets();
+            // Right eye: use main camera's base matrix, shift left (toward nose)
+            Matrix4x4 proj = mainCamera.projectionMatrix;
+            proj[0, 2] -= projectionOffset;
+            rightEyeCamera.projectionMatrix = proj;
+        }
     }
 
     private void OnDestroy()
     {
+        Camera.onPreRender -= OnCameraPreRender;
         if (IsVRMode)
             DisableVR();
     }
