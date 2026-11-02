@@ -30,12 +30,12 @@ DATASET_CONFIGS = {
     "utd": (UTD_DATA_DIR, "utd_mhad"),
 }
 
-# Selected Optuna trial 7. Original baseline: lr=1e-3,
-# weight_decay=1e-4, dropout=0.3. Keep UTD training on those defaults.
+# Selected trial 42 from optuna_architecture_wide, retaining the original CNN.
+# UTD training keeps its original defaults below.
 REAL_TRAINING_PARAMS = {
-    "lr": 0.0004345454109729479,
-    "weight_decay": 1.461896279370496e-05,
-    "dropout": 0.34474115788895177,
+    "lr": 0.0011709413361488715,
+    "weight_decay": 0.00016330261109656093,
+    "dropout": 0.22214197961920232,
 }
 
 def set_seed(seed=42):
