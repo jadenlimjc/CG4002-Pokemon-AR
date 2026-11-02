@@ -18,6 +18,8 @@ public class VRModeManager : MonoBehaviour
     [Header("Editor Testing")]
     [SerializeField] private KeyCode vrToggleKey = KeyCode.V;
 
+    private const int AR_MESH_LAYER = 25;
+
     public bool IsVRMode { get; private set; }
 
     public delegate void VRModeChangedHandler(bool isVR);
@@ -28,6 +30,7 @@ public class VRModeManager : MonoBehaviour
     private GameObject rightEyeObject;
     private Vector3 originalLocalPosition;
     private ScreenOrientation originalOrientation;
+    private Coroutine meshLayerCoroutine;
 
     private void Awake()
     {
@@ -94,6 +97,9 @@ public class VRModeManager : MonoBehaviour
 
         RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
 
+        SetARMeshLayer(AR_MESH_LAYER);
+        meshLayerCoroutine = StartCoroutine(PeriodicMeshLayerUpdate());
+
         OnVRModeChanged?.Invoke(true);
         Debug.Log("[VR] VR mode enabled");
     }
@@ -104,6 +110,13 @@ public class VRModeManager : MonoBehaviour
         IsVRMode = false;
 
         RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
+
+        if (meshLayerCoroutine != null)
+        {
+            StopCoroutine(meshLayerCoroutine);
+            meshLayerCoroutine = null;
+        }
+        SetARMeshLayer(0);
 
         if (mainCamera != null)
         {
@@ -139,6 +152,7 @@ public class VRModeManager : MonoBehaviour
         rightEyeCamera.rect = new Rect(0.5f, 0f, 0.5f, 1f);
         rightEyeCamera.tag = "Untagged";
         rightEyeCamera.depth = mainCamera.depth + 1;
+        rightEyeCamera.cullingMask = mainCamera.cullingMask & ~(1 << AR_MESH_LAYER);
 
         ARCameraBackground mainBg = mainCamera.GetComponent<ARCameraBackground>();
         if (mainBg != null)
@@ -172,6 +186,24 @@ public class VRModeManager : MonoBehaviour
             Matrix4x4 proj = mainCamera.projectionMatrix;
             proj[0, 2] = -projectionOffset;
             rightEyeCamera.projectionMatrix = proj;
+        }
+    }
+
+    private void SetARMeshLayer(int layer)
+    {
+        foreach (var filter in FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
+        {
+            if (filter.GetComponent<MeshCollider>() != null)
+                filter.gameObject.layer = layer;
+        }
+    }
+
+    private IEnumerator PeriodicMeshLayerUpdate()
+    {
+        while (true)
+        {
+            yield return new WaitForSeconds(2f);
+            SetARMeshLayer(AR_MESH_LAYER);
         }
     }
 
