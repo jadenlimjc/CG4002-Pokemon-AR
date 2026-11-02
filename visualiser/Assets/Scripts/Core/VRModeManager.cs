@@ -9,6 +9,10 @@ public class VRModeManager : MonoBehaviour
     [SerializeField] private float ipd = 0.064f;
     [SerializeField] private bool startInVR = false;
 
+    [Header("Lens Convergence")]
+    [Tooltip("How much each eye's projection shifts inward (0.0-0.1). Increase if images won't fuse.")]
+    [SerializeField] private float projectionOffset = 0.02f;
+
     [Header("Editor Testing")]
     [SerializeField] private KeyCode vrToggleKey = KeyCode.V;
 
@@ -80,6 +84,7 @@ public class VRModeManager : MonoBehaviour
         mainCamera.transform.localPosition = originalLocalPosition + Vector3.left * (ipd / 2f);
 
         CreateRightEyeCamera();
+        ApplyProjectionOffsets();
 
         OnVRModeChanged?.Invoke(true);
         Debug.Log("[VR] VR mode enabled");
@@ -94,6 +99,7 @@ public class VRModeManager : MonoBehaviour
         {
             mainCamera.rect = new Rect(0f, 0f, 1f, 1f);
             mainCamera.transform.localPosition = originalLocalPosition;
+            mainCamera.ResetProjectionMatrix();
         }
 
         if (rightEyeObject != null)
@@ -133,11 +139,28 @@ public class VRModeManager : MonoBehaviour
         }
     }
 
+    private void ApplyProjectionOffsets()
+    {
+        if (projectionOffset <= 0f) return;
+
+        Matrix4x4 leftProj = mainCamera.projectionMatrix;
+        leftProj[0, 2] += projectionOffset;
+        mainCamera.projectionMatrix = leftProj;
+
+        if (rightEyeCamera != null)
+        {
+            Matrix4x4 rightProj = rightEyeCamera.projectionMatrix;
+            rightProj[0, 2] -= projectionOffset;
+            rightEyeCamera.projectionMatrix = rightProj;
+        }
+    }
+
     private void LateUpdate()
     {
         if (!IsVRMode || rightEyeObject == null || mainCamera == null) return;
 
         rightEyeObject.transform.localRotation = mainCamera.transform.localRotation;
+        ApplyProjectionOffsets();
     }
 
     private void OnDestroy()
