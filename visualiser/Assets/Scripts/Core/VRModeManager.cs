@@ -153,15 +153,8 @@ public class VRModeManager : MonoBehaviour
         rightEyeCamera.tag = "Untagged";
         rightEyeCamera.depth = mainCamera.depth + 1;
         rightEyeCamera.cullingMask = mainCamera.cullingMask & ~(1 << AR_MESH_LAYER);
-
-        ARCameraBackground mainBg = mainCamera.GetComponent<ARCameraBackground>();
-        if (mainBg != null)
-        {
-            ARCameraBackground rightBg = rightEyeObject.AddComponent<ARCameraBackground>();
-            rightBg.useCustomMaterial = mainBg.useCustomMaterial;
-            if (mainBg.useCustomMaterial && mainBg.customMaterial != null)
-                rightBg.customMaterial = mainBg.customMaterial;
-        }
+        rightEyeCamera.clearFlags = CameraClearFlags.SolidColor;
+        rightEyeCamera.backgroundColor = Color.black;
     }
 
     private void OnBeginCameraRendering(ScriptableRenderContext context, Camera cam)
@@ -179,11 +172,13 @@ public class VRModeManager : MonoBehaviour
             rightEyeObject.transform.localPosition = mainCamera.transform.localPosition
                 + mainCamera.transform.localRotation * Vector3.right * ipd;
             rightEyeObject.transform.localRotation = mainCamera.transform.localRotation;
+
+            rightEyeCamera.ResetProjectionMatrix();
             rightEyeCamera.fieldOfView = mainCamera.fieldOfView;
             rightEyeCamera.nearClipPlane = mainCamera.nearClipPlane;
             rightEyeCamera.farClipPlane = mainCamera.farClipPlane;
 
-            Matrix4x4 proj = mainCamera.projectionMatrix;
+            Matrix4x4 proj = rightEyeCamera.projectionMatrix;
             proj[0, 2] = -projectionOffset;
             rightEyeCamera.projectionMatrix = proj;
         }
