@@ -1,71 +1,29 @@
-# CG4002 Visualiser — AR game and communications
+# CG4002 Visualiser — AR Pokemon Game + SSH/MQTT Communications
 
-This folder combines the former `pokemon-ar/` game source with the SSH/MQTT API.
-Both `NetworkManager.cs` and `SshMqttClient.cs` live in `Assets/Scripts/Networking/`.
-`NetworkManager` loads connection settings, creates and manages `SshMqttClient`,
-and delivers gestures through the existing `GestureEvents` bus. The gameplay
-scripts remain unchanged.
-This repository contains scripts and documentation to import into a
-separately created Unity project. Scenes, models, prefabs, package binaries,
-ProjectSettings and Unity-generated `.meta` files stay local.
+This repository contains only the C# source scripts for the Unity AR game.
+Scenes, models, prefabs, NuGet DLLs, ProjectSettings, and Unity-generated
+`.meta` files are **not versioned** — each team member recreates them locally
+by following this guide.
 
-## Live comms quick start
-
-1. Run the repository root `./setup.sh`. It now also writes the ignored
-   `visualiser/Assets/StreamingAssets/secrets.json` used by `NetworkManager`.
-   Run it from this worktree when preparing this version. For Unity-only settings,
-   export `SOC_USERNAME`, `SOC_PASSWORD`, `MQTT_USER`, `MQTT_PASSWORD`, then run
-   `python3 visualiser/Tools/write_connection_settings.py --key ~/.ssh/esp32_key --output visualiser/Assets/StreamingAssets/secrets.json`.
-2. Copy `visualiser/Assets/Scripts/` into your Unity project's `Assets/Scripts/`,
-   and copy the generated `secrets.json` into `Assets/StreamingAssets/`. Unity
-   creates `.meta` files locally. Include the MQTTnet and SSH.NET assemblies and
-   their dependencies from the comms project. The client uses MQTTnet's
-   `MqttFactory`/`PayloadSegment` API and SSH.NET's `ConnectAsync` API.
-3. Add `NetworkManager` to the scene's NetworkManager object. It creates
-   `SshMqttClient` and connects using MQTT over TCP through the SSH tunnels.
-   No transport selection or additional networking component is required.
-4. Set **Model Id** to your FireBeetle ID to select a player/device. Empty accepts
-   all devices for single-device demos. **Minimum Confidence** defaults to zero.
-   `NetworkManager.IsConnected` and `Status` report the connection. `Reconnect()`
-   reconnects; application pause/disable cancels the connection, and resume/enable
-   restarts it. Haptic/config commands use `NetworkManager.Client.SendHapticAsync`
-   and `SendConfigAsync` through the same connection.
-5. On Ultra96, run the broker and `python comms/main.py`
-   from `ultra96/`, with the existing Python dependencies and MQTT credentials.
-   This connects to the local broker on port 1883. The phone reaches that broker
-   through the existing SSH jump-host and Ultra96 tunnels.
-
-`main.py` still uses random placeholder inference. This integration defines the
-eleven-label comms contract using the existing training/FPGA class order.
-The model hookup remains separate from this integration.
-Do not interpret game `gesture_id` values as neural-network class indices.
-
-NetworkManager prepares the existing battle catch handler before dispatching
-Aim, so Aim → Throw works without a separate Catch button. Existing gameplay
-semantics otherwise apply: U-turn requests Run (the game currently asks for a
-second Run to confirm), and the pocket actions currently show the game's
-"Coming Soon" messages. Actual menus, model retraining and game rules are outside
-this comms integration. The new physical set has no battle-entry gesture;
-`POKEBALL_THROW` remains available through the existing UI/debug controls.
-
-## Unity setup
+---
 
 ## Prerequisites
 
 - **Unity Hub** + **Unity 6** (6000.x)
-- **Android Build Support** module (install via Unity Hub > Installs > Add Modules)
+- **Android Build Support** module (Unity Hub → Installs → Add Modules)
 - Android device with **ARCore** support (or iOS with ARKit)
+- **NuGetForUnity** (for MQTTnet / SSH.NET packages)
 
 ---
 
 ## Step 1: Create Unity Project
 
-1. Open Unity Hub → New Project
+1. Open Unity Hub → **New Project**
 2. Select **3D (URP)** template (Universal Render Pipeline)
 3. Name: `CG4002-Pokemon-AR`
 4. Create Project
 
-## Step 2: Install Required Packages
+## Step 2: Install Unity Packages
 
 ### Unity Registry Packages
 
@@ -81,98 +39,62 @@ Open **Window → Package Manager**, switch to "Unity Registry", and install:
 
 ### Niantic Spatial SDK
 
-1. Open **Window → Package Manager**
-2. Click **+** → **Add package by name**
-3. Enter: `com.nianticspatial.nsdk` version **4.1.0**
-4. Alternatively, add to `Packages/manifest.json`:
-   ```json
-   "com.nianticspatial.nsdk": "4.1.0"
-   ```
-5. After import, go to **Niantic → Spatial SDK → Configure Project** to auto-fix project settings
+1. **Window → Package Manager** → **+** → **Add package by name**
+2. Enter: `com.nianticspatial.nsdk` version **4.1.0**
+3. After import: **Niantic → Spatial SDK → Configure Project** to auto-fix settings
 
-The Niantic Spatial SDK 4.1.0 provides:
-- **Semantic Segmentation** (on-device terrain classification: grass, water, sky, etc.)
-- **Depth & Occlusion** (Pokemon hide behind real objects)
-- **Meshing** (3D reconstruction of physical surfaces for accurate placement)
+Provides: Semantic Segmentation (terrain detection), Depth & Occlusion, Meshing (3D surface reconstruction).
+
+### NuGet Packages (via NuGetForUnity)
+
+Install NuGetForUnity first (add via git URL: `https://github.com/GlitchEnzo/NuGetForUnity.git?path=/src/NuGetForUnity`).
+
+Then **NuGet → Manage NuGet Packages** and install:
+
+| Package | Version | Notes |
+|---------|---------|-------|
+| **MQTTnet** | **4.3.7.x** | Must be v4.x — v5 dropped netstandard and Unity won't load it |
+| **SSH.NET** | latest | SSH tunnel to Ultra96 |
+
+NuGetForUnity auto-resolves dependencies (`Microsoft.Bcl.AsyncInterfaces`, `BouncyCastle.Cryptography`, etc.) into `Assets/Packages/`.
 
 ## Step 3: Import Scripts
 
-Copy `visualiser/Assets/Scripts/` into your Unity project's `Assets/Scripts/` folder. Include the comms dependencies and generated connection
-settings described above. The layout below includes folders you create locally;
-only the C# sources in Scripts are versioned under `visualiser/Assets/`.
-Unity-generated `.meta` files and locally created assets are ignored by this repo.
+Copy `visualiser/Assets/Scripts/` into your Unity project's `Assets/Scripts/`.
 
 ```
 Assets/
-├── StreamingAssets/               # Generated secrets.json (ignored by Git)
-├── Scripts/
+├── StreamingAssets/
+│   └── secrets.json               # Generated — see "Connection Setup" below
+├── Scripts/                       # ← copy from this repo
 │   ├── Core/
-│   │   ├── GameState.cs          # FSM: Idle→Encounter→Catch/Battle→Result
-│   │   ├── GestureData.cs        # Data contracts + event system
-│   │   └── PokemonData.cs        # ScriptableObject for Pokemon stats
+│   │   ├── GameState.cs           # FSM: Idle→Encounter→Catch/Battle→Result
+│   │   ├── GestureData.cs         # Data contracts + static event bus
+│   │   └── PokemonData.cs         # ScriptableObject for Pokemon stats & model
 │   ├── Networking/
-│   │   ├── NetworkManager.cs     # Settings, lifecycle, transport → GestureEvents
-│   │   └── SshMqttClient.cs      # SSH tunnels and MQTT API
+│   │   ├── NetworkManager.cs      # Singleton — MQTT lifecycle → GestureEvents
+│   │   └── SshMqttClient.cs       # SSH tunnels + MQTT client (plain C#)
 │   ├── AR/
-│   │   └── PokemonSpawner.cs     # Lightship mesh + semantic spawn
+│   │   └── PokemonSpawner.cs      # Lightship mesh + semantic terrain spawn
 │   ├── Battle/
-│   │   ├── BattleManager.cs      # Turn-based battle logic
-│   │   └── CatchManager.cs       # Reticle aiming + Pokeball throw + capture sequence
+│   │   ├── BattleManager.cs       # Singleton — turn-based battle + pokeball throw
+│   │   └── CatchManager.cs        # Singleton — reticle aim + catch sequence
 │   ├── UI/
-│   │   ├── BattleHUD.cs          # HP bars, move panel, messages, reticle
-│   │   └── EncounterNotification.cs  # "Wild X appeared!" popup
+│   │   ├── BattleHUD.cs           # HP bars, move/action tiles, battle messages
+│   │   └── EncounterNotification.cs  # "Wild X appeared!" fade popup
 │   └── Debug/
-│       └── MockInputController.cs # Keyboard shortcuts for testing
-├── Models/
-│   ├── Pokemon/                   # Place .fbx/.gltf models here
-│   └── Pokeball/                  # Pokeball model
-├── Animations/                    # Animator Controllers
-├── Prefabs/                       # Pokemon prefabs with animators
-├── Materials/
-└── VFX/                           # Particle effects (sparkles, smoke, fizzle)
+│       ├── MockInputController.cs # Keyboard gesture simulation
+│       └── OnScreenControls.cs    # On-screen touch buttons (auto-created at runtime)
+├── Models/                        # Create locally — see Step 5
+│   ├── Pokemon/                   # .fbx models per Pokemon
+│   └── Pokeball/                  # Pokeball .fbx
+├── Animations/                    # Animator Controllers per Pokemon
+├── Prefabs/                       # Pokemon prefabs, Pokeball prefab, Mesh prefab
+├── Materials/                     # Materials for models
+└── VFX/                           # Particle effects (sparkle, smoke, fizzle)
 ```
 
-## Step 4: Scene Setup
-
-Create a scene with this hierarchy:
-
-```
-Scene Root
-├── AR Session                     (Add: AR Session component)
-├── XR Origin                      (Add: XR Origin component)
-│   ├── AR Camera                  (Tag: MainCamera)
-│   │   ├── AR Camera Manager
-│   │   ├── AR Camera Background
-│   │   ├── AROcclusionManager              ← Lightship depth occlusion
-│   │   └── ARSemanticSegmentationManager   ← Lightship terrain detection
-│   └── AR Mesh Manager            (Add: ARMeshManager + mesh prefab with MeshCollider)
-├── --- Managers ---
-│   ├── GameStateManager           (Add: GameStateManager.cs)
-│   ├── NetworkManager             (Add: NetworkManager.cs)
-│   ├── BattleManager              (Add: BattleManager.cs)
-│   ├── CatchManager               (Add: CatchManager.cs)
-│   └── PokemonSpawner             (Add: PokemonSpawner.cs)
-├── --- UI ---
-│   └── Canvas (Screen Space - Overlay)
-│       ├── BattleHUD              (Add: BattleHUD.cs)
-│       │   ├── PlayerHP Panel
-│       │   ├── WildHP Panel
-│       │   ├── MovePanel
-│       │   └── MessageText
-│       ├── EncounterNotification  (Add: EncounterNotification.cs)
-│       └── Reticle                (Image: crosshair, centered, default inactive)
-└── --- Debug ---
-    └── MockInput                  (Add: MockInputController.cs)
-```
-
-### Lightship Mesh Prefab Setup
-
-1. Create an empty GameObject, add `MeshFilter`, `MeshRenderer`, and `MeshCollider`
-2. Save as prefab in `Assets/Prefabs/LightshipMesh`
-3. Assign to `ARMeshManager` → Mesh Prefab field
-4. Enable **Generate Colliders** on `ARMeshManager` so `Physics.Raycast` can hit the mesh
-
-## Step 5: Configure AR
+## Step 4: Configure AR Settings
 
 1. **Edit → Project Settings → XR Plug-in Management**
    - Android tab: Enable **ARCore**
@@ -183,55 +105,307 @@ Scene Root
      - Minimum API Level: **Android 7.0 (API 24)**
      - Scripting Backend: **IL2CPP**
      - Target Architectures: **ARM64**
-   - Other Settings:
-     - Graphics APIs: **Vulkan** (Unity 6 default, supported by Lightship 4.x)
+   - Graphics APIs: **Vulkan** (Unity 6 default, supported by Lightship 4.x)
 
 3. **Niantic → Spatial SDK → Configure Project** (auto-fixes Lightship requirements)
 
-## Step 6: Create Pokemon Assets
+---
 
-1. Import 3D models (.fbx) into `Assets/Models/Pokemon/`
-2. For each Pokemon model:
-   - Create an **Animator Controller** in `Assets/Animations/`
-   - Add states: Idle, Walk, Attack, Hit, Faint, BreakFree
-   - Add trigger parameters: `isAttacking`, `isHit`, `isFainted`, `breakFree`
-   - Add bool parameters: `isWalking`, `isFlying`
-3. Create a **Prefab** (drag model to scene, attach Animator, drag to `Assets/Prefabs/`)
-4. Create a **PokemonData** ScriptableObject:
-   - Right-click in Project → Create → Pokemon → Pokemon Data
-   - Fill in stats, assign the prefab, set catch rate
+## Step 5: Create 3D Models, Animators, and Prefabs
 
-### Recommended Starter Pokemon (Fighting type for gesture demo):
+### 5a: Import Pokemon Models
 
-| Pokemon | Role | Moves |
-|---------|------|-------|
-| Lucario | Player's Pokemon | Configure slots for Punch, Downward Swipe, Uppercut, Guard |
-| Eevee | Wild (easy catch) | - |
-| Machop | Wild (battle) | - |
+1. Download `.fbx` models (see [Model Resources](#3d-model-resources) below)
+2. Place in `Assets/Models/Pokemon/<PokemonName>/`
+3. Keep poly count low (< 10k triangles per model) for mobile performance
 
-## Step 7: Wire Up References
+### 5b: Create Animator Controllers
 
-In the Inspector for each Manager:
-- **PokemonSpawner**: Assign `ARSemanticSegmentationManager`, populate terrain pools (grassPool, waterPool, flyingPool, defaultPool)
-- **BattleManager**: Assign the player's PokemonData ScriptableObject
-- **CatchManager**: Assign Pokeball prefab, VFX prefabs (sparkle, smoke, fizzle), reticle UI object
-- **BattleHUD**: Assign all UI text/slider references, reticle GameObject
-- **NetworkManager**: Set Model Id and optional Minimum Confidence.
+For **each** Pokemon model, create an Animator Controller in `Assets/Animations/`:
 
-## Step 8: Check Gameplay in Unity Editor
-Just press Play. The MockInputController shows controls in top-left:
-- `A` = Aim (show reticle)
-- `C` = Catch throw (fire Pokeball)
-- `X` = Cancel (hide reticle)
-- `B` = Battle entry
-- `1-4` = Battle moves
-- `R` = Reset
+1. Right-click `Assets/Animations/` → **Create → Animator Controller**
+2. Name it `<PokemonName>Controller` (e.g. `LucarioController`)
+3. Open it and add these **parameters**:
+
+| Parameter | Type | Used for |
+|-----------|------|----------|
+| `isWalking` | Bool | Ground idle animation |
+| `isFlying` | Bool | Flying idle animation |
+| `isAttacking` | Trigger | Attack animation |
+| `isHit` | Trigger | Damage taken animation |
+| `isFainted` | Trigger | Faint/death animation |
+| `breakFree` | Trigger | Escape from pokeball |
+
+4. Add states and transitions:
+
+```
+Entry → Idle
+Idle → Walk        (isWalking = true)
+Walk → Idle        (isWalking = false)
+Idle → Fly         (isFlying = true)
+Fly → Idle         (isFlying = false)
+Any State → Attack (isAttacking trigger)
+Any State → Hit    (isHit trigger)
+Any State → Faint  (isFainted trigger)
+Any State → BreakFree (breakFree trigger)
+Attack → Idle      (auto on exit)
+Hit → Idle         (auto on exit)
+BreakFree → Idle   (auto on exit)
+```
+
+5. Drag animation clips from the imported `.fbx` into the appropriate states
+6. For move-specific animations, add additional trigger parameters matching `MoveData.animationTrigger` values
+
+### 5c: Create Pokemon Prefabs
+
+For each Pokemon:
+
+1. Drag the `.fbx` model into the scene
+2. Attach the corresponding **Animator Controller** to its `Animator` component
+3. Adjust scale if needed
+4. Drag from the Hierarchy into `Assets/Prefabs/` to save as a prefab
+5. Delete the instance from the scene
+
+### 5d: Create Pokeball Prefab
+
+1. Import or create a Pokeball `.fbx` model in `Assets/Models/Pokeball/`
+2. Drag into scene, adjust scale
+3. Save as prefab in `Assets/Prefabs/Pokeball`
+
+### 5e: Create VFX Prefabs
+
+Create three particle-system prefabs in `Assets/VFX/`:
+
+| Prefab | Used for | Suggested look |
+|--------|----------|----------------|
+| `SparkleVFX` | Catch success | Bright sparkle burst |
+| `SmokeVFX` | Pokeball hit/impact | Puff of smoke |
+| `FizzleVFX` | Catch miss | Small fizzle particles |
+
+Each should be a GameObject with a **Particle System** component. Set **Play On Awake = true**, **Looping = false**, and a short duration (0.5–1s). They are instantiated at runtime and destroyed after playing.
+
+### 5f: Create PokemonData ScriptableObjects
+
+For each Pokemon:
+
+1. Right-click in Project → **Create → Pokemon → Pokemon Data**
+2. Fill in the fields:
+
+| Field | Description |
+|-------|-------------|
+| `pokemonName` | Display name (e.g. "Lucario") |
+| `pokedexNumber` | Pokedex # |
+| `primaryType` / `secondaryType` | PokemonType enum |
+| `maxHP`, `attack`, `defense`, `speed` | Base stats |
+| `spawnBehavior` | Ground, Flying, or Stationary |
+| `spawnScale` | World-space scale factor |
+| `baseCatchRate` | 0.0–1.0 (higher = easier to catch) |
+| `modelPrefab` | Drag the Pokemon prefab from Step 5c |
+| `moves[0–3]` | Configure 4 MoveData entries (see below) |
+
+Each **MoveData** entry has:
+
+| Field | Description |
+|-------|-------------|
+| `moveName` | Display name (e.g. "Punch") |
+| `moveType` | PokemonType for type-based tile coloring |
+| `power` | Damage value |
+| `accuracy` | 0–100 hit chance |
+| `isProtect` | true for Guard/Protect moves |
+| `animationTrigger` | Animator trigger name for this move |
+
+**Recommended starter set:**
+
+| Pokemon | Role | Type | Catch Rate | Moves |
+|---------|------|------|------------|-------|
+| Lucario | Player | Fighting | — | Punch, Downward Swipe, Uppercut, Guard (isProtect=true) |
+| Eevee | Wild (easy) | Normal | 0.8 | — |
+| Machop | Wild (battle) | Fighting | 0.5 | — |
+
+---
+
+## Step 6: Scene Setup (step-by-step)
+
+Create a new scene (**File → New Scene → Basic**), then build this hierarchy.
+
+### 6a: AR Foundation Objects
+
+1. **AR Session**
+   - Create empty GameObject, name it `AR Session`
+   - Add component: `AR Session`
+
+2. **XR Origin**
+   - Create empty GameObject, name it `XR Origin`
+   - Add component: `XR Origin`
+   - Create a child `AR Camera`:
+     - **Tag: MainCamera** (critical — scripts use `Camera.main`)
+     - Add components:
+       - `AR Camera Manager`
+       - `AR Camera Background`
+       - `AR Occlusion Manager` (Lightship depth occlusion)
+       - `AR Semantic Segmentation Manager` (Lightship terrain detection)
+   - Create a child `AR Mesh Manager`:
+     - Add component: `AR Mesh Manager`
+     - Create a **Mesh Prefab**: empty GameObject with `MeshFilter` + `MeshRenderer` + `MeshCollider`, save to `Assets/Prefabs/LightshipMesh`
+     - Assign it to `AR Mesh Manager` → **Mesh Prefab**
+     - Enable **Generate Colliders** (so `Physics.Raycast` works on the mesh)
+
+### 6b: Manager GameObjects
+
+Create an empty parent `--- Managers ---` (optional, for organization), then create these children:
+
+| GameObject Name | Component to Add | Inspector Setup |
+|----------------|------------------|-----------------|
+| `GameStateManager` | `GameStateManager.cs` | No fields to set |
+| `NetworkManager` | `NetworkManager.cs` | Set **Model Id** to your FireBeetle ID (empty = accept all). Set **Minimum Confidence** (default 0). |
+| `BattleManager` | `BattleManager.cs` | **Player Pokemon**: drag a PokemonData asset. **Pokeball Prefab**: drag Pokeball prefab. **Reticle UI**: drag the Reticle GameObject (created in 6c). **Throw Arc** / **Max Jiggles** / **Jiggle Interval**: tune to taste. |
+| `CatchManager` | `CatchManager.cs` | **Pokeball Prefab**: drag Pokeball prefab. **Reticle UI**: drag the Reticle GameObject. **Sparkle VFX**: drag SparkleVFX prefab. **Smoke VFX**: drag SmokeVFX prefab. **Fizzle VFX**: drag FizzleVFX prefab. |
+| `PokemonSpawner` | `PokemonSpawner.cs` | Populate **Grass Pool**, **Sky Pool**, **Default Pool** arrays with PokemonData assets. Tune **Spawn Distance**, **Spawn Cooldown**, **Terrain Detection Threshold**. |
+
+### 6c: UI Canvas
+
+1. Create **GameObject → UI → Canvas**
+   - Render Mode: **Screen Space - Overlay**
+   - Add a **Canvas Scaler** (Scale With Screen Size, reference 1920×1080)
+
+2. Under Canvas, create **BattleHUD** (empty GameObject + `BattleHUD.cs`):
+
+   Build this child hierarchy and wire each to the matching `[SerializeField]` slot:
+
+   ```
+   BattleHUD                          → battleHUDPanel (self)
+   ├── PlayerHP Panel                 → (layout group)
+   │   ├── PlayerNameText (TMP)       → playerNameText
+   │   ├── PlayerHPBar (Slider)       → playerHPBar
+   │   └── PlayerHPText (TMP)         → playerHPText
+   ├── WildHP Panel
+   │   ├── WildNameText (TMP)         → wildNameText
+   │   ├── WildHPBar (Slider)         → wildHPBar
+   │   └── WildHPText (TMP)           → wildHPText
+   ├── MovePanel                      → movePanel
+   │   ├── MoveTile0 (Image + TMP)    → moveTiles[0], moveTileTexts[0], moveTileImages[0]
+   │   ├── MoveTile1                  → moveTiles[1], moveTileTexts[1], moveTileImages[1]
+   │   ├── MoveTile2                  → moveTiles[2], moveTileTexts[2], moveTileImages[2]
+   │   └── MoveTile3                  → moveTiles[3], moveTileTexts[3], moveTileImages[3]
+   ├── ActionPanel                    → actionPanel
+   │   ├── CatchTile (Image + TMP)    → catchTile
+   │   ├── PokemonTile                → pokemonTile
+   │   ├── ItemTile                   → itemTile
+   │   └── RunTile                    → runTile
+   ├── PromptText (TMP)              → promptText ("What will X do?")
+   └── MessageText (TMP)             → messageText
+   ```
+
+   Each **MoveTile** is a GameObject with an `Image` component (for type-colored background) and a child `TextMeshProUGUI` (for the move name). Wire the `Image` to `moveTileImages[n]` and the `TMP` to `moveTileTexts[n]`.
+
+   Each **ActionTile** is similar (Image + TMP child). Wire to `catchTile`, `pokemonTile`, `itemTile`, `runTile`.
+
+   The `battleHUDPanel` field should reference the BattleHUD GameObject itself (it gets toggled via `SetActive`).
+
+3. Under Canvas, create **EncounterNotification** (empty GameObject + `EncounterNotification.cs`):
+
+   ```
+   EncounterNotification              → notificationPanel (self)
+   ├── PokemonNameText (TMP)          → pokemonNameText
+   ├── TerrainTypeText (TMP)          → terrainTypeText
+   └── ExclamationIcon (Image)        → exclamationIcon
+   ```
+
+   A `CanvasGroup` is auto-added at runtime for fade animation. Set the panel to **inactive by default**.
+
+4. Under Canvas, create **Reticle**:
+   - Add an `Image` component with a crosshair sprite
+   - Anchor to center of screen
+   - Set **inactive by default**
+   - Drag this into both `BattleManager` → Reticle UI and `CatchManager` → Reticle UI, and `BattleHUD` → Reticle Object
+
+### 6d: Debug Objects
+
+Create an empty parent `--- Debug ---`, then:
+
+| GameObject | Component | Notes |
+|------------|-----------|-------|
+| `MockInput` | `MockInputController.cs` | Keyboard controls. Toggle `enableMockInput` in Inspector. |
+| `OnScreenControls` | `OnScreenControls.cs` | **Must be a child of the Canvas** (uses `GetComponentInParent<Canvas>`). Buttons are auto-created at runtime. |
+
+### Final scene hierarchy
+
+```
+Scene Root
+├── AR Session                        (AR Session)
+├── XR Origin                         (XR Origin)
+│   ├── AR Camera                     (MainCamera tag, AR Camera Manager,
+│   │                                  AR Camera Background, AROcclusionManager,
+│   │                                  ARSemanticSegmentationManager)
+│   └── AR Mesh Manager               (ARMeshManager → mesh prefab)
+├── --- Managers ---
+│   ├── GameStateManager              (GameStateManager.cs)
+│   ├── NetworkManager                (NetworkManager.cs)
+│   ├── BattleManager                 (BattleManager.cs)
+│   ├── CatchManager                  (CatchManager.cs)
+│   └── PokemonSpawner                (PokemonSpawner.cs)
+├── --- UI ---
+│   └── Canvas                        (Screen Space - Overlay)
+│       ├── BattleHUD                 (BattleHUD.cs + full child UI)
+│       ├── EncounterNotification     (EncounterNotification.cs + children)
+│       ├── Reticle                   (Image, centered, default inactive)
+│       └── OnScreenControls          (OnScreenControls.cs)
+└── --- Debug ---
+    └── MockInput                     (MockInputController.cs)
+```
+
+**Save the scene** (Ctrl+S / Cmd+S) immediately after setup, and save frequently.
+
+---
+
+## Step 7: Connection Setup
+
+### Generate secrets.json
+
+Option A — use the repo setup script:
+```bash
+./setup.sh
+```
+
+Option B — manual:
+```bash
+export SOC_USERNAME=your_soc_user
+export SOC_PASSWORD=your_soc_pass
+export MQTT_USER=your_mqtt_user
+export MQTT_PASSWORD=your_mqtt_pass
+python3 visualiser/Tools/write_connection_settings.py \
+  --key ~/.ssh/esp32_key \
+  --output visualiser/Assets/StreamingAssets/secrets.json
+```
+
+Copy the generated `secrets.json` into your Unity project's `Assets/StreamingAssets/`.
+
+### Ultra96 side
+
+Run the broker and `python comms/main.py` from `ultra96/`, with existing Python dependencies and MQTT credentials. The phone reaches the broker through SSH jump-host and Ultra96 tunnels.
+
+---
+
+## Step 8: Test in Editor
+
+Press **Play**. The `MockInputController` shows keyboard controls in the top-left corner:
+
+| Key | Action |
+|-----|--------|
+| `A` | Aim (show reticle) |
+| `C` | Catch throw (fire pokeball) |
+| `X` | Cancel (hide reticle) |
+| `B` | Battle entry (pokeball throw) |
+| `1`–`4` | Battle moves 1–4 |
+| `R` | Reset to Idle |
+
+`OnScreenControls` creates touch buttons at runtime for on-device testing.
 
 ## Step 9: Build to Device
 
 1. **File → Build Settings**
 2. Switch platform to Android (or iOS)
-3. Add your scene to "Scenes in Build"
+3. **Add your scene** to "Scenes in Build"
 4. Click **Build and Run**
 5. Grant camera permissions on device
 
@@ -239,12 +413,11 @@ Just press Play. The MockInputController shows controls in top-left:
 
 ## Network Protocol
 
-Ultra96 publishes a non-retained MQTT message to `ultra96/<model_id>/inference`.
-`SshMqttClient` subscribes, then `NetworkManager.Update()` drains its queue,
-validates/filters messages and raises the existing game events on Unity's main thread.
-NetworkManager ignores telemetry/status topics when dispatching gestures.
+Ultra96 publishes non-retained MQTT messages to `ultra96/<model_id>/inference`.
+`SshMqttClient` subscribes; `NetworkManager.Update()` drains its queue,
+validates/filters messages, and raises game events on Unity's main thread.
 
-The gameplay payload is:
+Payload format:
 
 ```json
 {
@@ -255,12 +428,9 @@ The gameplay payload is:
 }
 ```
 
-`timestamp` is Unix time in **milliseconds**, not the device's uptime. Live
-messages also include `model_id`, `predicted_action`, `window_shape`,
-`sample_sequence`, `sample_timestamp_ms`, `skipped_windows`, and the legacy
-`timestamp_ms` alias. Unity ignores these extra diagnostic fields.
+`timestamp` is Unix time in **milliseconds**. Extra diagnostic fields (`model_id`, `predicted_action`, `window_shape`, etc.) are ignored by Unity.
 
-### New gesture set → JSON
+### Gesture mapping
 
 | Classifier label | Physical gesture | action | gesture_id |
 |---|---|---|---|
@@ -271,10 +441,10 @@ messages also include `model_id`, `predicted_action`, `window_shape`,
 | `FLEE` | U-turn | `BATTLE_ACTION` | 1 |
 | `SWITCH_POKEMON` | Back left pocket reach | `BATTLE_ACTION` | 2 |
 | `USE_ITEM` | Front left pocket reach | `BATTLE_ACTION` | 3 |
-| `AIM` | Throwing right arm raised to shoulder level | `ARM_PULLBACK` | 0 |
+| `AIM` | Throwing arm raised to shoulder | `ARM_PULLBACK` | 0 |
 | `THROW` | Throw from Aim position | `CATCH_THROW` | 0 |
 | `STOP_AIMING` | Arm returns to neutral | `CANCEL` | 0 |
-| `NEUTRAL` | Relaxed right arm down, facing ground | No action* | — |
+| `NEUTRAL` | Relaxed arm down | No action* | — |
 
 `GestureSequence` in `ultra96/comms/visualiser_protocol.py` owns per-device
 sequencing. It accepts Aim followed by Throw, then requires Stop Aim or Neutral
@@ -295,25 +465,18 @@ gesture, and sequence state in fixed dashboard rows. See
 and the test procedure. The 256-sample inference window and 25-sample hop are
 unchanged.
 
-`NetworkManager` translates Aim into the existing `BATTLE_CATCH` preparation event
-followed by `ARM_PULLBACK`; catch preparation is ignored in the encounter phase.
-The JSON itself remains the same four-field contract. Configure Pokemon move
-slots to match this order (Guard/Protect in slot 4); existing assets and legacy
-debug labels are not rewritten by the comms layer.
+`NetworkManager` translates Aim into `BATTLE_CATCH` preparation followed by `ARM_PULLBACK`; catch preparation is ignored in the encounter phase. Configure Pokemon move slots to match this order (Guard/Protect in slot 4).
 
-### All supported game actions:
+### All supported actions
 
 | action | gesture_id | Trigger |
 |--------|-----------|---------|
 | `ARM_PULLBACK` | 0 | Arm draws back (show reticle) |
-| `CATCH_THROW` | 0 | Overhead throw release (fire Pokeball) |
-| `POKEBALL_THROW` | 0 | Existing UI/debug battle entry (not in new classifier set) |
-| `BATTLE_MOVE` | 1 | Punch |
-| `BATTLE_MOVE` | 2 | Downward Swipe |
-| `BATTLE_MOVE` | 3 | Uppercut |
-| `BATTLE_MOVE` | 4 | Guard |
-| `BATTLE_ACTION` | 1–4 | Run, switch Pokemon, item, catch respectively |
-| `CANCEL` | 0 | Hand drops / cancel action |
+| `CATCH_THROW` | 0 | Overhead throw release (fire pokeball) |
+| `POKEBALL_THROW` | 0 | UI/debug battle entry (not in classifier set) |
+| `BATTLE_MOVE` | 1–4 | Punch / Swipe / Uppercut / Guard |
+| `BATTLE_ACTION` | 1–4 | Run / Switch / Item / Catch |
+| `CANCEL` | 0 | Cancel action |
 
 ---
 
@@ -337,16 +500,16 @@ debug labels are not rewritten by the comms layer.
 │  Phone (Unity 6 AR App + Niantic Spatial SDK 4.1)   │
 │  ┌─────────────────────────────────────────────┐    │
 │  │ NetworkManager → GestureEvents              │    │
-│  │      ↓ GestureEvents                       │    │
+│  │      ↓                                      │    │
 │  │ GameStateManager (FSM)                      │    │
-│  │      ↓ Phase transitions                   │    │
-│  │ CatchManager / BattleManager               │    │
-│  │      ↓ Animations + VFX                    │    │
+│  │      ↓ Phase transitions                    │    │
+│  │ CatchManager / BattleManager                │    │
+│  │      ↓ Animations + VFX                     │    │
 │  │ Lightship: Semantic Segmentation            │    │
-│  │      ↓ Terrain-aware Pokemon spawning      │    │
+│  │      ↓ Terrain-aware Pokemon spawning       │    │
 │  │ Lightship: Depth Occlusion + Meshing        │    │
-│  │      ↓ Pokemon hidden behind real objects  │    │
-│  │ AR Camera + 3D Pokemon Models              │    │
+│  │      ↓ Pokemon hidden behind real objects   │    │
+│  │ AR Camera + 3D Pokemon Models               │    │
 │  └─────────────────────────────────────────────┘    │
 │  + Haptic feedback (vibration on hit)               │
 └─────────────────────────────────────────────────────┘
@@ -360,12 +523,3 @@ debug labels are not rewritten by the comms layer.
 - **Sketchfab**: Search "Pokemon low poly" (check licenses)
 - Recommended format: **.fbx** (best Unity compatibility with animations)
 - Keep poly count low (< 10k triangles per model) for mobile performance
-
-## Next Steps
-
-1. Import 2-3 Pokemon models and set up Animator Controllers
-2. Test the full flow in Editor with MockInputController
-3. Verify the phone receives MQTT inference messages through the SSH tunnels
-4. Replace Ultra96 placeholder inference with the actual classifier
-5. Verify Lightship semantic segmentation maps terrain correctly to Pokemon types
-6. Add VFX (particle systems for sparkles, smoke, fizzle, hit effects)
