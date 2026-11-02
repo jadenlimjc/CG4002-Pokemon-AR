@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.XR.ARFoundation;
 
 public class VRModeManager : MonoBehaviour
@@ -92,7 +93,7 @@ public class VRModeManager : MonoBehaviour
 
         CreateRightEyeCamera();
 
-        Camera.onPreRender += OnCameraPreRender;
+        RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
 
         OnVRModeChanged?.Invoke(true);
         Debug.Log("[VR] VR mode enabled");
@@ -103,7 +104,7 @@ public class VRModeManager : MonoBehaviour
         if (!IsVRMode) return;
         IsVRMode = false;
 
-        Camera.onPreRender -= OnCameraPreRender;
+        RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
 
         if (mainCamera != null)
         {
@@ -149,35 +150,32 @@ public class VRModeManager : MonoBehaviour
         }
     }
 
-    private void OnCameraPreRender(Camera cam)
+    private void OnBeginCameraRendering(ScriptableRenderContext context, Camera cam)
     {
         if (!IsVRMode || mainCamera == null) return;
 
         if (cam == mainCamera)
         {
-            // Left eye: read AR Foundation's matrix, shift right (toward nose)
             Matrix4x4 proj = mainCamera.projectionMatrix;
-            proj[0, 2] += projectionOffset;
+            proj[0, 2] = projectionOffset;
             mainCamera.projectionMatrix = proj;
         }
         else if (cam == rightEyeCamera)
         {
-            // Sync right eye with main camera's current settings
             rightEyeCamera.fieldOfView = mainCamera.fieldOfView;
             rightEyeCamera.nearClipPlane = mainCamera.nearClipPlane;
             rightEyeCamera.farClipPlane = mainCamera.farClipPlane;
             rightEyeObject.transform.localRotation = mainCamera.transform.localRotation;
 
-            // Right eye: use main camera's base matrix, shift left (toward nose)
             Matrix4x4 proj = mainCamera.projectionMatrix;
-            proj[0, 2] -= projectionOffset;
+            proj[0, 2] = -projectionOffset;
             rightEyeCamera.projectionMatrix = proj;
         }
     }
 
     private void OnDestroy()
     {
-        Camera.onPreRender -= OnCameraPreRender;
+        RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
         if (IsVRMode)
             DisableVR();
     }
