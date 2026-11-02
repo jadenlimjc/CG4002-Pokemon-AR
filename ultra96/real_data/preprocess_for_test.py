@@ -1,7 +1,7 @@
 """Build a test-only NPZ from one or more recording session directories.
 
 Run from the repository root:
-    python ultra96/real_data/preprocess_for_test.py --input \
+    python ultra96/real_data/preprocess_for_test.py \
         ultra96/real_data/jaden/jaden_recordings_22_oct \
         ultra96/real_data/yiyang/yiyang_recordings_22_oct
 
@@ -19,6 +19,9 @@ offset augmentation is applied. Labels, normalization, and window extraction
 match preprocess_for_training.py. Only the supplied sessions are included.
 Session metadata uses the directory name; subject metadata uses its parent
 directory name. Filenames are relative to the common parent of the inputs.
+Loads real_data/centre_overrides.csv automatically when present. Override
+filenames are relative to --data-root (default: real_data), independently of
+the selected sessions and the filenames saved in the NPZ.
 
 Pass the generated NPZ directly to the PyTorch evaluator:
     python ultra96/pytorch/training/evaluate_model.py \
@@ -38,7 +41,7 @@ else:
     import preprocess_for_training as preprocessing
 
 
-def convert(input_dirs, output_path=None):
+def convert(input_dirs, output_path=None, centre_overrides=None, data_root=None):
     input_dirs = list(dict.fromkeys(Path(path).resolve() for path in input_dirs))
     if not input_dirs:
         raise ValueError("at least one recording directory is required")
@@ -50,11 +53,28 @@ def convert(input_dirs, output_path=None):
     if output_path.suffix.lower() != ".npz":
         raise ValueError("output must be an .npz file")
 
+    data_root = (Path(data_root).resolve() if data_root is not None
+                 else Path(__file__).resolve().parent)
+    if centre_overrides is None:
+        default_overrides = data_root / "centre_overrides.csv"
+        if default_overrides.is_file():
+            centre_overrides = default_overrides
+    centre_overrides = Path(centre_overrides).resolve() if centre_overrides is not None else None
+    overrides = preprocessing.load_centre_overrides(centre_overrides)
+    overrides = {(data_root / name).resolve(): seconds for name, seconds in overrides.items()}
+    # The shared CSV may contain other sessions; validate names in selected sessions.
+    for path in overrides:
+        if path.parent in input_dirs and not path.is_file():
+            raise ValueError(f"Override recording does not exist: {path}")
+    applied = 0
+    centres = []
     windows, labels, trials, filenames, subjects, sessions = [], [], [], [], [], []
     for session in input_dirs:
         if not session.is_dir():
             raise ValueError(f"required recording session does not exist: {session}")
-        paths = sorted(session.glob("*.csv"))
+        paths = sorted(path for path in session.glob("*.csv")
+                       if path.name.lower() != "centre_overrides.csv"
+                       and path != centre_overrides)
         if not paths:
             raise ValueError(f"no CSV recordings found in {session}")
         seen = set()
@@ -75,6 +95,13 @@ def convert(input_dirs, output_path=None):
             signal = preprocessing.load_csv(path)
             centre = (len(signal) // 2 if prefix == "neutral"
                       else preprocessing.motion_centre(signal))
+            if path in overrides:
+                seconds = overrides[path]
+                if seconds > (len(signal) - 1) / preprocessing.SAMPLE_RATE_HZ:
+                    raise ValueError(f"{path}: centre {seconds}s is outside the recording")
+                centre = round(seconds * preprocessing.SAMPLE_RATE_HZ)
+                applied += 1
+            centres.append(centre)
             windows.append(preprocessing.extract_window(signal, centre))
             labels.append(preprocessing.PREFIX_TO_LABEL[prefix])
             trials.append(trial)
@@ -84,6 +111,8 @@ def convert(input_dirs, output_path=None):
         preprocessing.validate_session_recordings(session, seen)
         print(f"Loaded {len(paths)} recordings from {session}")
 
+    if centre_overrides is not None:
+        print(f"Applied {applied} centre overrides from {centre_overrides}")
     x = np.stack(windows).astype(np.float32)
     y = np.asarray(labels, dtype=np.int64)
     counts = np.bincount(y, minlength=len(preprocessing.CLASS_NAMES))
@@ -98,6 +127,7 @@ def convert(input_dirs, output_path=None):
         trials=np.asarray(trials, dtype=np.int64),
         filenames=np.asarray(filenames),
         centre_offsets=np.zeros(len(y), dtype=np.int64),
+        window_centres=np.asarray(centres, dtype=np.int64),
         subjects=np.asarray(subjects), sessions=np.asarray(sessions),
         channel_names=preprocessing.CHANNEL_NAMES,
         sample_rate_hz=np.asarray(preprocessing.SAMPLE_RATE_HZ),
@@ -113,14 +143,18 @@ def convert(input_dirs, output_path=None):
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--input", type=Path, nargs="+", required=True,
+    parser.add_argument("input", type=Path, nargs="+",
                         help="one or more session directories directly containing CSVs")
     parser.add_argument("--output", type=Path,
                         help="destination .npz file (default: processed/"
                              "<directory_names_joined_by__>_test.npz beside this script)")
+    parser.add_argument("--centre-overrides", type=Path,
+                        help="Override CSV (default: centre_overrides.csv inside --data-root, if present)")
+    parser.add_argument("--data-root", type=Path,
+                        help="Root for filenames in the override CSV (default: real_data)")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    convert(args.input, args.output)
+    convert(args.input, args.output, args.centre_overrides, args.data_root)

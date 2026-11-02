@@ -64,7 +64,7 @@ def evaluate_and_generate_confusion_matrix(model, data_loader, device, class_map
         target_names=list(class_map.values()), zero_division=0
     ))
 
-    plt.figure(figsize=(12, 8))
+    figure = plt.figure(figsize=(12, 8))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
                 xticklabels=class_map.values(), yticklabels=class_map.values())
     plt.xlabel('Predicted Label')
@@ -76,6 +76,7 @@ def evaluate_and_generate_confusion_matrix(model, data_loader, device, class_map
     )
     plt.tight_layout()
     plt.savefig(filename, bbox_inches="tight")
+    plt.close(figure)
     print(f"Saved confusion matrix to '{filename}'")
 
 def main(args=None):
