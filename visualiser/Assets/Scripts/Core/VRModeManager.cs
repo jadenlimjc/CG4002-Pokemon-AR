@@ -1,6 +1,5 @@
 using System.Collections;
 using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEngine.XR.ARFoundation;
 
 public class VRModeManager : MonoBehaviour
@@ -62,6 +61,15 @@ public class VRModeManager : MonoBehaviour
 #endif
     }
 
+    private void LateUpdate()
+    {
+        if (!IsVRMode || mainCamera == null || rightEyeCamera == null) return;
+
+        rightEyeCamera.fieldOfView = mainCamera.fieldOfView;
+        rightEyeCamera.nearClipPlane = mainCamera.nearClipPlane;
+        rightEyeCamera.farClipPlane = mainCamera.farClipPlane;
+    }
+
     private IEnumerator EnableVRDelayed()
     {
         yield return new WaitForSeconds(1f);
@@ -95,8 +103,6 @@ public class VRModeManager : MonoBehaviour
 
         CreateRightEyeCamera();
 
-        RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
-
         SetARMeshLayer(AR_MESH_LAYER);
         meshLayerCoroutine = StartCoroutine(PeriodicMeshLayerUpdate());
 
@@ -108,8 +114,6 @@ public class VRModeManager : MonoBehaviour
     {
         if (!IsVRMode) return;
         IsVRMode = false;
-
-        RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
 
         if (meshLayerCoroutine != null)
         {
@@ -142,10 +146,7 @@ public class VRModeManager : MonoBehaviour
     private void CreateRightEyeCamera()
     {
         rightEyeObject = new GameObject("RightEyeCamera");
-        rightEyeObject.transform.SetParent(mainCamera.transform.parent, false);
-        rightEyeObject.transform.localPosition = mainCamera.transform.localPosition
-            + mainCamera.transform.localRotation * Vector3.right * ipd;
-        rightEyeObject.transform.localRotation = mainCamera.transform.localRotation;
+        rightEyeObject.transform.SetParent(mainCamera.transform, false);
 
         rightEyeCamera = rightEyeObject.AddComponent<Camera>();
         rightEyeCamera.CopyFrom(mainCamera);
@@ -155,30 +156,22 @@ public class VRModeManager : MonoBehaviour
         rightEyeCamera.tag = "Untagged";
         rightEyeCamera.depth = mainCamera.depth + 1;
         rightEyeCamera.cullingMask = mainCamera.cullingMask & ~(1 << AR_MESH_LAYER);
-        rightEyeCamera.clearFlags = CameraClearFlags.SolidColor;
-        rightEyeCamera.backgroundColor = Color.black;
-    }
 
-    private void OnBeginCameraRendering(ScriptableRenderContext context, Camera cam)
-    {
-        if (!IsVRMode || mainCamera == null) return;
-
-        if (cam == mainCamera)
+        var mainBg = mainCamera.GetComponent<ARCameraBackground>();
+        if (mainBg != null)
         {
-            Matrix4x4 proj = mainCamera.projectionMatrix;
-            proj[0, 2] = projectionOffset;
-            mainCamera.projectionMatrix = proj;
+            var rightBg = rightEyeObject.AddComponent<ARCameraBackground>();
+            rightBg.useCustomMaterial = mainBg.useCustomMaterial;
+            rightBg.customMaterial = mainBg.customMaterial;
         }
-        else if (cam == rightEyeCamera)
+        else
         {
-            Matrix4x4 view = mainCamera.worldToCameraMatrix;
-            view[0, 3] -= ipd;
-            rightEyeCamera.worldToCameraMatrix = view;
-
-            Matrix4x4 proj = mainCamera.projectionMatrix;
-            proj[0, 2] = -projectionOffset;
-            rightEyeCamera.projectionMatrix = proj;
+            rightEyeCamera.clearFlags = CameraClearFlags.SolidColor;
+            rightEyeCamera.backgroundColor = Color.black;
         }
+
+        rightEyeObject.transform.localPosition = new Vector3(ipd, 0f, 0f);
+        rightEyeObject.transform.localRotation = Quaternion.identity;
     }
 
     private void SetARMeshLayer(int layer)
@@ -201,7 +194,6 @@ public class VRModeManager : MonoBehaviour
 
     private void OnDestroy()
     {
-        RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
         if (IsVRMode)
             DisableVR();
     }
