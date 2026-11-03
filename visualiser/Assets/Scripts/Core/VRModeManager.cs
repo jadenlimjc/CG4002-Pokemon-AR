@@ -172,6 +172,8 @@ public class VRModeManager : MonoBehaviour
 
         rightEyeObject.transform.localPosition = new Vector3(ipd, 0f, 0f);
         rightEyeObject.transform.localRotation = Quaternion.identity;
+
+        Debug.Log($"[VR] Right eye created - localPos: {rightEyeObject.transform.localPosition}, ipd: {ipd}");
     }
 
     private void SetARMeshLayer(int layer)
