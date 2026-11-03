@@ -5,13 +5,16 @@ public class VRUIAdapter : MonoBehaviour
     [Header("Canvases to adapt")]
     [SerializeField] private Canvas[] uiCanvases;
 
-    [Header("Screen Space Camera Settings")]
+    [Header("World Space VR Settings")]
     [SerializeField] private float planeDistance = 1f;
+    [SerializeField] private float worldScale = 0.001f;
 
     private RenderMode[] originalModes;
     private Camera[] originalCameras;
     private float[] originalPlaneDistances;
     private Transform[] originalParents;
+    private Vector3[] originalScales;
+    private Vector3[] originalPositions;
 
     private void OnEnable()
     {
@@ -44,6 +47,8 @@ public class VRUIAdapter : MonoBehaviour
         originalCameras = new Camera[uiCanvases.Length];
         originalPlaneDistances = new float[uiCanvases.Length];
         originalParents = new Transform[uiCanvases.Length];
+        originalScales = new Vector3[uiCanvases.Length];
+        originalPositions = new Vector3[uiCanvases.Length];
 
         for (int i = 0; i < uiCanvases.Length; i++)
         {
@@ -52,6 +57,8 @@ public class VRUIAdapter : MonoBehaviour
             originalCameras[i] = uiCanvases[i].worldCamera;
             originalPlaneDistances[i] = uiCanvases[i].planeDistance;
             originalParents[i] = uiCanvases[i].transform.parent;
+            originalScales[i] = uiCanvases[i].transform.localScale;
+            originalPositions[i] = uiCanvases[i].transform.localPosition;
         }
     }
 
@@ -60,12 +67,12 @@ public class VRUIAdapter : MonoBehaviour
         if (uiCanvases == null) return;
 
         if (isVR)
-            SwitchToScreenSpaceCamera();
+            SwitchToWorldSpace();
         else
             RestoreOriginal();
     }
 
-    private void SwitchToScreenSpaceCamera()
+    private void SwitchToWorldSpace()
     {
         Camera cam = Camera.main;
         if (cam == null) return;
@@ -74,9 +81,12 @@ public class VRUIAdapter : MonoBehaviour
         {
             if (uiCanvases[i] == null) continue;
 
-            uiCanvases[i].renderMode = RenderMode.ScreenSpaceCamera;
+            uiCanvases[i].renderMode = RenderMode.WorldSpace;
             uiCanvases[i].worldCamera = cam;
-            uiCanvases[i].planeDistance = planeDistance;
+            uiCanvases[i].transform.SetParent(cam.transform, false);
+            uiCanvases[i].transform.localPosition = new Vector3(0f, 0f, planeDistance);
+            uiCanvases[i].transform.localRotation = Quaternion.identity;
+            uiCanvases[i].transform.localScale = Vector3.one * worldScale;
         }
     }
 
@@ -88,11 +98,14 @@ public class VRUIAdapter : MonoBehaviour
         {
             if (uiCanvases[i] == null) continue;
 
+            if (originalParents[i] != null)
+                uiCanvases[i].transform.SetParent(originalParents[i], false);
+
+            uiCanvases[i].transform.localPosition = originalPositions[i];
+            uiCanvases[i].transform.localScale = originalScales[i];
             uiCanvases[i].renderMode = originalModes[i];
             uiCanvases[i].worldCamera = originalCameras[i];
             uiCanvases[i].planeDistance = originalPlaneDistances[i];
-            if (originalParents[i] != null)
-                uiCanvases[i].transform.SetParent(originalParents[i], false);
         }
     }
 }

@@ -32,6 +32,7 @@ public class BattleHUD : MonoBehaviour
     [SerializeField] private GameObject runTile;
 
     [Header("Prompt")]
+    [SerializeField] private GameObject promptPanel;
     [SerializeField] private TextMeshProUGUI promptText;
 
     [Header("Battle Messages")]
@@ -130,6 +131,7 @@ public class BattleHUD : MonoBehaviour
         if (wildNameText != null && spawner?.CurrentPokemonData != null)
             wildNameText.text = spawner.CurrentPokemonData.pokemonName;
 
+        if (promptPanel != null) promptPanel.SetActive(true);
         if (promptText != null)
             promptText.text = $"What will {battle.PlayerPokemon?.pokemonName ?? "???"} do?";
 
@@ -210,6 +212,7 @@ public class BattleHUD : MonoBehaviour
         bool playerWon = battle.PlayerHP > 0;
         ShowMessage(playerWon ? "You won the battle!" : "You lost the battle...");
 
+        if (promptPanel != null) promptPanel.SetActive(false);
         if (movePanel != null) movePanel.SetActive(false);
         if (actionPanel != null) actionPanel.SetActive(false);
     }
@@ -218,6 +221,7 @@ public class BattleHUD : MonoBehaviour
     {
         battleHUDPanel?.SetActive(false);
         reticleObject?.SetActive(false);
+        if (promptPanel != null) promptPanel.SetActive(false);
         if (movePanel != null) movePanel.SetActive(false);
         if (actionPanel != null) actionPanel.SetActive(false);
         if (messageText != null) messageText.text = "";
