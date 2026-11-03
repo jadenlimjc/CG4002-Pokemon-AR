@@ -68,6 +68,15 @@ public class VRModeManager : MonoBehaviour
         rightEyeCamera.fieldOfView = mainCamera.fieldOfView;
         rightEyeCamera.nearClipPlane = mainCamera.nearClipPlane;
         rightEyeCamera.farClipPlane = mainCamera.farClipPlane;
+
+        Matrix4x4 leftProj = mainCamera.projectionMatrix;
+        leftProj[0, 2] += projectionOffset;
+        mainCamera.projectionMatrix = leftProj;
+
+        rightEyeCamera.ResetProjectionMatrix();
+        Matrix4x4 rightProj = rightEyeCamera.projectionMatrix;
+        rightProj[0, 2] -= projectionOffset;
+        rightEyeCamera.projectionMatrix = rightProj;
     }
 
     private IEnumerator EnableVRDelayed()
