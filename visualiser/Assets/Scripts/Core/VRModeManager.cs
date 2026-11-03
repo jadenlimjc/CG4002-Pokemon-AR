@@ -171,16 +171,11 @@ public class VRModeManager : MonoBehaviour
         }
         else if (cam == rightEyeCamera)
         {
-            rightEyeObject.transform.localPosition = mainCamera.transform.localPosition
-                + mainCamera.transform.localRotation * Vector3.right * ipd;
-            rightEyeObject.transform.localRotation = mainCamera.transform.localRotation;
+            Matrix4x4 view = mainCamera.worldToCameraMatrix;
+            view[0, 3] -= ipd;
+            rightEyeCamera.worldToCameraMatrix = view;
 
-            rightEyeCamera.ResetProjectionMatrix();
-            rightEyeCamera.fieldOfView = mainCamera.fieldOfView;
-            rightEyeCamera.nearClipPlane = mainCamera.nearClipPlane;
-            rightEyeCamera.farClipPlane = mainCamera.farClipPlane;
-
-            Matrix4x4 proj = rightEyeCamera.projectionMatrix;
+            Matrix4x4 proj = mainCamera.projectionMatrix;
             proj[0, 2] = -projectionOffset;
             rightEyeCamera.projectionMatrix = proj;
         }
