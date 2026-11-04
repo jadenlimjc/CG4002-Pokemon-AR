@@ -15,11 +15,21 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from ultra96.pytorch.training.model import Gesture1DCNN # Import the model from its dedicated file
 
+SAMPLE_RATE_HZ = 100
+WINDOW_SIZE = 256
+def run_label(sample_rate, window_size):
+    return f"{sample_rate} Hz | {window_size}-sample window ({window_size / sample_rate:.2f} s)"
+
+
+def validate_input_settings(sample_rate, window_size):
+    if sample_rate <= 0 or window_size < 4:
+        raise ValueError("sample_rate must be positive and window_size must be at least 4")
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTORCH_DIR = os.path.dirname(SCRIPT_DIR)
 ULTRA96_DIR = os.path.dirname(PYTORCH_DIR)
 REAL_DATA_DIR = os.path.normpath(os.path.join(
-    ULTRA96_DIR, "real_data", "processed"
+    ULTRA96_DIR, "real_data", "processed_100hz_256"
 ))
 UTD_DATA_DIR = os.path.normpath(os.path.join(
     ULTRA96_DIR, "online_data", "UTD-MHAD_HumanActionRecognitionDataset",
@@ -52,7 +62,10 @@ def set_seed(seed=42):
 class NPZIMUDataset(Dataset):
     """CNN-ready IMU windows loaded from an NPZ containing X and y."""
 
-    def __init__(self, path):
+    def __init__(self, path, sample_rate=SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
+        validate_input_settings(sample_rate, window_size)
+        self.sample_rate = sample_rate
+        self.window_size = window_size
         with np.load(path) as dataset:
             self.data = torch.from_numpy(
                 np.asarray(dataset["X"], dtype=np.float32).copy()
@@ -61,8 +74,12 @@ class NPZIMUDataset(Dataset):
                 np.asarray(dataset["y"], dtype=np.int64).copy()
             )
             self.class_names = dataset["class_names"].tolist()
-        if self.data.ndim != 3 or tuple(self.data.shape[1:]) != (6, 256):
-            raise ValueError(f"{path}: X must have shape [N, 6, 256]")
+            if "sample_rate_hz" in dataset and float(dataset["sample_rate_hz"].item()) != sample_rate:
+                raise ValueError(f"{path}: expected {sample_rate} Hz data")
+            if "window_size" in dataset and int(dataset["window_size"].item()) != window_size:
+                raise ValueError(f"{path}: expected {window_size}-sample windows")
+        if self.data.ndim != 3 or tuple(self.data.shape[1:]) != (6, window_size):
+            raise ValueError(f"{path}: X must have shape [N, 6, {window_size}]")
         if self.labels.shape != (len(self.data),):
             raise ValueError(f"{path}: y must have one label per window")
 
@@ -98,7 +115,7 @@ class RealTimeGesturePredictor:
     @torch.no_grad()
     def predict_window(self, window_tensor):
         """
-        window_tensor shape: (1, 6, 256)
+        window_tensor shape: (1, 6, window_size)
         """
         if self.cooldown_counter > 0:
             self.cooldown_counter -= 1
@@ -125,7 +142,10 @@ class RealTimeGesturePredictor:
 # 3. TRAINING & VALIDATION PIPELINE
 # =====================================================================
 def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
-                 output_dir=None, evaluate=False, eval_data=None):
+                 output_dir=None, evaluate=False, eval_data=None,
+                 sample_rate=SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
+    validate_input_settings(sample_rate, window_size)
+    label = run_label(sample_rate, window_size)
     if num_epochs < 1:
         raise ValueError("epochs must be positive")
     if eval_data is not None and not evaluate:
@@ -134,15 +154,16 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
     set_seed(42)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Run configuration: {label}")
     print(f"Using device: {device}")
 
-    # Load fixed [6, 256] windows; shuffle training only.
+    # Load fixed [6, window_size] windows; shuffle training only.
     default_data_dir, file_prefix = DATASET_CONFIGS[dataset]
     data_dir = data_dir or default_data_dir
-    train_dataset = NPZIMUDataset(os.path.join(data_dir, f"{file_prefix}_train.npz"))
-    val_dataset = NPZIMUDataset(os.path.join(data_dir, f"{file_prefix}_val.npz"))
+    train_dataset = NPZIMUDataset(os.path.join(data_dir, f"{file_prefix}_train.npz"), sample_rate, window_size)
+    val_dataset = NPZIMUDataset(os.path.join(data_dir, f"{file_prefix}_val.npz"), sample_rate, window_size)
     gesture_map = dict(enumerate(train_dataset.class_names))
-    checkpoint_name = f"gesture_1dcnn_{dataset}_100hz_256_best.pth"
+    checkpoint_name = f"gesture_1dcnn_{dataset}_{sample_rate}hz_{window_size}_best.pth"
 
     num_classes = len(gesture_map)
     if val_dataset.class_names != train_dataset.class_names:
@@ -151,7 +172,7 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
         raise ValueError("Training and validation datasets must not be empty")
     evaluation_path = Path(eval_data or os.path.join(data_dir, f"{file_prefix}_test.npz"))
     if evaluate:
-        evaluation_dataset = NPZIMUDataset(evaluation_path)
+        evaluation_dataset = NPZIMUDataset(evaluation_path, sample_rate, window_size)
         if (not len(evaluation_dataset) or
                 evaluation_dataset.class_names != train_dataset.class_names):
             raise ValueError("Evaluation dataset must be nonempty and have the training class order")
@@ -159,14 +180,14 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
     # Every run owns its artifacts. Microseconds avoid collisions between fast runs.
     requested_checkpoint = Path(checkpoint) if checkpoint else Path(checkpoint_name)
     default_root = (requested_checkpoint.parent if requested_checkpoint.parent != Path(".")
-                    else Path(PYTORCH_DIR) / "saved_checkpoints")
+                    else Path(PYTORCH_DIR) / "saved_checkpoints" / "100hz_256")
     output_root = Path(output_dir) if output_dir is not None else default_root
     started_at = datetime.now(timezone(timedelta(hours=8), "Asia/Singapore"))
     run_dir = output_root / started_at.strftime("%Y-%m-%d_%H-%M-%S_%f")
     run_dir.mkdir(parents=True, exist_ok=False)
     best_model_path = run_dir / requested_checkpoint.name
-    plot_path = run_dir / f"gesture_1dcnn_{dataset}_loss.png"
-    matrix_path = run_dir / f"{file_prefix}_confusion_matrix.png"
+    plot_path = run_dir / f"gesture_1dcnn_{dataset}_{sample_rate}hz_{window_size}_loss.png"
+    matrix_path = run_dir / f"{file_prefix}_{sample_rate}hz_{window_size}_confusion_matrix.png"
     print(f"Run folder (Singapore time): {run_dir.resolve()}")
 
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
@@ -263,7 +284,7 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
         ax.plot(epochs, val_losses, label="Validation loss")
         ax.set_xlabel("Epoch")
         ax.set_ylabel("Cross-entropy loss")
-        ax.set_title(f"{dataset.upper()} training and validation loss")
+        ax.set_title(f"{dataset.upper()} training and validation loss\n{label}")
         ax.legend()
         ax.grid(True, alpha=0.3)
         fig.tight_layout()
@@ -275,12 +296,14 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
     print(f"Best model saved to '{best_model_path}' with Validation Balanced Accuracy: {best_val_balanced_acc:.2f}%")
     # The evaluator reads this sidecar to recover architecture and class order.
     best_model_path.with_suffix(".json").write_text(json.dumps({
+        "sample_rate_hz": sample_rate, "window_size": window_size,
         "model_config": {**model.config, "dropout": params["dropout"]},
         "class_names": train_dataset.class_names, "params": params,
         "metrics": {"seed": 42, "epoch": best_epoch,
                     "balanced_accuracy": best_val_balanced_acc, "val_loss": best_val_loss},
     }, indent=2) + "\n")
     metadata = {"started_at": started_at.isoformat(), "dataset": dataset,
+                "sample_rate_hz": sample_rate, "window_size": window_size,
                 "data_dir": str(Path(data_dir).resolve()), "epochs": num_epochs,
                 "params": params, "checkpoint": best_model_path.name,
                 "loss_plot": plot_path.name, "best_epoch": best_epoch,
@@ -294,7 +317,8 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
         # Reuse the standalone evaluator, explicitly loading the best saved epoch.
         from ultra96.pytorch.training.evaluate_model import main as evaluate_model
         evaluate_model(argparse.Namespace(data=str(evaluation_path), data_dir=None,
-                                         checkpoint=str(best_model_path), output=str(matrix_path)))
+                                         checkpoint=str(best_model_path), output=str(matrix_path),
+                                         sample_rate=sample_rate, window_size=window_size))
         metadata.update(evaluation_completed=True, confusion_matrix=matrix_path.name)
         metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
     return run_dir
@@ -305,16 +329,22 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--dataset", choices=DATASET_CONFIGS, default="real")
     parser.add_argument("--data-dir", default=None,
-                        help="override the selected dataset processed directory")
+                        help="override the selected dataset processed directory (real default: real_data/processed_100hz_256)")
     parser.add_argument("--checkpoint", default=None,
                         help="checkpoint filename; a path uses its parent as the output root unless --output-dir is given")
     parser.add_argument("--output-dir", type=Path, default=None,
-                        help="parent for dated run folders (default: pytorch/saved_checkpoints)")
+                        help="parent for dated run folders (default: pytorch/saved_checkpoints/100hz_256)")
     parser.add_argument("--evaluate", action="store_true",
                         help="evaluate the best checkpoint and save its confusion matrix in the run folder")
     parser.add_argument("--eval-data", type=Path, default=None,
                         help="evaluation NPZ for --evaluate; defaults to the selected dataset test split")
+    parser.add_argument("--sample-rate", type=int, default=SAMPLE_RATE_HZ,
+                        help="expected dataset sampling rate in Hz (default: 100)")
+    parser.add_argument("--window-size", type=int, default=WINDOW_SIZE,
+                        help="expected samples per window, at least 4 (default: 256)")
     args = parser.parse_args()
+    if args.sample_rate <= 0 or args.window_size < 4:
+        parser.error("--sample-rate must be positive and --window-size must be at least 4")
     if args.epochs < 1:
         parser.error("--epochs must be positive")
     if args.eval_data is not None and not args.evaluate:
@@ -325,4 +355,5 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     run_pipeline(args.epochs, args.dataset, args.data_dir, args.checkpoint,
-                 args.output_dir, args.evaluate, args.eval_data)
+                 args.output_dir, args.evaluate, args.eval_data,
+                 args.sample_rate, args.window_size)
