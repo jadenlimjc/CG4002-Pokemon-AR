@@ -252,6 +252,11 @@ class TelemetryProcessor:
 
         decision = None
         event = None
+        required_confirmation_steps = (
+            0
+            if predicted_action == "NEUTRAL" and self.gesture_sequence.state == "RECOVERING"
+            else self.confirmation_steps
+        )
 
         if confidence < self.gesture_sequence.confidence_threshold:
             self.candidate_action = None
@@ -265,14 +270,14 @@ class TelemetryProcessor:
 
             self.confirmation_count = min(
                 self.confirmation_count + 1,
-                self.confirmation_steps,
+                required_confirmation_steps,
             )
 
-            if self.confirmation_count < self.confirmation_steps:
+            if self.confirmation_count < required_confirmation_steps:
                 status = reason = "CONFIRMING"
                 detail = (
                     f"Confirming {predicted_action}: "
-                    f"{self.confirmation_count}/{self.confirmation_steps}."
+                    f"{self.confirmation_count}/{required_confirmation_steps}."
                 )
             else:
                 decision = self.gesture_sequence.evaluate(
@@ -292,7 +297,7 @@ class TelemetryProcessor:
             "predicted_action": predicted_action,
             "confidence": confidence,
             "confirmation_count": self.confirmation_count,
-            "confirmation_steps": self.confirmation_steps,
+            "confirmation_steps": required_confirmation_steps,
             "inference_source": "fpga",
             "window_shape": list(window.features.shape),
             "model_input_shape": [6, 256],
@@ -445,7 +450,7 @@ def main():
                         help="maximum distinct device buffers per run (default: 64)")
     parser.add_argument("--confidence-threshold", type=validate_confidence_threshold,
                         default=DEFAULT_CONFIDENCE_THRESHOLD,
-                        help="minimum confidence, 0..1 (default: 0.90)")
+                        help="minimum confidence, 0..1 (default: 0.75)")
     args = parser.parse_args()
     if args.max_devices < 1:
         parser.error("--max-devices must be positive")
