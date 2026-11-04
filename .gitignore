@@ -63,7 +63,7 @@ ultra96/pytorch/*.h5
 ultra96/pytorch/*.xclbin
 # will likely remove once start training with real data to save checkpoints
 ultra96/pytorch/saved_checkpoints/optuna*
-ultra96/pytorch/**/*.png
+ultra96/pytorch/training/*.png
 ultra96/online_data/UTD-MHAD_HumanActionRecognitionDataset/Inertial/
 ultra96/online_data/UTD-MHAD_HumanActionRecognitionDataset/utd_mhad_processed/
 ultra96/real_data/processed
