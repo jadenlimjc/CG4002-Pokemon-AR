@@ -35,9 +35,6 @@ public class BattleHUD : MonoBehaviour
     [SerializeField] private GameObject promptPanel;
     [SerializeField] private TextMeshProUGUI promptText;
 
-    [Header("Battle Messages")]
-    [SerializeField] private TextMeshProUGUI messageText;
-    [SerializeField] private float messageDisplayTime = 2f;
 
     [Header("Reticle")]
     [SerializeField] private GameObject reticleObject;
@@ -179,29 +176,24 @@ public class BattleHUD : MonoBehaviour
 
     private void ShowMessage(string message)
     {
-        if (messageText != null)
-        {
-            messageText.text = message;
-            StopCoroutine(nameof(ClearMessageAfterDelay));
-            StartCoroutine(ClearMessageAfterDelay());
-        }
-    }
+        if (promptText == null) return;
 
-    private IEnumerator ClearMessageAfterDelay()
-    {
-        yield return new WaitForSeconds(messageDisplayTime);
-        if (messageText != null)
-            messageText.text = "";
+        if (message == "Your turn! Perform a move gesture!")
+        {
+            string name = BattleManager.Instance?.PlayerPokemon?.pokemonName ?? "???";
+            promptText.text = $"What will {name} do?";
+        }
+        else
+        {
+            promptText.text = message;
+        }
     }
 
     private void HandleCatchResult(bool success, string pokemonName)
     {
-        if (messageText != null)
-        {
-            messageText.text = success
-                ? $"Gotcha! {pokemonName} was caught!"
-                : $"Oh no! {pokemonName} broke free!";
-        }
+        ShowMessage(success
+            ? $"Gotcha! {pokemonName} was caught!"
+            : $"Oh no! {pokemonName} broke free!");
     }
 
     private void ShowBattleResult()
@@ -212,7 +204,6 @@ public class BattleHUD : MonoBehaviour
         bool playerWon = battle.PlayerHP > 0;
         ShowMessage(playerWon ? "You won the battle!" : "You lost the battle...");
 
-        if (promptPanel != null) promptPanel.SetActive(false);
         if (movePanel != null) movePanel.SetActive(false);
         if (actionPanel != null) actionPanel.SetActive(false);
     }
@@ -224,7 +215,7 @@ public class BattleHUD : MonoBehaviour
         if (promptPanel != null) promptPanel.SetActive(false);
         if (movePanel != null) movePanel.SetActive(false);
         if (actionPanel != null) actionPanel.SetActive(false);
-        if (messageText != null) messageText.text = "";
+        if (promptText != null) promptText.text = "";
     }
 
     private void HandleGestureVisual(GestureAction action, float confidence)
