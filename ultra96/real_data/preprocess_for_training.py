@@ -1,8 +1,8 @@
 """Convert labelled real-sensor CSV recordings into reproducible NPZ splits.
 
 Each CSV is a 100 Hz recording. --sample-rate downsamples it to 1-99 Hz
-using an anti-aliasing filter; omitting it preserves 100 Hz. A fixed
---window-size sample window (default: 256) is centred on the
+using an anti-aliasing filter; the default output is 50 Hz. A fixed
+--window-size sample window (default: 128) is centred on the
 strongest smoothed motion; neutral recordings use their temporal centre.
 Use --centre-overrides CSV to specify filename,centre_seconds instead;
 filenames are relative to --input. Training offsets still apply to that centre.
@@ -28,8 +28,9 @@ from pathlib import Path
 import numpy as np
 
 
-SAMPLE_RATE_HZ = 100  # Fixed source rate; also the default output rate.
-WINDOW_SIZE = 256
+SAMPLE_RATE_HZ = 100  # Fixed source recording rate; never change for output resampling.
+DEFAULT_SAMPLE_RATE_HZ = 50  # Default output rate for training and evaluation; can be overridden.
+WINDOW_SIZE = 128
 GRAVITY_M_S2 = 9.80665
 ACCEL_RANGE_G = 8.0
 GYRO_RANGE_DPS = 500.0
@@ -92,14 +93,14 @@ def load_csv(path):
 
 
 def target_sample_rate(value):
-    """Explicit CLI values select downsampling; the omitted default stays 100 Hz."""
+    """Explicit CLI values select downsampling; the default output is 50 Hz."""
     rate = int(value)
     if not 0 < rate < SAMPLE_RATE_HZ:
-        raise argparse.ArgumentTypeError("--sample-rate must be an integer from 1 to 99; omit it for 100 Hz")
+        raise argparse.ArgumentTypeError("--sample-rate must be an integer from 1 to 99")
     return rate
 
 
-def resample_signal(signal, sample_rate=SAMPLE_RATE_HZ):
+def resample_signal(signal, sample_rate=DEFAULT_SAMPLE_RATE_HZ):
     """Convert normalized 100 Hz channels to the target rate before windowing."""
     if type(sample_rate) is not int or not 0 < sample_rate <= SAMPLE_RATE_HZ:
         raise ValueError("sample_rate must be an integer from 1 to 100")
@@ -177,7 +178,7 @@ def load_centre_overrides(path):
 
 
 def convert(input_dir, output_dir, centre_overrides=None,
-            sample_rate=SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
+            sample_rate=DEFAULT_SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
     if type(sample_rate) is not int or not 0 < sample_rate <= SAMPLE_RATE_HZ or window_size < 4:
         raise ValueError("sample_rate must be an integer from 1 to 100 and window_size must be at least 4")
     if not input_dir.is_dir():
@@ -295,14 +296,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=script_dir,
                         help="Data root, subject folder, or dated session (default: real_data)")
-    parser.add_argument("--output", type=Path, default=script_dir / "processed_100hz_256")
+    parser.add_argument("--output", type=Path, default=script_dir / "processed_50hz_128")
     parser.add_argument("--centre-overrides", type=Path,
                         help="CSV with filename,centre_seconds; paths relative to --input "
                              "(default: centre_overrides.csv inside --input, if present)")
-    parser.add_argument("--sample-rate", type=target_sample_rate, default=SAMPLE_RATE_HZ,
-                        help="downsample 100 Hz CSVs to 1-99 Hz; omit for original 100 Hz")
+    parser.add_argument("--sample-rate", type=target_sample_rate, default=DEFAULT_SAMPLE_RATE_HZ,
+                        help="downsample 100 Hz CSVs to 1-99 Hz; default: 50 Hz")
     parser.add_argument("--window-size", type=int, default=WINDOW_SIZE,
-                        help="samples per window, at least 4 (default: 256)")
+                        help="samples per window, at least 4 (default: 128)")
     args = parser.parse_args()
     if args.sample_rate <= 0 or args.window_size < 4:
         parser.error("--sample-rate must be positive and --window-size must be at least 4")

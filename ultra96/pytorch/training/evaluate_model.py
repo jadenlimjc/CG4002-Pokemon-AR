@@ -2,7 +2,7 @@
 
 Example from the repository root:
     python ultra96/pytorch/training/evaluate_model.py --data \
-        ultra96/real_data/processed/jaden_recordings_22_oct__yiyang_recordings_22_oct_test.npz
+        ultra96/real_data/processed_50hz_128/jaden_recordings_22_oct__yiyang_recordings_22_oct_test.npz
 
 Use --checkpoint to choose trained weights and --output to choose the
 confusion-matrix image. No training is performed.
@@ -27,7 +27,7 @@ if not __package__:
 
 from ultra96.pytorch.training.model import Gesture1DCNN
 from ultra96.pytorch.training.train_baseline import (
-    DATASET_CONFIGS, NPZIMUDataset, set_seed, SAMPLE_RATE_HZ, WINDOW_SIZE, run_label,
+    DATASET_CONFIGS, NPZIMUDataset, set_seed, SAMPLE_RATE_HZ, WINDOW_SIZE, run_label, resolve_software_checkpoint,
 )
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -104,10 +104,7 @@ def main(args=None):
     # Inspect the file contents so renamed UTD NPZs also select UTD weights.
     with np.load(test_path) as data:
         dataset_name = "utd" if "source_action_ids" in data else "real"
-    best_model_path = args.checkpoint or os.path.join(
-        PYTORCH_DIR, "saved_checkpoints",
-        f"gesture_1dcnn_{dataset_name}_{sample_rate}hz_{window_size}_best.pth"
-    )
+    best_model_path = args.checkpoint or resolve_software_checkpoint(dataset_name, sample_rate, window_size)
     gesture_map = dict(enumerate(test_dataset.class_names))
     output_path = args.output or os.path.join(
         SCRIPT_DIR, f"{file_prefix}_{sample_rate}hz_{window_size}_confusion_matrix.png")
@@ -151,9 +148,9 @@ def parse_args():
     parser.add_argument("--output", default=None,
                         help="confusion matrix path; default name includes sample rate and window size")
     parser.add_argument("--sample-rate", type=int, default=SAMPLE_RATE_HZ,
-                        help="expected dataset sampling rate in Hz (default: 100)")
+                        help="expected dataset sampling rate in Hz (default: 50)")
     parser.add_argument("--window-size", type=int, default=WINDOW_SIZE,
-                        help="expected samples per window, at least 4 (default: 256)")
+                        help="expected samples per window, at least 4 (default: 128)")
     args = parser.parse_args()
     if args.sample_rate <= 0 or args.window_size < 4:
         parser.error("--sample-rate must be positive and --window-size must be at least 4")
