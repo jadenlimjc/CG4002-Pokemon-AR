@@ -2,38 +2,30 @@
 
 import argparse
 import csv
+import json
 import os
 from pathlib import Path
 import sys
 
 import numpy as np
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+
 if __package__:
-    from ..deployment.cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, OVERLAY_PATH
-    from .evaluation_data import NPZIMUDataSource
+    from ..deployment.cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, IN_LENGTH, SAMPLE_RATE_HZ
+    from .evaluation_data import NPZIMUDataSource, resolve_data_path
 else:
-    # Find the sibling deployment directory even outside the repository root.
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from deployment.cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, OVERLAY_PATH
-    from utility.evaluation_data import NPZIMUDataSource
+    # A board bundle can contain all three scripts in the same directory.
+    if (SCRIPT_DIR / "cnn_pynq_ultra96.py").is_file():
+        from cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, IN_LENGTH, SAMPLE_RATE_HZ
+    else:
+        # Also support the repository's sibling deployment/utility layout.
+        sys.path.insert(0, str(SCRIPT_DIR.parent))
+        from deployment.cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, IN_LENGTH, SAMPLE_RATE_HZ
+    from evaluation_data import NPZIMUDataSource, resolve_data_path
 
 
-DEPLOYMENT_DIR = Path(__file__).resolve().parents[1] / "deployment"
-
-
-def resolve_data_path(value):
-    """Honor explicit paths; also find bundled datasets by filename."""
-    path = Path(value).expanduser()
-    if path.is_file():
-        return str(path.resolve())
-    if not path.is_absolute() and path.parent == Path("."):
-        bundled = DEPLOYMENT_DIR / path
-        if bundled.is_file():
-            return str(bundled)
-    raise FileNotFoundError(
-        f"Dataset not found: {path.resolve()}. "
-        f"Place dataset filenames in {DEPLOYMENT_DIR}, or pass an existing path."
-    )
+OVERLAY_PATH = str(SCRIPT_DIR / "gesture_cnn.bit")
 
 
 def evaluate(accelerator, data_source, warmup=10, show_predictions=False):
@@ -75,7 +67,8 @@ def evaluate(accelerator, data_source, warmup=10, show_predictions=False):
     return matrix, timings
 
 
-def report_performance(timings, configured_clocks, csv_path=None):
+def report_performance(timings, configured_clocks, csv_path=None,
+                       sample_rate=SAMPLE_RATE_HZ, window_size=IN_LENGTH):
     """Print benchmark statistics and optionally save every timed sample."""
     keys = list(timings[0])
     values = {key: np.asarray([row[key] for row in timings]) for key in keys}
@@ -106,10 +99,11 @@ def report_performance(timings, configured_clocks, csv_path=None):
         print("  Configured PL clock(s): unavailable from overlay metadata")
     if csv_path:
         with open(csv_path, "w", newline="") as output:
-            writer = csv.DictWriter(output, fieldnames=["sample"] + keys)
+            writer = csv.DictWriter(output, fieldnames=["sample", "sample_rate_hz", "window_size"] + keys)
             writer.writeheader()
             for sample, row in enumerate(timings, start=1):
-                writer.writerow({"sample": sample, **row})
+                writer.writerow({"sample": sample, "sample_rate_hz": sample_rate,
+                                 "window_size": window_size, **row})
         print(f"  Saved raw performance data to {csv_path}")
 
 
@@ -126,6 +120,7 @@ def save_confusion_matrix(matrix, path, class_names, title_prefix="FPGA"):
         return
 
     accuracy = 100.0 * np.trace(matrix) / matrix.sum()
+    balanced = 100.0 * np.mean(np.diag(matrix) / matrix.sum(axis=1).clip(min=1))
     figure, axis = plt.subplots(figsize=(10, 8))
     image = axis.imshow(matrix, interpolation="nearest", cmap="Blues")
     figure.colorbar(image, ax=axis)
@@ -133,7 +128,7 @@ def save_confusion_matrix(matrix, path, class_names, title_prefix="FPGA"):
         xticks=np.arange(NUM_CLASSES), yticks=np.arange(NUM_CLASSES),
         xticklabels=class_names, yticklabels=class_names,
         xlabel="Predicted Label", ylabel="True Label",
-        title=f"{title_prefix} Confusion Matrix (Accuracy: {accuracy:.2f}%)"
+        title=f"{title_prefix}\nConfusion Matrix (Accuracy: {accuracy:.2f}%, Balanced: {balanced:.2f}%)"
     )
     plt.setp(axis.get_xticklabels(), rotation=45, ha="right")
     threshold = matrix.max() / 2.0
@@ -149,10 +144,11 @@ def save_confusion_matrix(matrix, path, class_names, title_prefix="FPGA"):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--overlay", default=OVERLAY_PATH)
+    parser.add_argument("--overlay", default=OVERLAY_PATH,
+                        help="bitstream path; default: gesture_cnn.bit beside this script")
     parser.add_argument(
-        "--data", default=str(DEPLOYMENT_DIR / "real_gestures_test.npz"),
-        help="NPZ with X [N,6,256], y [N], and class_names; defaults to the deployment dataset"
+        "--data", default=None,
+        help="test NPZ beside this script; defaults to the configuration-specific name, then real_gestures_test.npz"
     )
     parser.add_argument("--warmup", type=int, default=10,
                         help="initial inferences excluded from performance results")
@@ -166,16 +162,40 @@ def parse_args():
         "--shuffle-seed", type=int, default=42,
         help="reproducible seed used by --shuffle-labels"
     )
-    parser.add_argument("--performance-csv", default="fpga_performance.csv")
-    parser.add_argument("--output", default="fpga_confusion_matrix.png")
-    return parser.parse_args()
+    parser.add_argument("--sample-rate", type=int, default=SAMPLE_RATE_HZ,
+                        help="expected dataset rate, matching exported weights (default: 50)")
+    parser.add_argument("--window-size", type=int, default=IN_LENGTH,
+                        help="input samples, matching the compiled bitstream (default: 128)")
+    parser.add_argument("--performance-csv", default=None)
+    parser.add_argument("--output", default=None)
+    args = parser.parse_args()
+    if not 1 <= args.sample_rate <= 100:
+        parser.error("--sample-rate must be from 1 to 100")
+    if args.window_size < 4 or args.window_size % 4:
+        parser.error("--window-size must be at least 4 and divisible by 4")
+    tag = f"{args.sample_rate}hz_{args.window_size}"
+    if args.data is None:
+        local = SCRIPT_DIR / f"real_gestures_{tag}_test.npz"
+        args.data = str(local if local.is_file() else SCRIPT_DIR / "real_gestures_test.npz")
+    if args.overlay != OVERLAY_PATH:
+        overlay = Path(args.overlay).expanduser()
+        if not overlay.is_absolute() and overlay.parent == Path("."):
+            args.overlay = str(SCRIPT_DIR / overlay)
+    args.performance_csv = args.performance_csv or str(SCRIPT_DIR / f"fpga_{tag}_performance.csv")
+    args.output = args.output or str(SCRIPT_DIR / f"fpga_{tag}_confusion_matrix.png")
+    return args
 
 
 def main():
     args = parse_args()
     if args.warmup < 0:
         raise ValueError("--warmup must be non-negative")
-    source = NPZIMUDataSource(resolve_data_path(args.data))
+    source = NPZIMUDataSource(resolve_data_path(args.data), args.sample_rate, args.window_size)
+    label = (f"{args.sample_rate} Hz | {args.window_size}-sample window "
+             f"({args.window_size / args.sample_rate:.2f} s)")
+    print(f"Evaluation configuration: {label}")
+    for path in (args.output, args.performance_csv):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
     if len(source.class_names) != NUM_CLASSES:
         raise ValueError(
             f"Dataset has {len(source.class_names)} classes but overlay expects "
@@ -194,16 +214,26 @@ def main():
     else:
         print("GENUINE EVALUATION: original held-out labels")
     # Load the overlay once, then benchmark every held-out window.
-    with GestureCNNAccelerator(args.overlay) as accelerator:
+    with GestureCNNAccelerator(args.overlay, window_size=args.window_size,
+                               sample_rate=args.sample_rate) as accelerator:
         matrix, timings = evaluate(accelerator, source, args.warmup,
                                    args.show_predictions)
         report_performance(timings, accelerator.configured_clock_mhz(),
-                           args.performance_csv)
+                           args.performance_csv, args.sample_rate, args.window_size)
     accuracy = 100.0 * np.trace(matrix) / matrix.sum()
     mode = "Negative-Control FPGA" if args.shuffle_labels else "FPGA"
+    balanced = 100.0 * np.mean(np.diag(matrix) / matrix.sum(axis=1).clip(min=1))
+    print(f"Balanced FPGA accuracy: {balanced:.2f}%")
     print(f"Overall FPGA accuracy: {accuracy:.2f}% ({np.trace(matrix)}/{matrix.sum()})")
     print(matrix)
-    save_confusion_matrix(matrix, args.output, source.class_names, mode)
+    save_confusion_matrix(matrix, args.output, source.class_names, f"{mode} | {label}")
+    metadata = {"sample_rate_hz": args.sample_rate, "window_size": args.window_size,
+                "dataset": str(Path(args.data).resolve()), "overlay": str(Path(args.overlay).resolve()),
+                "accuracy": accuracy, "balanced_accuracy": balanced,
+                "correct": int(np.trace(matrix)), "total": int(matrix.sum()),
+                "negative_control": args.shuffle_labels, "warmup": args.warmup,
+                "measured_windows": len(timings), "performance_csv": args.performance_csv}
+    Path(args.output).with_suffix(".json").write_text(json.dumps(metadata, indent=2) + "\n")
 
 
 if __name__ == "__main__":

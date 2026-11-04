@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <string>
 #include <cmath>
 #include <limits>
 #include <cstdlib>
@@ -161,19 +162,19 @@ bool test_quantization_boundaries() {
     // Pooling a full-scale channel must not wrap during summation.
     hls::stream<data_t> pool_input;
     data_t pooled[1];
-    for (int i = 0; i < 64; ++i) pool_input.write(data_t(1000));
-    adaptive_avg_pool<1, 64>(pool_input, pooled);
+    for (int i = 0; i < BLOCK2_LENGTH; ++i) pool_input.write(data_t(1000));
+    adaptive_avg_pool<1, BLOCK2_LENGTH>(pool_input, pooled);
     ok &= pooled[0].to_double() == 32.0 - lsb;
 
-    // 33/64 of one input LSB must round up; direct narrow division can
+    // A fraction just over half of one input LSB must round up; narrow division can
     // truncate this to zero before the final convergent rounding.
-    for (int i = 0; i < 64; ++i)
-        pool_input.write(i < 33 ? data_t(lsb) : data_t(0));
-    adaptive_avg_pool<1, 64>(pool_input, pooled);
+    for (int i = 0; i < BLOCK2_LENGTH; ++i)
+        pool_input.write(i < BLOCK2_LENGTH / 2 + 1 ? data_t(lsb) : data_t(0));
+    adaptive_avg_pool<1, BLOCK2_LENGTH>(pool_input, pooled);
     ok &= pooled[0].to_double() == lsb;
-    for (int i = 0; i < 64; ++i)
-        pool_input.write(i < 33 ? data_t(-lsb) : data_t(0));
-    adaptive_avg_pool<1, 64>(pool_input, pooled);
+    for (int i = 0; i < BLOCK2_LENGTH; ++i)
+        pool_input.write(i < BLOCK2_LENGTH / 2 + 1 ? data_t(-lsb) : data_t(0));
+    adaptive_avg_pool<1, BLOCK2_LENGTH>(pool_input, pooled);
     ok &= pooled[0].to_double() == -lsb;
 
     // Dense output saturates after the entire dot product, preserving sign.
@@ -190,6 +191,10 @@ bool test_quantization_boundaries() {
 
 
 int main() {
+    std::cout << "Configuration: " << EXPORTED_SAMPLE_RATE_HZ << " Hz | "
+              << IN_LENGTH << "-sample window ("
+              << double(IN_LENGTH) / EXPORTED_SAMPLE_RATE_HZ << " s) | "
+              << TOTAL_INPUT_SIZE << " input floats" << std::endl;
     if (!test_quantization_boundaries()) return 1;
     hls::stream<axis_t> in_stream("in_stream");
     hls::stream<axis_t> out_stream("out_stream");
@@ -217,6 +222,12 @@ int main() {
 
         // Quantize the input for the C++ reference model
         in_buf_quantized[i / IN_LENGTH][i % IN_LENGTH] = quantize_input(val);
+    }
+    std::string extra;
+    if (in_file >> extra) {
+        std::cerr << "Error: golden_input.dat contains more than "
+                  << TOTAL_INPUT_SIZE << " values; re-export for this window size" << std::endl;
+        return 1;
     }
     in_file.close();
 
@@ -258,11 +269,19 @@ int main() {
         const float tolerance = 0.0f; // Exact: 24-bit result fits IEEE-754 float
 
         std::cout << "Class " << i << " | Hardware: " << hw_val << " | C++ Ref: " << ref_val << std::endl;
+        if (out_packet.last != (i == NUM_CLASSES - 1) || out_packet.keep != 15) {
+            std::cerr << "Invalid AXI output framing at class " << i << std::endl;
+            match = false;
+        }
         if (diff > tolerance) {
             match = false;
         }
     }
 
+    if (!in_stream.empty() || !out_stream.empty()) {
+        std::cerr << "Unexpected leftover AXI packets" << std::endl;
+        match = false;
+    }
     if (match) {
         std::cout << ">>> TEST PASSED: Hardware output matches the C++ fixed-point reference! <<<" << std::endl;
         return 0;
