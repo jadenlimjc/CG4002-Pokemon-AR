@@ -42,8 +42,8 @@ statistics. There are no haptic, config, file-transfer, or mode controls.
   `NEUTRAL` means ready for ordinary actions; `AIMING` means Aim was sent;
   `AWAITING_RESET` means Throw was sent and a confident Neutral/Stop Aim is
   required before another action.
-  `RECOVERING` means a battle action was sent; three consecutive confident
-  Neutral predictions are required before another gesture can be sent.
+  `RECOVERING` means a battle action was sent; one confident Neutral prediction
+  rearms recognition. Other labels still require three consecutive predictions.
 - Packet rate is the unique arrivals in the last second versus the expected
   **100 Hz**; the session average counts received sample intervals. CRC,
   malformed/retained packets, gaps, duplicate packets, backwards/reset
@@ -82,8 +82,9 @@ resetting harder; compare the CURRENT confidence with the reason when that happe
 2. Perform each battle gesture, then hold it. Confirm one send followed by
    `REPEATED`. Return to confident Neutral and repeat the gesture. Also try a
    different battle gesture directly: expect `RECOVERING` with no new send.
-   Specifically try Guard -> hand down and Use Item -> hand back. Only after
-   three confident Neutral predictions should another action become available.
+   Specifically try Guard -> hand down and Use Item -> hand back. One confident
+   Neutral prediction should rearm recognition; the next action still needs
+   three consecutive predictions.
 3. Try Throw without Aim (`NOT_AIMING`), then Aim -> Throw -> Neutral. Expect
    `ARM_PULLBACK`, `CATCH_THROW`, and `CANCEL`; check the state after each.
    While aiming, try a battle action and verify `AIMING_LOCK`. Cancel with

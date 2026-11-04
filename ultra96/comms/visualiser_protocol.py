@@ -8,7 +8,7 @@ import math
 import time
 from dataclasses import dataclass
 
-DEFAULT_CONFIDENCE_THRESHOLD = 0.75
+DEFAULT_CONFIDENCE_THRESHOLD = 0.
 
 
 def confidence_threshold(value):
@@ -82,7 +82,8 @@ class GestureSequence:
     reset is required before another gesture. A battle gesture enters RECOVERING;
     only confident Neutral rearms recognition. Rejected labels, including Stop
     Aim during recovery, never clear the repeat latch. Live callers confirm
-    labels before evaluating them here.
+    gameplay labels before evaluating them here; a confident Neutral can rearm
+    RECOVERING immediately.
 
     No voting, dwell time, cooldown, or changes to the model window are applied.
     evaluate() is pure; commit() lets transport failure leave the state intact.

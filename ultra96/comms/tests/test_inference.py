@@ -206,19 +206,22 @@ class GameplayTests(unittest.TestCase):
         self.client.publish.assert_not_called()
         self.assertEqual(self.processor.run_inference(live_window())['status'], 'PUBLISHED')
 
-    def test_unconfirmed_neutral_does_not_rearm_gesture(self):
+    def test_single_neutral_rearms_recovering_gesture(self):
         for _ in range(3):
             self.processor.run_inference(live_window())
         self.accelerator.label = 0
-        self.assertEqual(self.processor.run_inference(live_window())['status'], 'CONFIRMING')
-        self.assertEqual(self.processor.gesture_sequence.last_action, 'PUNCH')
+        result = self.processor.run_inference(live_window())
+        self.assertEqual(result['reason'], 'NEUTRAL')
+        self.assertEqual(result['confirmation_count'], 1)
+        self.assertEqual(result['confirmation_steps'], 1)
+        self.assertEqual(self.processor.gesture_sequence.state, 'NEUTRAL')
         self.accelerator.label = 4
         for _ in range(3):
             result = self.processor.run_inference(live_window())
-        self.assertEqual(result['status'], 'SUPPRESSED')
-        self.client.publish.assert_called_once()
+        self.assertEqual(result['status'], 'PUBLISHED')
+        self.assertEqual(self.client.publish.call_count, 2)
 
-    def test_return_motion_stays_blocked_until_three_neutral_predictions(self):
+    def test_return_motion_stays_blocked_until_single_neutral_prediction(self):
         def predict(label, count):
             self.accelerator.label = label
             return [self.processor.run_inference(live_window()) for _ in range(count)]
@@ -227,10 +230,9 @@ class GameplayTests(unittest.TestCase):
         returning = predict(5, 3)[-1]  # Lowering the hand resembles Swipe.
         self.assertEqual(returning['reason'], 'RECOVERING')
         self.assertEqual(returning['status'], 'SUPPRESSED')
-        predict(0, 2)  # Two neutral predictions cannot rearm recognition.
-        self.assertEqual(self.processor.gesture_sequence.state, 'RECOVERING')
-        self.assertEqual(predict(5, 3)[-1]['reason'], 'RECOVERING')
-        predict(0, 3)
+        neutral = predict(0, 1)[-1]
+        self.assertEqual(neutral['reason'], 'NEUTRAL')
+        self.assertEqual(neutral['confirmation_steps'], 1)
         self.assertEqual(self.processor.gesture_sequence.state, 'NEUTRAL')
         self.assertEqual(predict(5, 3)[-1]['status'], 'PUBLISHED')
         self.assertEqual(self.client.publish.call_count, 2)
