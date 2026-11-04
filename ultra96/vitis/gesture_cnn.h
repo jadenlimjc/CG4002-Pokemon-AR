@@ -37,10 +37,14 @@ inline data_t quantize_input(float value) {
 using axis_t = ap_axis<32, 0, 0, 0>; // 32-bit floating-point AXI-Stream packet
 
 constexpr int IN_CHANNELS = 6;
-constexpr int IN_LENGTH = 256;
+// Default export: 50 Hz / 128 samples (2.56 s); resampling happens in software.
+// Set IN_LENGTH to 64 and re-export matching weights to build the shorter window.
+constexpr int IN_LENGTH = 128;
+static_assert(IN_LENGTH >= 4 && IN_LENGTH % 4 == 0,
+              "Input length must be at least 4 and divisible by both pooling stages");
 constexpr int BLOCK1_LENGTH = IN_LENGTH / 2;
 constexpr int BLOCK2_LENGTH = BLOCK1_LENGTH / 2;
-constexpr int TOTAL_INPUT_SIZE = IN_CHANNELS * IN_LENGTH; // 1536 floats
+constexpr int TOTAL_INPUT_SIZE = IN_CHANNELS * IN_LENGTH; // 768 floats for the default window
 // Labels 0-9 retain their original order; Uppercut is label 10.
 constexpr int NUM_CLASSES = 11;
 
@@ -133,6 +137,8 @@ void conv_bn_relu(
 // MaxPool keeps the larger of each pair, halving temporal length.
 template<int CH, int IN_LEN, int OUT_LEN>
 void max_pool2(hls::stream<data_t>& in_stream, hls::stream<data_t>& out_stream) {
+    static_assert(CH > 0 && IN_LEN > 0 && IN_LEN % 2 == 0 && OUT_LEN == IN_LEN / 2,
+                  "MaxPool2 requires an even input and output length equal to half the input");
     data_t first_timestep[CH];
 
     for (int l = 0; l < OUT_LEN; ++l) {
@@ -161,7 +167,7 @@ template<int CH, int IN_LEN>
 void adaptive_avg_pool(hls::stream<data_t>& in_stream, data_t out_vec[CH]) {
     static_assert(CH > 0 && IN_LEN > 0, "Pooling dimensions must be positive");
     // Preserve the input's fractional bits and add ceil(log2(IN_LEN))
-    // integer guard bits. For 64 timesteps this is a 24-bit exact sum.
+    // integer guard bits. The width adapts to BLOCK2_LENGTH (32 by default).
     // No rounding or saturation is needed during summation: even IN_LEN
     // copies of either data_t endpoint fit. Saturate only the final output.
     constexpr int GUARD = pool_guard_bits(IN_LEN);
