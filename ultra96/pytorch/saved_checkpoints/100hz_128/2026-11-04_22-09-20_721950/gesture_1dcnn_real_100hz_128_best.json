@@ -1,4 +1,6 @@
 {
+  "sample_rate_hz": 100,
+  "window_size": 128,
   "model_config": {
     "in_channels": 6,
     "num_classes": 11,
@@ -35,8 +37,8 @@
   },
   "metrics": {
     "seed": 42,
-    "epoch": 19,
-    "balanced_accuracy": 97.72727489471436,
-    "val_loss": 0.1216585705896803
+    "epoch": 16,
+    "balanced_accuracy": 96.4165449142456,
+    "val_loss": 0.1659985993729263
   }
 }
