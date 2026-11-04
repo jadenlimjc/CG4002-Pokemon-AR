@@ -288,6 +288,23 @@ public class BattleManager : MonoBehaviour
         playerAnimator = playerPokemonInstance.GetComponent<Animator>();
     }
 
+    private IEnumerator WaitForAnimation(Animator animator, float minWait = 0.2f)
+    {
+        if (animator == null) { yield return new WaitForSeconds(minWait); yield break; }
+
+        yield return new WaitForSeconds(minWait);
+
+        // Wait until the triggered animation starts transitioning
+        yield return null;
+
+        AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
+        while (state.normalizedTime < 1f)
+        {
+            yield return null;
+            state = animator.GetCurrentAnimatorStateInfo(0);
+        }
+    }
+
     private IEnumerator ExecutePlayerMove(int moveIndex)
     {
         isProcessingMove = true;
@@ -295,16 +312,14 @@ public class BattleManager : MonoBehaviour
 
         OnBattleMessage?.Invoke($"{playerPokemon.pokemonName} used {move.moveName}!");
 
-        // Play attack animation
         if (playerAnimator != null && !string.IsNullOrEmpty(move.animationTrigger))
             playerAnimator.SetTrigger(move.animationTrigger);
 
-        yield return new WaitForSeconds(1f);
+        yield return StartCoroutine(WaitForAnimation(playerAnimator));
 
         // Check if Protect
         if (move.isProtect)
         {
-            yield return new WaitForSeconds(1f);
             yield return StartCoroutine(ExecuteWildMove(blocked: true));
             isProcessingMove = false;
             yield break;
@@ -318,18 +333,18 @@ public class BattleManager : MonoBehaviour
             wildHP = Mathf.Max(0, wildHP - damage);
             OnHPChanged?.Invoke(playerHP, wildHP);
 
-            // Hit reaction on wild Pokemon
             if (wildAnimator != null)
                 wildAnimator.SetTrigger("isHit");
 
             OnBattleMessage?.Invoke($"It dealt {damage} damage!");
+
+            yield return StartCoroutine(WaitForAnimation(wildAnimator));
         }
         else
         {
             OnBattleMessage?.Invoke("The attack missed!");
+            yield return new WaitForSeconds(1f);
         }
-
-        yield return new WaitForSeconds(1f);
 
         // Check if wild fainted
         if (wildHP <= 0)
@@ -337,7 +352,7 @@ public class BattleManager : MonoBehaviour
             OnBattleMessage?.Invoke($"Wild {wildPokemonData.pokemonName} fainted!");
             if (wildAnimator != null)
                 wildAnimator.SetTrigger("isFainted");
-            yield return new WaitForSeconds(2f);
+            yield return StartCoroutine(WaitForAnimation(wildAnimator));
             GameStateManager.Instance.TransitionTo(GamePhase.BattleResult);
             isProcessingMove = false;
             yield break;
@@ -355,13 +370,15 @@ public class BattleManager : MonoBehaviour
 
         yield return new WaitForSeconds(0.5f);
 
+        OnBattleMessage?.Invoke($"Wild {wildPokemonData.pokemonName} attacked!");
+
         if (wildAnimator != null)
             wildAnimator.SetTrigger("isAttacking");
 
+        yield return StartCoroutine(WaitForAnimation(wildAnimator));
+
         if (blocked)
         {
-            OnBattleMessage?.Invoke($"Wild {wildPokemonData.pokemonName} attacked!");
-            yield return new WaitForSeconds(1f);
             OnBattleMessage?.Invoke($"{playerPokemon.pokemonName} protected itself!");
             yield return new WaitForSeconds(1f);
             isPlayerTurn = true;
@@ -369,14 +386,12 @@ public class BattleManager : MonoBehaviour
             yield break;
         }
 
-        // Wild Pokemon uses a random basic attack
         int wildDamage = CalculateDamage(50, wildPokemonData.attack, playerPokemon.defense);
         playerHP = Mathf.Max(0, playerHP - wildDamage);
         OnHPChanged?.Invoke(playerHP, wildHP);
 
-        OnBattleMessage?.Invoke($"Wild {wildPokemonData.pokemonName} attacked! Dealt {wildDamage} damage!");
+        OnBattleMessage?.Invoke($"Dealt {wildDamage} damage!");
 
-        // Vibrate device on hit (haptic feedback for FireBeetle)
         Handheld.Vibrate();
 
         yield return new WaitForSeconds(1f);
@@ -387,7 +402,7 @@ public class BattleManager : MonoBehaviour
             OnBattleMessage?.Invoke($"{playerPokemon.pokemonName} fainted!");
             if (playerAnimator != null)
                 playerAnimator.SetTrigger("isFainted");
-            yield return new WaitForSeconds(2f);
+            yield return StartCoroutine(WaitForAnimation(playerAnimator));
             GameStateManager.Instance.TransitionTo(GamePhase.BattleResult);
             yield break;
         }
