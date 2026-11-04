@@ -26,7 +26,9 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from ultra96.pytorch.training.model import Gesture1DCNN
-from ultra96.pytorch.training.train_baseline import DATASET_CONFIGS, NPZIMUDataset, set_seed
+from ultra96.pytorch.training.train_baseline import (
+    DATASET_CONFIGS, NPZIMUDataset, set_seed, SAMPLE_RATE_HZ, WINDOW_SIZE, run_label,
+)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTORCH_DIR = os.path.dirname(SCRIPT_DIR)
@@ -36,7 +38,8 @@ def evaluate_and_generate_confusion_matrix(model, data_loader, device, class_map
     Evaluates the model on the given dataset and generates a confusion matrix.
     This is the definitive way to assess classification performance.
     """
-    print("\n--- Generating Confusion Matrix ---")
+    label = run_label(data_loader.dataset.sample_rate, data_loader.dataset.window_size)
+    print(f"\n--- Generating Confusion Matrix: {label} ---")
     model.eval()
     all_preds = []
     all_targets = []
@@ -65,12 +68,12 @@ def evaluate_and_generate_confusion_matrix(model, data_loader, device, class_map
     ))
 
     figure = plt.figure(figsize=(12, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                 xticklabels=class_map.values(), yticklabels=class_map.values())
     plt.xlabel('Predicted Label')
     plt.ylabel('True Label')
     plt.title(
-        f'Confusion Matrix (Accuracy: {accuracy:.2f}%, '
+        f'{label}\nConfusion Matrix (Accuracy: {accuracy:.2f}%, '
         f'Balanced: {balanced_accuracy:.2f}%)\n'
         f'Correctly predicted: {correct} / {total}'
     )
@@ -85,14 +88,16 @@ def main(args=None):
     """
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     # --- Configuration ---
     args = args or parse_args()
     default_data_dir, file_prefix = DATASET_CONFIGS["real"]
     data_dir = args.data_dir or default_data_dir
     test_path = args.data or os.path.join(data_dir, f"{file_prefix}_test.npz")
     print(f"Loading evaluation data from '{test_path}'...")
-    test_dataset = NPZIMUDataset(test_path)
+    sample_rate = getattr(args, "sample_rate", SAMPLE_RATE_HZ)
+    window_size = getattr(args, "window_size", WINDOW_SIZE)
+    test_dataset = NPZIMUDataset(test_path, sample_rate, window_size)
     if not len(test_dataset):
         raise ValueError(f"{test_path}: evaluation dataset is empty")
     # The UTD preprocessor records its proxy actions in this metadata field.
@@ -101,10 +106,11 @@ def main(args=None):
         dataset_name = "utd" if "source_action_ids" in data else "real"
     best_model_path = args.checkpoint or os.path.join(
         PYTORCH_DIR, "saved_checkpoints",
-        f"gesture_1dcnn_{dataset_name}_100hz_256_best.pth"
+        f"gesture_1dcnn_{dataset_name}_{sample_rate}hz_{window_size}_best.pth"
     )
     gesture_map = dict(enumerate(test_dataset.class_names))
-    output_path = args.output
+    output_path = args.output or os.path.join(
+        SCRIPT_DIR, f"{file_prefix}_{sample_rate}hz_{window_size}_confusion_matrix.png")
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
     # --- Load Model ---
@@ -120,6 +126,9 @@ def main(args=None):
         metadata = json.loads(config_path.read_text())
         if metadata["class_names"] != test_dataset.class_names:
             raise ValueError("Checkpoint configuration and dataset have different classes")
+        for key, expected in (("sample_rate_hz", sample_rate), ("window_size", window_size)):
+            if key in metadata and metadata[key] != expected:
+                raise ValueError(f"Checkpoint {key}={metadata[key]} does not match requested {expected}")
         config = metadata["model_config"]
         print(f"Loading model configuration from '{config_path}'")
     model = Gesture1DCNN(**config).to(device)
@@ -139,9 +148,16 @@ def parse_args():
     data_source.add_argument("--data-dir", default=None,
                              help="directory containing real_gestures_test.npz")
     parser.add_argument("--checkpoint", default=None)
-    parser.add_argument("--output", default=os.path.join(
-        SCRIPT_DIR, "real_gestures_confusion_matrix.png"))
-    return parser.parse_args()
+    parser.add_argument("--output", default=None,
+                        help="confusion matrix path; default name includes sample rate and window size")
+    parser.add_argument("--sample-rate", type=int, default=SAMPLE_RATE_HZ,
+                        help="expected dataset sampling rate in Hz (default: 100)")
+    parser.add_argument("--window-size", type=int, default=WINDOW_SIZE,
+                        help="expected samples per window, at least 4 (default: 256)")
+    args = parser.parse_args()
+    if args.sample_rate <= 0 or args.window_size < 4:
+        parser.error("--sample-rate must be positive and --window-size must be at least 4")
+    return args
 
 
 if __name__ == "__main__":

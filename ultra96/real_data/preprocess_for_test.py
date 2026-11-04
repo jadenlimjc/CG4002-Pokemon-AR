@@ -41,7 +41,10 @@ else:
     import preprocess_for_training as preprocessing
 
 
-def convert(input_dirs, output_path=None, centre_overrides=None, data_root=None):
+def convert(input_dirs, output_path=None, centre_overrides=None, data_root=None,
+            sample_rate=preprocessing.SAMPLE_RATE_HZ, window_size=preprocessing.WINDOW_SIZE):
+    if type(sample_rate) is not int or not 0 < sample_rate <= preprocessing.SAMPLE_RATE_HZ or window_size < 4:
+        raise ValueError("sample_rate must be an integer from 1 to 100 and window_size must be at least 4")
     input_dirs = list(dict.fromkeys(Path(path).resolve() for path in input_dirs))
     if not input_dirs:
         raise ValueError("at least one recording directory is required")
@@ -101,8 +104,10 @@ def convert(input_dirs, output_path=None, centre_overrides=None, data_root=None)
                     raise ValueError(f"{path}: centre {seconds}s is outside the recording")
                 centre = round(seconds * preprocessing.SAMPLE_RATE_HZ)
                 applied += 1
+            signal = preprocessing.resample_signal(signal, sample_rate)
+            centre = min(len(signal) - 1, round(centre * sample_rate / preprocessing.SAMPLE_RATE_HZ))
             centres.append(centre)
-            windows.append(preprocessing.extract_window(signal, centre))
+            windows.append(preprocessing.extract_window(signal, centre, window_size))
             labels.append(preprocessing.PREFIX_TO_LABEL[prefix])
             trials.append(trial)
             filenames.append(path.relative_to(input_root).as_posix())
@@ -130,12 +135,15 @@ def convert(input_dirs, output_path=None, centre_overrides=None, data_root=None)
         window_centres=np.asarray(centres, dtype=np.int64),
         subjects=np.asarray(subjects), sessions=np.asarray(sessions),
         channel_names=preprocessing.CHANNEL_NAMES,
-        sample_rate_hz=np.asarray(preprocessing.SAMPLE_RATE_HZ),
-        window_size=np.asarray(preprocessing.WINDOW_SIZE),
+        sample_rate_hz=np.asarray(sample_rate),
+        source_sample_rate_hz=np.asarray(preprocessing.SAMPLE_RATE_HZ),
+        window_size=np.asarray(window_size),
         accel_range_g=np.asarray(preprocessing.ACCEL_RANGE_G, dtype=np.float32),
         gyro_range_dps=np.asarray(preprocessing.GYRO_RANGE_DPS, dtype=np.float32),
         normalization=np.asarray("accel/(8*9.80665), gyro/radians(500)"),
     )
+    print(f"Preprocessing: 100 Hz source -> {sample_rate} Hz | {window_size}-sample window "
+          f"({window_size / sample_rate:.2f} s)")
     print(f"test: X={x.shape}, counts={counts.tolist()}, "
           f"range=[{x.min():.4f}, {x.max():.4f}] -> {output_path}")
 
@@ -152,9 +160,18 @@ def parse_args():
                         help="Override CSV (default: centre_overrides.csv inside --data-root, if present)")
     parser.add_argument("--data-root", type=Path,
                         help="Root for filenames in the override CSV (default: real_data)")
-    return parser.parse_args()
+    parser.add_argument("--sample-rate", type=preprocessing.target_sample_rate,
+                        default=preprocessing.SAMPLE_RATE_HZ,
+                        help="downsample 100 Hz CSVs to 1-99 Hz; omit for original 100 Hz")
+    parser.add_argument("--window-size", type=int, default=preprocessing.WINDOW_SIZE,
+                        help="samples per window, at least 4 (default: 256)")
+    args = parser.parse_args()
+    if args.window_size < 4:
+        parser.error("--window-size must be at least 4")
+    return args
 
 
 if __name__ == "__main__":
     args = parse_args()
-    convert(args.input, args.output, args.centre_overrides, args.data_root)
+    convert(args.input, args.output, args.centre_overrides, args.data_root,
+            args.sample_rate, args.window_size)

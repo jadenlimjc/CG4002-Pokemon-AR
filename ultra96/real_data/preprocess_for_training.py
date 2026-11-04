@@ -1,6 +1,8 @@
 """Convert labelled real-sensor CSV recordings into reproducible NPZ splits.
 
-Each CSV is one 100 Hz recording.  A 2.56 second window is centred on the
+Each CSV is a 100 Hz recording. --sample-rate downsamples it to 1-99 Hz
+using an anti-aliasing filter; omitting it preserves 100 Hz. A fixed
+--window-size sample window (default: 256) is centred on the
 strongest smoothed motion; neutral recordings use their temporal centre.
 Use --centre-overrides CSV to specify filename,centre_seconds instead;
 filenames are relative to --input. Training offsets still apply to that centre.
@@ -26,7 +28,7 @@ from pathlib import Path
 import numpy as np
 
 
-SAMPLE_RATE_HZ = 100
+SAMPLE_RATE_HZ = 100  # Fixed source rate; also the default output rate.
 WINDOW_SIZE = 256
 GRAVITY_M_S2 = 9.80665
 ACCEL_RANGE_G = 8.0
@@ -89,6 +91,27 @@ def load_csv(path):
     return matrix
 
 
+def target_sample_rate(value):
+    """Explicit CLI values select downsampling; the omitted default stays 100 Hz."""
+    rate = int(value)
+    if not 0 < rate < SAMPLE_RATE_HZ:
+        raise argparse.ArgumentTypeError("--sample-rate must be an integer from 1 to 99; omit it for 100 Hz")
+    return rate
+
+
+def resample_signal(signal, sample_rate=SAMPLE_RATE_HZ):
+    """Convert normalized 100 Hz channels to the target rate before windowing."""
+    if type(sample_rate) is not int or not 0 < sample_rate <= SAMPLE_RATE_HZ:
+        raise ValueError("sample_rate must be an integer from 1 to 100")
+    if sample_rate == SAMPLE_RATE_HZ:
+        return signal
+    from scipy.signal import resample_poly
+
+    divisor = math.gcd(sample_rate, SAMPLE_RATE_HZ)
+    return resample_poly(signal, sample_rate // divisor, SAMPLE_RATE_HZ // divisor,
+                         axis=0, padtype="line").astype(np.float32)
+
+
 def motion_centre(signal):
     """Centre the window on the strongest smoothed motion."""
     jerk = np.linalg.norm(np.diff(signal[:, :3], axis=0, prepend=signal[:1, :3]), axis=1)
@@ -98,16 +121,16 @@ def motion_centre(signal):
     return int(np.argmax(np.convolve(energy, smoothing, mode="same")))
 
 
-def extract_window(signal, centre):
-    # Produce the fixed [6, 256] model input; edge-pad short boundaries.
-    start = int(centre) - WINDOW_SIZE // 2
-    end = start + WINDOW_SIZE
+def extract_window(signal, centre, window_size=WINDOW_SIZE):
+    # Produce the fixed [6, window_size] model input; edge-pad short boundaries.
+    start = int(centre) - window_size // 2
+    end = start + window_size
     before = max(0, -start)
     after = max(0, end - len(signal))
     clipped = signal[max(0, start):min(len(signal), end)]
     if before or after:
         clipped = np.pad(clipped, ((before, after), (0, 0)), mode="edge")
-    if clipped.shape != (WINDOW_SIZE, 6):
+    if clipped.shape != (window_size, 6):
         raise AssertionError(f"internal window shape error: {clipped.shape}")
     return clipped.T.astype(np.float32)
 
@@ -153,7 +176,10 @@ def load_centre_overrides(path):
     return overrides
 
 
-def convert(input_dir, output_dir, centre_overrides=None):
+def convert(input_dir, output_dir, centre_overrides=None,
+            sample_rate=SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
+    if type(sample_rate) is not int or not 0 < sample_rate <= SAMPLE_RATE_HZ or window_size < 4:
+        raise ValueError("sample_rate must be an integer from 1 to 100 and window_size must be at least 4")
     if not input_dir.is_dir():
         raise ValueError(f"input directory does not exist: {input_dir}")
     if centre_overrides is None:
@@ -202,10 +228,16 @@ def convert(input_dir, output_dir, centre_overrides=None):
             if seconds > (len(signal) - 1) / SAMPLE_RATE_HZ:
                 raise ValueError(f"{filename}: centre {seconds}s is outside the recording")
             base_centre = round(seconds * SAMPLE_RATE_HZ)
-        offsets = TRAIN_OFFSETS if split == "train" else (0,)
+        # Locate motion/overrides on the original time axis, then map to output samples.
+        signal = resample_signal(signal, sample_rate)
+        base_centre = min(len(signal) - 1, round(base_centre * sample_rate / SAMPLE_RATE_HZ))
+        # Preserve the original +/-0.64-second augmentation span at every rate.
+        offsets = (tuple(dict.fromkeys(round(offset * sample_rate / SAMPLE_RATE_HZ)
+                                       for offset in TRAIN_OFFSETS))
+                   if split == "train" else (0,))
         for offset in offsets:
             records[split].append(
-                (extract_window(signal, base_centre + offset), label, trial,
+                (extract_window(signal, base_centre + offset, window_size), label, trial,
                  path.relative_to(input_dir).as_posix(), offset,
                  session.parent.name, session.name, base_centre + offset)
             )
@@ -231,6 +263,8 @@ def convert(input_dir, output_dir, centre_overrides=None):
         if missing_classes:
             print(f"Warning: {split} has no samples for classes: {missing_classes}")
 
+    print(f"Preprocessing: {SAMPLE_RATE_HZ} Hz source -> {sample_rate} Hz | {window_size}-sample window "
+          f"({window_size / sample_rate:.2f} s)")
     output_dir.mkdir(parents=True, exist_ok=True)
     for split, split_records in records.items():
         windows, labels, trials, filenames, offsets, subjects, sessions, centres = zip(*split_records)
@@ -244,8 +278,9 @@ def convert(input_dir, output_dir, centre_overrides=None):
             window_centres=np.asarray(centres, dtype=np.int64),
             subjects=np.asarray(subjects), sessions=np.asarray(sessions),
             channel_names=CHANNEL_NAMES,
-            sample_rate_hz=np.asarray(SAMPLE_RATE_HZ),
-            window_size=np.asarray(WINDOW_SIZE),
+            sample_rate_hz=np.asarray(sample_rate),
+            source_sample_rate_hz=np.asarray(SAMPLE_RATE_HZ),
+            window_size=np.asarray(window_size),
             accel_range_g=np.asarray(ACCEL_RANGE_G, dtype=np.float32),
             gyro_range_dps=np.asarray(GYRO_RANGE_DPS, dtype=np.float32),
             normalization=np.asarray("accel/(8*9.80665), gyro/radians(500)"),
@@ -260,13 +295,21 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=script_dir,
                         help="Data root, subject folder, or dated session (default: real_data)")
-    parser.add_argument("--output", type=Path, default=script_dir / "processed")
+    parser.add_argument("--output", type=Path, default=script_dir / "processed_100hz_256")
     parser.add_argument("--centre-overrides", type=Path,
                         help="CSV with filename,centre_seconds; paths relative to --input "
                              "(default: centre_overrides.csv inside --input, if present)")
-    return parser.parse_args()
+    parser.add_argument("--sample-rate", type=target_sample_rate, default=SAMPLE_RATE_HZ,
+                        help="downsample 100 Hz CSVs to 1-99 Hz; omit for original 100 Hz")
+    parser.add_argument("--window-size", type=int, default=WINDOW_SIZE,
+                        help="samples per window, at least 4 (default: 256)")
+    args = parser.parse_args()
+    if args.sample_rate <= 0 or args.window_size < 4:
+        parser.error("--sample-rate must be positive and --window-size must be at least 4")
+    return args
 
 
 if __name__ == "__main__":
     args = parse_args()
-    convert(args.input.resolve(), args.output.resolve(), args.centre_overrides)
+    convert(args.input.resolve(), args.output.resolve(), args.centre_overrides,
+            args.sample_rate, args.window_size)

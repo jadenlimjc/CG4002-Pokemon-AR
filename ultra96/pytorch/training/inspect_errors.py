@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -16,7 +17,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from ultra96.pytorch.training.model import Gesture1DCNN
 from ultra96.real_data.preprocess_for_training import (
-    load_csv, motion_centre, WINDOW_SIZE, SAMPLE_RATE_HZ,
+    load_csv, motion_centre, resample_signal, SAMPLE_RATE_HZ,
 )
 
 ROOT = Path(__file__).resolve().parents[2]  # ultra96/
@@ -47,7 +48,26 @@ def main():
         centres = data["window_centres"].copy() if "window_centres" in data else None
         subjects = data["subjects"].tolist()
         sessions = data["sessions"].tolist()
-    model = Gesture1DCNN(num_classes=len(names))
+        sample_rate = int(data["sample_rate_hz"].item()) if "sample_rate_hz" in data else SAMPLE_RATE_HZ
+        window_size = int(data["window_size"].item()) if "window_size" in data else windows.shape[-1]
+        source_rate = int(data["source_sample_rate_hz"].item()) if "source_sample_rate_hz" in data else SAMPLE_RATE_HZ
+    if windows.ndim != 3 or windows.shape[1:] != (6, window_size):
+        raise ValueError(f"Expected dataset X shape [N, 6, {window_size}], got {windows.shape}")
+    if source_rate != SAMPLE_RATE_HZ or not 0 < sample_rate <= source_rate:
+        raise ValueError("Expected 100 Hz source recordings and an output rate from 1 to 100 Hz")
+    run_label = f"{sample_rate} Hz | {window_size}-sample window ({window_size / sample_rate:.2f} s)"
+    print(f"Inspecting: {run_label}")
+    config = {"num_classes": len(names)}
+    config_path = args.checkpoint.with_suffix(".json")
+    if config_path.is_file():
+        metadata = json.loads(config_path.read_text())
+        if metadata["class_names"] != names:
+            raise ValueError("Checkpoint and dataset have different class orders")
+        for key, expected in (("sample_rate_hz", sample_rate), ("window_size", window_size)):
+            if key in metadata and metadata[key] != expected:
+                raise ValueError(f"Checkpoint {key} does not match dataset")
+        config = metadata["model_config"]
+    model = Gesture1DCNN(**config)
     model.load_state_dict(torch.load(args.checkpoint, map_location="cpu", weights_only=True))
     model.eval()
     with torch.no_grad():
@@ -86,11 +106,15 @@ def main():
         for i in list(errors) + sorted(references):
             path = args.data_root / filenames[i]
             signal = load_csv(path)
-            centre = (int(centres[i]) if centres is not None else
-                      (len(signal) // 2 if labels[i] == 0 else motion_centre(signal)) + int(offsets[i]))
-            start = centre - WINDOW_SIZE // 2
-            end = start + WINDOW_SIZE
-            time = np.arange(len(signal)) / SAMPLE_RATE_HZ
+            if centres is not None:
+                centre = int(centres[i])
+            else:
+                source_centre = len(signal) // 2 if labels[i] == 0 else motion_centre(signal)
+                centre = round(source_centre * sample_rate / source_rate) + int(offsets[i])
+            signal = resample_signal(signal, sample_rate)
+            start = centre - window_size // 2
+            end = start + window_size
+            time = np.arange(len(signal)) / sample_rate
             fig = plt.figure(figsize=(12, 9), layout="constrained")
             grid = fig.add_gridspec(3, 1, height_ratios=(1, 1, 1.2))
             axes = [fig.add_subplot(grid[0])]
@@ -99,12 +123,13 @@ def main():
             for ax, channels, title in zip(axes, ((0, 1, 2), (3, 4, 5)), ("Acceleration / sensor range", "Gyroscope / sensor range")):
                 for channel in channels:
                     ax.plot(time, signal[:, channel], label=("ax", "ay", "az", "gx", "gy", "gz")[channel])
-                ax.axvspan(start / SAMPLE_RATE_HZ, end / SAMPLE_RATE_HZ, color="orange", alpha=0.2, label="Selected 2.56 s window")
-                ax.axvline(centre / SAMPLE_RATE_HZ, color="black", linestyle="--", label="Selected centre")
+                ax.axvspan(start / sample_rate, end / sample_rate, color="orange", alpha=0.2,
+                           label=f"Selected {window_size / sample_rate:.2f} s window")
+                ax.axvline(centre / sample_rate, color="black", linestyle="--", label="Selected centre")
                 ax.set_ylabel(title)
                 ax.legend(loc="upper right", fontsize=8)
                 ax.grid(alpha=0.2)
-            axes[-1].set_xlabel("Seconds from recording start (assumed 100 Hz)")
+            axes[-1].set_xlabel(f"Seconds from recording start ({sample_rate} Hz)")
             colors = ["tab:orange" if j == predictions[i] else
                       "tab:green" if j == labels[i] else "tab:blue"
                       for j in range(len(names))]
@@ -117,7 +142,7 @@ def main():
             logit_ax.margins(y=0.2)
             logit_ax.grid(axis="y", alpha=0.2)
             padding = max(0, -start) + max(0, end - len(signal))
-            fig.suptitle(f"{filenames[i]}\nTrue: {names[labels[i]]} | Predicted: {names[predictions[i]]} | Edge padding: {padding} samples")
+            fig.suptitle(f"{filenames[i]} | {run_label}\nTrue: {names[labels[i]]} | Predicted: {names[predictions[i]]} | Edge padding: {padding} samples")
             plot = args.output / plot_name(i)
             fig.savefig(plot)
             plt.close(fig)
