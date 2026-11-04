@@ -16,6 +16,7 @@ import torch
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from ultra96.pytorch.training.model import Gesture1DCNN
+from ultra96.pytorch.training.train_baseline import resolve_software_checkpoint, SAMPLE_RATE_HZ as DEFAULT_SAMPLE_RATE_HZ
 from ultra96.real_data.preprocess_for_training import (
     load_csv, motion_centre, resample_signal, SAMPLE_RATE_HZ,
 )
@@ -34,9 +35,10 @@ def select_reference(index, correct, labels, subjects, sessions):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=ROOT / "real_data")
-    parser.add_argument("--data", type=Path, default=ROOT / "real_data/processed/real_gestures_test.npz")
-    parser.add_argument("--checkpoint", type=Path, default=ROOT / "pytorch/saved_checkpoints/gesture_1dcnn_real_100hz_256_best.pth")
-    parser.add_argument("--output", type=Path, default=ROOT / "pytorch/error_inspection",
+    parser.add_argument("--data", type=Path, default=ROOT / "real_data/processed_50hz_128/real_gestures_test.npz")
+    parser.add_argument("--checkpoint", type=Path, default=None,
+                        help="default: latest checkpoint matching dataset metadata")
+    parser.add_argument("--output", type=Path, default=ROOT / "pytorch/error_inspection_50hz_128",
                         help="Output directory; deleted and recreated on each run")
     args = parser.parse_args()
     with np.load(args.data) as data:
@@ -48,7 +50,7 @@ def main():
         centres = data["window_centres"].copy() if "window_centres" in data else None
         subjects = data["subjects"].tolist()
         sessions = data["sessions"].tolist()
-        sample_rate = int(data["sample_rate_hz"].item()) if "sample_rate_hz" in data else SAMPLE_RATE_HZ
+        sample_rate = int(data["sample_rate_hz"].item()) if "sample_rate_hz" in data else DEFAULT_SAMPLE_RATE_HZ
         window_size = int(data["window_size"].item()) if "window_size" in data else windows.shape[-1]
         source_rate = int(data["source_sample_rate_hz"].item()) if "source_sample_rate_hz" in data else SAMPLE_RATE_HZ
     if windows.ndim != 3 or windows.shape[1:] != (6, window_size):
@@ -58,6 +60,7 @@ def main():
     run_label = f"{sample_rate} Hz | {window_size}-sample window ({window_size / sample_rate:.2f} s)"
     print(f"Inspecting: {run_label}")
     config = {"num_classes": len(names)}
+    args.checkpoint = args.checkpoint or resolve_software_checkpoint("real", sample_rate, window_size)
     config_path = args.checkpoint.with_suffix(".json")
     if config_path.is_file():
         metadata = json.loads(config_path.read_text())

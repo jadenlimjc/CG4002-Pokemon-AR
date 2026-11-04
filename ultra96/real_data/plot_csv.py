@@ -7,7 +7,7 @@ Examples (from the repository root):
 
 Folder inputs include subfolders; output folders preserve their structure.
 Raw readings use the original 100 Hz time axis. Window markers match
-preprocessing's --sample-rate and --window-size (defaults: 100 Hz / 256).
+preprocessing's --sample-rate and --window-size (defaults: 50 Hz / 128).
 """
 
 import argparse
@@ -23,17 +23,17 @@ import matplotlib.pyplot as plt
 if __package__:
     from .preprocess_for_training import (
         load_csv, motion_centre, load_centre_overrides, FILENAME_PATTERN,
-        WINDOW_SIZE, SAMPLE_RATE_HZ, resample_signal, target_sample_rate,
+        WINDOW_SIZE, SAMPLE_RATE_HZ, DEFAULT_SAMPLE_RATE_HZ, resample_signal, target_sample_rate,
     )
 else:
     from preprocess_for_training import (
         load_csv, motion_centre, load_centre_overrides, FILENAME_PATTERN,
-        WINDOW_SIZE, SAMPLE_RATE_HZ, resample_signal, target_sample_rate,
+        WINDOW_SIZE, SAMPLE_RATE_HZ, DEFAULT_SAMPLE_RATE_HZ, resample_signal, target_sample_rate,
     )
 
 
 def preprocessing_window(source, centre_seconds=None,
-                         sample_rate=SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
+                         sample_rate=DEFAULT_SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
     if type(sample_rate) is not int or not 0 < sample_rate <= SAMPLE_RATE_HZ or window_size < 4:
         raise ValueError("sample_rate must be an integer from 1 to 100 and window_size must be at least 4")
     signal = load_csv(source)
@@ -56,7 +56,7 @@ def preprocessing_window(source, centre_seconds=None,
 
 
 def plot_csv(source, output, centre_seconds=None,
-             sample_rate=SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
+             sample_rate=DEFAULT_SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
     channels = ("ax", "ay", "az", "gx", "gy", "gz")
     try:
         with source.open(newline="", encoding="utf-8-sig") as handle:
@@ -113,10 +113,10 @@ def main():
                         help="Root for override filenames; match preprocessing --input (default: real_data)")
     parser.add_argument("-o", "--output", type=Path,
                         help="Output PNG for a file, or output folder for a folder (default: beside each CSV)")
-    parser.add_argument("--sample-rate", type=target_sample_rate, default=SAMPLE_RATE_HZ,
-                        help="preprocessing output rate, 1-99 Hz; omit for original 100 Hz")
+    parser.add_argument("--sample-rate", type=target_sample_rate, default=DEFAULT_SAMPLE_RATE_HZ,
+                        help="preprocessing output rate, 1-99 Hz; default: 50 Hz")
     parser.add_argument("--window-size", type=int, default=WINDOW_SIZE,
-                        help="samples per window, at least 4 (default: 256)")
+                        help="samples per window, at least 4 (default: 128)")
     args = parser.parse_args()
     if args.window_size < 4:
         parser.error("--window-size must be at least 4")

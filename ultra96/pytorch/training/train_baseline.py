@@ -15,8 +15,8 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from ultra96.pytorch.training.model import Gesture1DCNN # Import the model from its dedicated file
 
-SAMPLE_RATE_HZ = 100
-WINDOW_SIZE = 256
+SAMPLE_RATE_HZ = 50
+WINDOW_SIZE = 128
 def run_label(sample_rate, window_size):
     return f"{sample_rate} Hz | {window_size}-sample window ({window_size / sample_rate:.2f} s)"
 
@@ -29,11 +29,11 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTORCH_DIR = os.path.dirname(SCRIPT_DIR)
 ULTRA96_DIR = os.path.dirname(PYTORCH_DIR)
 REAL_DATA_DIR = os.path.normpath(os.path.join(
-    ULTRA96_DIR, "real_data", "processed_100hz_256"
+    ULTRA96_DIR, "real_data", "processed_50hz_128"
 ))
 UTD_DATA_DIR = os.path.normpath(os.path.join(
     ULTRA96_DIR, "online_data", "UTD-MHAD_HumanActionRecognitionDataset",
-    "utd_mhad_processed"
+    "utd_mhad_processed_50hz_128"
 ))
 DATASET_CONFIGS = {
     "real": (REAL_DATA_DIR, "real_gestures"),
@@ -47,6 +47,22 @@ REAL_TRAINING_PARAMS = {
     "weight_decay": 0.00016330261109656093,
     "dropout": 0.22214197961920232,
 }
+
+def resolve_software_checkpoint(dataset="real", sample_rate=SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
+    """Find the latest completed matching software run, including configuration folders."""
+    root = Path(PYTORCH_DIR) / "saved_checkpoints"
+    candidates = []
+    for metadata_path in root.rglob("run.json"):
+        metadata = json.loads(metadata_path.read_text())
+        if (metadata.get("dataset") == dataset and metadata.get("sample_rate_hz") == sample_rate
+                and metadata.get("window_size") == window_size and metadata.get("checkpoint")):
+            path = metadata_path.parent / Path(metadata["checkpoint"]).name
+            if path.is_file():
+                candidates.append(path)
+    if candidates:
+        return max(candidates, key=lambda path: (path.parent.name, str(path)))
+    return root / f"{sample_rate}hz_{window_size}" / f"gesture_1dcnn_{dataset}_{sample_rate}hz_{window_size}_best.pth"
+
 
 def set_seed(seed=42):
     """Sets the seed for reproducibility."""
@@ -180,7 +196,7 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
     # Every run owns its artifacts. Microseconds avoid collisions between fast runs.
     requested_checkpoint = Path(checkpoint) if checkpoint else Path(checkpoint_name)
     default_root = (requested_checkpoint.parent if requested_checkpoint.parent != Path(".")
-                    else Path(PYTORCH_DIR) / "saved_checkpoints" / "100hz_256")
+                    else Path(PYTORCH_DIR) / "saved_checkpoints" / "50hz_128")
     output_root = Path(output_dir) if output_dir is not None else default_root
     started_at = datetime.now(timezone(timedelta(hours=8), "Asia/Singapore"))
     run_dir = output_root / started_at.strftime("%Y-%m-%d_%H-%M-%S_%f")
@@ -329,19 +345,19 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--dataset", choices=DATASET_CONFIGS, default="real")
     parser.add_argument("--data-dir", default=None,
-                        help="override the selected dataset processed directory (real default: real_data/processed_100hz_256)")
+                        help="override the selected dataset processed directory (real default: real_data/processed_50hz_128)")
     parser.add_argument("--checkpoint", default=None,
                         help="checkpoint filename; a path uses its parent as the output root unless --output-dir is given")
     parser.add_argument("--output-dir", type=Path, default=None,
-                        help="parent for dated run folders (default: pytorch/saved_checkpoints/100hz_256)")
+                        help="parent for dated run folders (default: pytorch/saved_checkpoints/50hz_128)")
     parser.add_argument("--evaluate", action="store_true",
                         help="evaluate the best checkpoint and save its confusion matrix in the run folder")
     parser.add_argument("--eval-data", type=Path, default=None,
                         help="evaluation NPZ for --evaluate; defaults to the selected dataset test split")
     parser.add_argument("--sample-rate", type=int, default=SAMPLE_RATE_HZ,
-                        help="expected dataset sampling rate in Hz (default: 100)")
+                        help="expected dataset sampling rate in Hz (default: 50)")
     parser.add_argument("--window-size", type=int, default=WINDOW_SIZE,
-                        help="expected samples per window, at least 4 (default: 256)")
+                        help="expected samples per window, at least 4 (default: 128)")
     args = parser.parse_args()
     if args.sample_rate <= 0 or args.window_size < 4:
         parser.error("--sample-rate must be positive and --window-size must be at least 4")

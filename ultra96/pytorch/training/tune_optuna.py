@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader
 
 from ultra96.pytorch.training.model import Gesture1DCNN
 from ultra96.pytorch.training.train_baseline import (
-    NPZIMUDataset, REAL_DATA_DIR, PYTORCH_DIR, REAL_TRAINING_PARAMS, set_seed,
+    NPZIMUDataset, REAL_DATA_DIR, PYTORCH_DIR, REAL_TRAINING_PARAMS, set_seed, WINDOW_SIZE, SAMPLE_RATE_HZ,
 )
 
 BASE_ARCHITECTURE = {"channels1": 32, "channels2": 64, "channels3": 128,
@@ -52,7 +52,7 @@ def model_cost(config):
     """
     channels = [config["in_channels"], *config["channels"]]
     parameters, macs = 0, 0
-    for i, (kernel, length) in enumerate(zip(config["kernel_sizes"], (256, 128, 64))):
+    for i, (kernel, length) in enumerate(zip(config["kernel_sizes"], (WINDOW_SIZE, WINDOW_SIZE // 2, WINDOW_SIZE // 4))):
         inputs, outputs = channels[i:i + 2]
         parameters += outputs * (inputs * kernel + 3)  # Conv bias + BN gamma/beta
         macs += length * outputs * inputs * kernel
@@ -115,6 +115,7 @@ def fit(params, seed, train, val, epochs, device, trial=None, checkpoint=None):
               "per_class_recall": dict(zip(train.class_names, best_recalls))}
     if checkpoint:
         Path(checkpoint).with_suffix(".json").write_text(json.dumps({
+            "sample_rate_hz": SAMPLE_RATE_HZ, "window_size": WINDOW_SIZE,
             "model_config": config, "class_names": train.class_names,
             "params": params, "metrics": result}, indent=2) + "\n")
     return result
@@ -126,7 +127,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--data-dir", type=Path, default=Path(REAL_DATA_DIR))
     parser.add_argument("--output-dir", type=Path,
-                        default=Path(PYTORCH_DIR) / "saved_checkpoints" / "optuna_architecture_wide")
+                        default=Path(PYTORCH_DIR) / "saved_checkpoints" / "optuna_architecture_wide_50hz_128")
     parser.add_argument("--search", choices=("architecture", "hyperparameters", "joint"),
                         default="architecture", help="architecture fixes training settings to the current tuned model")
     parser.add_argument("--finalists", type=int, default=3,

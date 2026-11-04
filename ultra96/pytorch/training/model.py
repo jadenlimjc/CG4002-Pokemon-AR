@@ -26,23 +26,23 @@ class Gesture1DCNN(nn.Module):
         c1, c2, c3 = channels
         k1, k2, k3 = kernel_sizes
 
-        # Block 1 learns short motion patterns; pooling halves 256 -> 128.
+        # Block 1 learns short motion patterns; pooling halves the input temporal length.
         self.block1 = nn.Sequential(
             nn.Conv1d(in_channels, c1, kernel_size=k1, stride=1, padding=k1 // 2),
             nn.BatchNorm1d(c1),
             nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2)  # 256 -> 128
+            nn.MaxPool1d(kernel_size=2, stride=2)  # L -> L/2
         )
 
-        # Block 2 increases features; pooling halves 128 -> 64.
+        # Block 2 increases features; pooling halves the temporal length again.
         self.block2 = nn.Sequential(
             nn.Conv1d(c1, c2, kernel_size=k2, stride=1, padding=k2 // 2),
             nn.BatchNorm1d(c2),
             nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2)  # 128 -> 64
+            nn.MaxPool1d(kernel_size=2, stride=2)  # L/2 -> L/4
         )
 
-        # Block 3 averages its features over all 64 timesteps.
+        # Block 3 averages its features over all remaining timesteps.
         self.block3 = nn.Sequential(
             nn.Conv1d(c2, c3, kernel_size=k3, stride=1, padding=k3 // 2),
             nn.BatchNorm1d(c3),
@@ -59,7 +59,7 @@ class Gesture1DCNN(nn.Module):
         )
 
     def forward(self, x):
-        # Shape flow: [B,C,256] -> [B,c1,128] -> [B,c2,64] -> [B,c3].
+        # Shape flow: [B,C,L] -> [B,c1,L/2] -> [B,c2,L/4] -> [B,c3].
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)

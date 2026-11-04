@@ -5,9 +5,9 @@ Run from the repository root:
         ultra96/real_data/jaden/jaden_recordings_22_oct \
         ultra96/real_data/yiyang/yiyang_recordings_22_oct
 
-Without --output, writes processed/<directory_names_joined_by__>_test.npz
+Without --output, writes processed_50hz_128/<directory_names_joined_by__>_test.npz
 beside this script, e.g.
-processed/jaden_recordings_22_oct__yiyang_recordings_22_oct_test.npz.
+processed_50hz_128/jaden_recordings_22_oct__yiyang_recordings_22_oct_test.npz.
 Directory names follow input order; repeated directory paths appear once.
 Use --output to override the destination.
 
@@ -26,7 +26,7 @@ the selected sessions and the filenames saved in the NPZ.
 Pass the generated NPZ directly to the PyTorch evaluator:
     python ultra96/pytorch/training/evaluate_model.py \
         --data \
-        ultra96/real_data/processed/jaden_recordings_22_oct__yiyang_recordings_22_oct_test.npz
+        ultra96/real_data/processed_50hz_128/jaden_recordings_22_oct__yiyang_recordings_22_oct_test.npz
 """
 
 import argparse
@@ -42,7 +42,7 @@ else:
 
 
 def convert(input_dirs, output_path=None, centre_overrides=None, data_root=None,
-            sample_rate=preprocessing.SAMPLE_RATE_HZ, window_size=preprocessing.WINDOW_SIZE):
+            sample_rate=preprocessing.DEFAULT_SAMPLE_RATE_HZ, window_size=preprocessing.WINDOW_SIZE):
     if type(sample_rate) is not int or not 0 < sample_rate <= preprocessing.SAMPLE_RATE_HZ or window_size < 4:
         raise ValueError("sample_rate must be an integer from 1 to 100 and window_size must be at least 4")
     input_dirs = list(dict.fromkeys(Path(path).resolve() for path in input_dirs))
@@ -51,7 +51,7 @@ def convert(input_dirs, output_path=None, centre_overrides=None, data_root=None,
     input_root = Path(os.path.commonpath([str(path.parent) for path in input_dirs]))
     if output_path is None:
         filename = "__".join(path.name for path in input_dirs) + "_test.npz"
-        output_path = Path(__file__).resolve().parent / "processed" / filename
+        output_path = Path(__file__).resolve().parent / "processed_50hz_128" / filename
     output_path = Path(output_path).resolve()
     if output_path.suffix.lower() != ".npz":
         raise ValueError("output must be an .npz file")
@@ -154,17 +154,17 @@ def parse_args():
     parser.add_argument("input", type=Path, nargs="+",
                         help="one or more session directories directly containing CSVs")
     parser.add_argument("--output", type=Path,
-                        help="destination .npz file (default: processed/"
+                        help="destination .npz file (default: processed_50hz_128/"
                              "<directory_names_joined_by__>_test.npz beside this script)")
     parser.add_argument("--centre-overrides", type=Path,
                         help="Override CSV (default: centre_overrides.csv inside --data-root, if present)")
     parser.add_argument("--data-root", type=Path,
                         help="Root for filenames in the override CSV (default: real_data)")
     parser.add_argument("--sample-rate", type=preprocessing.target_sample_rate,
-                        default=preprocessing.SAMPLE_RATE_HZ,
-                        help="downsample 100 Hz CSVs to 1-99 Hz; omit for original 100 Hz")
+                        default=preprocessing.DEFAULT_SAMPLE_RATE_HZ,
+                        help="downsample 100 Hz CSVs to 1-99 Hz; default: 50 Hz")
     parser.add_argument("--window-size", type=int, default=preprocessing.WINDOW_SIZE,
-                        help="samples per window, at least 4 (default: 256)")
+                        help="samples per window, at least 4 (default: 128)")
     args = parser.parse_args()
     if args.window_size < 4:
         parser.error("--window-size must be at least 4")
