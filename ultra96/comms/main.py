@@ -196,7 +196,7 @@ class InferenceWorker:
 
 
 class TelemetryProcessor:
-    def __init__(self, client, model_id, worker, window_size=256, hop_size=25,
+    def __init__(self, client, model_id, worker, window_size=128, hop_size=25,
                  confirmation_steps=3):
         if type(confirmation_steps) is not int or confirmation_steps < 1:
             raise ValueError("confirmation_steps must be a positive integer")
@@ -300,7 +300,7 @@ class TelemetryProcessor:
             "confirmation_steps": required_confirmation_steps,
             "inference_source": "fpga",
             "window_shape": list(window.features.shape),
-            "model_input_shape": [6, 256],
+            "model_input_shape": [6, 128],
             "sample_sequence": window.last_sequence,
             "sample_timestamp_ms": window.timestamp_ms,
             "skipped_windows": self.skipped_windows,
