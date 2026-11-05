@@ -142,30 +142,33 @@ class GestureSequence:
         if payload["confidence"] < threshold:
             return reject("LOW_CONFIDENCE", f"Confidence {payload['confidence']:.2%} is below "
                           f"the {threshold:.2%} threshold; state unchanged.")
+
         if predicted_action == "NEUTRAL":
             return reject("NEUTRAL", "Neutral is ignored; gesture state unchanged.")
-        if predicted_action == "STOP_AIMING":
-            if self.aiming or self.awaiting_reset:
-                cancel = create_gesture_payload("STOP_AIMING", confidence,
-                                                timestamp_ms=payload["timestamp"])
-                return GestureDecision(before, SequenceState(), cancel, "RESET",
-                                       "STOP_AIMING sends CANCEL and rearms gestures.")
-            return reject("NOT_AIMING", "STOP_AIMING is invalid while neutral; state unchanged.")
-        if self.awaiting_reset:
-            return reject("AWAITING_RESET", "Throw already sent; use STOP_AIMING before another gesture.")
+
         if predicted_action == "AIM":
             if self.aiming:
                 return reject("ALREADY_AIMING", "AIM already sent; waiting for THROW or STOP_AIMING.")
             after = SequenceState("AIMING")
-        elif predicted_action == "THROW":
+
+        elif predicted_action in {"THROW", "STOP_AIMING"}:
             if not self.aiming:
-                return reject("NOT_AIMING", "THROW is invalid until AIM has been sent.")
-            after = SequenceState("AWAITING_RESET")
-        elif self.aiming:
-            return reject("AIMING_LOCK", "Finish with THROW or cancel with STOP_AIMING first.")
-        else:
+                return reject(
+                    "NOT_AIMING",
+                    f"{predicted_action} is invalid until AIM has been sent.",
+                )
             after = SequenceState()
-        return GestureDecision(before, after, payload, "VALID", "Confidence and gesture sequence are valid.")
+
+        else:
+            after = before
+
+        return GestureDecision(
+            before,
+            after,
+            payload,
+            "VALID",
+            "Confidence and gesture sequence are valid.",
+        )
 
     def commit(self, decision):
         if self._state != decision.before:

@@ -213,8 +213,8 @@ class InferenceWorker:
 
 
 class TelemetryProcessor:
-    def __init__(self, client, model_id, worker, window_size=128, hop_size=15,
-                 confirmation_steps=3,
+    def __init__(self, client, model_id, worker, window_size=128, hop_size=35,
+                 confirmation_steps=2,
                  cooldown_seconds=DEFAULT_GESTURE_COOLDOWN_SECONDS):
         if type(confirmation_steps) is not int or confirmation_steps < 1:
             raise ValueError("confirmation_steps must be a positive integer")
