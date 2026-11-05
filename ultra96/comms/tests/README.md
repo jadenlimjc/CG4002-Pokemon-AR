@@ -35,13 +35,13 @@ statistics. There are no haptic, config, file-transfer, or mode controls.
   uncertain, was blocked by cooldown, was out of sequence, or failed to publish.
 - **LAST SENT** persists across later predictions and log messages. It shows
   both the classifier label and the actual gameplay event/ID, confidence, and
-  local send time. For example, `NEUTRAL -> CANCEL` is an intentional catch
+  local send time. For example, `STOP_AIMING -> CANCEL` is an intentional catch
   reset. SENT means the MQTT client accepted the QoS 0 publish, **not** that the
   broker or AR app acknowledged delivery. Failed publishes do not replace it.
 - **STATE** is the gesture sequence state, not a second classifier prediction.
   `NEUTRAL` means ready for ordinary actions; `AIMING` means Aim was sent;
-  `AWAITING_RESET` means Throw was sent and a confident Neutral/Stop Aim is
-  required before another action.
+  `AWAITING_RESET` means Throw was sent and Stop Aim is required before another
+  action. Neutral is ignored without changing either catch state.
 - After a battle action is published, every classifier result is suppressed for
   two seconds with reason `COOLDOWN`. Confirmation restarts after the cooldown.
 - Packet rate is the unique arrivals in the last second versus the expected
@@ -52,7 +52,7 @@ statistics. There are no haptic, config, file-transfer, or mode controls.
   gaps are observed missing slots, not proof of network loss. RTT is measured
   by the board and needs its status/session plus RTT reports; `--` is unknown.
 
-The default confidence threshold is **0.75**. Per-gesture overrides can be added
+The default confidence threshold is **0.60**. Per-gesture overrides can be added
 to `GESTURE_CONFIDENCE_THRESHOLDS` in `visualiser_protocol.py`; any classifier
 label not present in that mapping retains the default. Thresholds apply before
 confirmation, including for reset/neutral. They can also reject real gestures
@@ -60,8 +60,10 @@ or make resetting harder; compare CURRENT confidence with WHY when that happens.
 
 ```python
 GESTURE_CONFIDENCE_THRESHOLDS = {
-    "PUNCH": 0.85,
-    "GUARD": 0.70,
+    "FLEE": 0.90,
+    "NEUTRAL": 0.80,
+    "AIM": 0.50,
+    "DOWNWARD_SWIPE": 0.85,
 }
 ```
 
@@ -73,24 +75,24 @@ GESTURE_CONFIDENCE_THRESHOLDS = {
 | `NOT_AIMING` | Throw/Stop Aim while neutral. Aim must be sent before Throw. |
 | `ALREADY_AIMING` | Repeated Aim; finish or cancel the catch sequence. |
 | `AIMING_LOCK` | Battle action while aiming; Throw or cancel first. |
-| `AWAITING_RESET` | A throw already occurred; return to Neutral or Stop Aim. |
-| `NEUTRAL` | Confident neutral requires no gameplay event. |
-| `RESET` | Neutral/Stop Aim ends a catch sequence and sends CANCEL. |
+| `AWAITING_RESET` | A throw already occurred; use Stop Aim before another gesture. |
+| `NEUTRAL` | Confident neutral is ignored without changing the current gesture state. |
+| `RESET` | Stop Aim ends a catch sequence and sends CANCEL. |
 | `PUBLISH_FAILED` | MQTT rejected an otherwise valid send. State and LAST SENT stay unchanged; a later valid prediction can retry. |
 
 ## Physical test pass
 
 1. Check that reception settles around 50 Hz with no unexpected CRC errors
-   or gaps. The existing **128 samples / 25-sample hop** are unchanged:
-   approximately 2.56 seconds to fill the first window and 0.5 seconds between
+   or gaps. The existing **128 samples / 15-sample hop** are unchanged:
+   approximately 2.56 seconds to fill the first window and 0.3 seconds between
    available windows at 50 Hz, before scheduling/inference time.
 2. Perform each battle gesture, then immediately try the same and a different
    gesture. Expect `COOLDOWN` with no new send for two seconds. After it expires,
    three fresh matching predictions should publish the next battle action.
-3. Try Throw without Aim (`NOT_AIMING`), then Aim -> Throw -> Neutral. Expect
-   `ARM_PULLBACK`, `CATCH_THROW`, and `CANCEL`; check the state after each.
-   While aiming, try a battle action and verify `AIMING_LOCK`. Cancel with
-   Stop Aim, then try Stop Aim while neutral and verify no new send.
+3. Try Throw without Aim (`NOT_AIMING`), then Aim -> Neutral -> Throw -> Neutral.
+   Expect only `ARM_PULLBACK` and `CATCH_THROW`; both Neutral predictions should
+   be suppressed without changing the catch state. Cancel with Stop Aim and
+   expect `CANCEL`, then try Stop Aim while neutral and verify no new send.
 4. Raise the hand into Guard at several speeds. Compare CURRENT, WHY, and
    LAST SENT. Record any high-confidence swipe before Guard. No new temporal
    filter or window change was added, so this transition error can still occur.
