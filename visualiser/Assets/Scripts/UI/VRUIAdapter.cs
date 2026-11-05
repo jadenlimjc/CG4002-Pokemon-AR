@@ -6,7 +6,7 @@ public class VRUIAdapter : MonoBehaviour
     [SerializeField] private Canvas[] uiCanvases;
 
     [Header("World Space VR Settings")]
-    [SerializeField] private float planeDistance = 1f;
+    [SerializeField] private float planeDistance = 2f;
     [SerializeField] private float worldScale = 0.001f;
 
     private RenderMode[] originalModes;
