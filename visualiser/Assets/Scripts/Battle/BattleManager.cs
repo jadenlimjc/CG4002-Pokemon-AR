@@ -39,6 +39,14 @@ public class BattleManager : MonoBehaviour
     [SerializeField] private int maxJiggles = 3;
     [SerializeField] private float jiggleInterval = 1f;
 
+    [Header("Battle Pacing")]
+    [Tooltip("Seconds per character when displaying battle messages")]
+    [SerializeField] private float messageReadSpeed = 0.04f;
+    [Tooltip("Minimum time a message stays on screen")]
+    [SerializeField] private float minMessageTime = 1.0f;
+    [Tooltip("Extra pause between player turn and wild turn")]
+    [SerializeField] private float turnTransitionDelay = 1.0f;
+
     private Animator playerAnimator;
     private Animator wildAnimator;
     private PokemonData wildPokemonData;
@@ -288,6 +296,17 @@ public class BattleManager : MonoBehaviour
         playerAnimator = playerPokemonInstance.GetComponent<Animator>();
     }
 
+    private float ReadingTime(string message)
+    {
+        return Mathf.Max(minMessageTime, message.Length * messageReadSpeed);
+    }
+
+    private IEnumerator ShowMessage(string message)
+    {
+        OnBattleMessage?.Invoke(message);
+        yield return new WaitForSeconds(ReadingTime(message));
+    }
+
     private IEnumerator WaitForAnimation(Animator animator, float minWait = 0.2f)
     {
         if (animator == null) { yield return new WaitForSeconds(minWait); yield break; }
@@ -310,7 +329,7 @@ public class BattleManager : MonoBehaviour
         isProcessingMove = true;
         MoveData move = playerPokemon.moves[moveIndex];
 
-        OnBattleMessage?.Invoke($"{playerPokemon.pokemonName} used {move.moveName}!");
+        yield return StartCoroutine(ShowMessage($"{playerPokemon.pokemonName} used {move.moveName}!"));
 
         if (playerAnimator != null && !string.IsNullOrEmpty(move.animationTrigger))
             playerAnimator.SetTrigger(move.animationTrigger);
@@ -336,20 +355,19 @@ public class BattleManager : MonoBehaviour
             if (wildAnimator != null)
                 wildAnimator.SetTrigger("isHit");
 
-            OnBattleMessage?.Invoke($"It dealt {damage} damage!");
+            yield return StartCoroutine(ShowMessage($"It dealt {damage} damage!"));
 
             yield return StartCoroutine(WaitForAnimation(wildAnimator));
         }
         else
         {
-            OnBattleMessage?.Invoke("The attack missed!");
-            yield return new WaitForSeconds(1f);
+            yield return StartCoroutine(ShowMessage("The attack missed!"));
         }
 
         // Check if wild fainted
         if (wildHP <= 0)
         {
-            OnBattleMessage?.Invoke($"Wild {wildPokemonData.pokemonName} fainted!");
+            yield return StartCoroutine(ShowMessage($"Wild {wildPokemonData.pokemonName} fainted!"));
             if (wildAnimator != null)
                 wildAnimator.SetTrigger("isFainted");
             yield return StartCoroutine(WaitForAnimation(wildAnimator));
@@ -357,6 +375,8 @@ public class BattleManager : MonoBehaviour
             isProcessingMove = false;
             yield break;
         }
+
+        yield return new WaitForSeconds(turnTransitionDelay);
 
         // Wild Pokemon's turn
         yield return StartCoroutine(ExecuteWildMove());
@@ -368,9 +388,7 @@ public class BattleManager : MonoBehaviour
     {
         isPlayerTurn = false;
 
-        yield return new WaitForSeconds(0.5f);
-
-        OnBattleMessage?.Invoke($"Wild {wildPokemonData.pokemonName} attacked!");
+        yield return StartCoroutine(ShowMessage($"Wild {wildPokemonData.pokemonName} attacked!"));
 
         if (wildAnimator != null)
             wildAnimator.SetTrigger("isAttacking");
@@ -379,8 +397,7 @@ public class BattleManager : MonoBehaviour
 
         if (blocked)
         {
-            OnBattleMessage?.Invoke($"{playerPokemon.pokemonName} protected itself!");
-            yield return new WaitForSeconds(1f);
+            yield return StartCoroutine(ShowMessage($"{playerPokemon.pokemonName} protected itself!"));
             isPlayerTurn = true;
             OnBattleMessage?.Invoke("Your turn! Perform a move gesture!");
             yield break;
@@ -390,16 +407,14 @@ public class BattleManager : MonoBehaviour
         playerHP = Mathf.Max(0, playerHP - wildDamage);
         OnHPChanged?.Invoke(playerHP, wildHP);
 
-        OnBattleMessage?.Invoke($"Dealt {wildDamage} damage!");
-
         Handheld.Vibrate();
 
-        yield return new WaitForSeconds(1f);
+        yield return StartCoroutine(ShowMessage($"Dealt {wildDamage} damage!"));
 
         // Check if player fainted
         if (playerHP <= 0)
         {
-            OnBattleMessage?.Invoke($"{playerPokemon.pokemonName} fainted!");
+            yield return StartCoroutine(ShowMessage($"{playerPokemon.pokemonName} fainted!"));
             if (playerAnimator != null)
                 playerAnimator.SetTrigger("isFainted");
             yield return StartCoroutine(WaitForAnimation(playerAnimator));
