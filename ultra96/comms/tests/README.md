@@ -51,6 +51,12 @@ statistics. There are no haptic, config, file-transfer, or mode controls.
   help distinguish recognition problems from data-flow problems. Sequence
   gaps are observed missing slots, not proof of network loss. RTT is measured
   by the board and needs its status/session plus RTT reports; `--` is unknown.
+- **Touch input** shows confirmed SingleHoldButton events from telemetry
+  `flags`: middle/up is bit 1, index/select is bit 0, and ring/down is bit 2.
+  These are one-shot events rather than continuous touch levels, so the
+  dashboard keeps each `YES` visible for 0.75 seconds and also shows cumulative
+  event counts. A packet-format warning usually means the flashed ESP32 and
+  Ultra96 checkout are from different revisions.
 
 The default confidence threshold is **0.60**. Per-gesture overrides can be added
 to `GESTURE_CONFIDENCE_THRESHOLDS` in `visualiser_protocol.py`; any classifier
@@ -86,20 +92,24 @@ GESTURE_CONFIDENCE_THRESHOLDS = {
    or gaps. The existing **128 samples / 15-sample hop** are unchanged:
    approximately 2.56 seconds to fill the first window and 0.3 seconds between
    available windows at 50 Hz, before scheduling/inference time.
-2. Perform each battle gesture, then immediately try the same and a different
+2. Hold middle, index, and ring separately until each SingleHoldButton action
+   confirms. The corresponding `YES` should appear for 0.75 seconds and its
+   event count should increase exactly once. The raw `latest flags` value may
+   return to `0x00` immediately; that is expected for one-shot menu input.
+3. Perform each battle gesture, then immediately try the same and a different
    gesture. Expect `COOLDOWN` with no new send for two seconds. After it expires,
    three fresh matching predictions should publish the next battle action.
-3. Try Throw without Aim (`NOT_AIMING`), then Aim -> Neutral -> Throw -> Neutral.
+4. Try Throw without Aim (`NOT_AIMING`), then Aim -> Neutral -> Throw -> Neutral.
    Expect only `ARM_PULLBACK` and `CATCH_THROW`; both Neutral predictions should
    be suppressed without changing the catch state. Cancel with Stop Aim and
    expect `CANCEL`, then try Stop Aim while neutral and verify no new send.
-4. Raise the hand into Guard at several speeds. Compare CURRENT, WHY, and
+5. Raise the hand into Guard at several speeds. Compare CURRENT, WHY, and
    LAST SENT. Record any high-confidence swipe before Guard. No new temporal
    filter or window change was added, so this transition error can still occur.
-5. Compare 0.90 with 0.95 over the same gestures and neutral movements. Note
+6. Compare 0.90 with 0.95 over the same gestures and neutral movements. Note
    both false sends and real gestures/resets rejected; changing the threshold
    alone cannot fix a confidently wrong prediction.
-6. If using multiple boards, switch with Tab and confirm each retains its own
+7. If using multiple boards, switch with Tab and confirm each retains its own
    state and last sent event. Interrupt telemetry and confirm stale results
    remain visibly dated rather than appearing to be fresh predictions.
 
