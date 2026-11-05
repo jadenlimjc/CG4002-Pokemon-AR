@@ -20,7 +20,13 @@ from dotenv import find_dotenv, load_dotenv
 import paho.mqtt.client as mqtt
 import numpy as np
 
-from process_telemetry import PacketError, TelemetryBuffer, decode_packet, model_input
+from process_telemetry import (
+    MENU_CONTROL_MASK, PacketError, TelemetryBuffer, decode_packet, model_input,
+)
+from pairing import (
+    DEVICE_STATUS_SUBSCRIPTION, PAIR_REQUEST_SUBSCRIPTION,
+    PairingService, player_id_for_model,
+)
 from visualiser_protocol import (
     DEFAULT_CONFIDENCE_THRESHOLD, GestureSequence,
     confidence_threshold_overrides as validate_confidence_threshold_overrides,
@@ -79,7 +85,10 @@ def device_topics(model_id):
         ("telemetry", "telemetry"), ("status", "status"), ("ack", "telemetry_ack"),
         ("rtt", "rtt"), ("health", "health"), ("config", "config"), ("haptic", "haptic/cmd"),
     )}
-    topics["inference"] = f"ultra96/{model_id}/inference"
+    # Test/demo IDs retain their name, while production hardware is translated
+    # to the stable player label exposed to phones.
+    public_id = player_id_for_model(model_id) or model_id
+    topics["inference"] = f"ultra96/{public_id}/inference"
     return topics
 
 
@@ -219,6 +228,7 @@ class TelemetryProcessor:
         self.confirmation_count = 0
         self.client = client
         self.model_id = validate_model_id(model_id)
+        self.player_id = player_id_for_model(model_id) or model_id
         self.topics = device_topics(model_id)
         self.worker = worker
         self.gesture_sequence = GestureSequence(
@@ -315,7 +325,7 @@ class TelemetryProcessor:
                     self.gesture_sequence.commit(decision)
 
         result = {
-            "model_id": self.model_id,
+            "model_id": self.player_id,
             "predicted_action": predicted_action,
             "confidence": confidence,
             "confirmation_count": self.confirmation_count,
@@ -399,6 +409,7 @@ class TelemetryService:
         self.max_devices = max_devices
         self.processor_factory = processor_factory
         self.processors = {}
+        self.last_menu_sequence = {}
 
     def on_message(self, client, userdata, msg):
         received_at = time.monotonic()
@@ -433,6 +444,16 @@ class TelemetryService:
             packet = decode_packet(msg.payload)
         except PacketError:
             return
+        menu_flags = int(packet.features[-1]) & MENU_CONTROL_MASK
+        player_id = player_id_for_model(model_id)
+        if (menu_flags and player_id is not None
+                and self.last_menu_sequence.get(model_id) != packet.sequence):
+            payload = json.dumps({"flags": menu_flags, "sequence": packet.sequence},
+                                 separators=(",", ":"), sort_keys=True)
+            info = client.publish(f"ultra96/{player_id}/menu_controls", payload,
+                                  qos=0, retain=False)
+            if info.rc == 0:
+                self.last_menu_sequence[model_id] = packet.sequence
         if model_id not in self.processors:
             if len(self.processors) >= self.max_devices:
                 logging.warning("Device limit reached; ignoring %s", model_id)
@@ -489,16 +510,22 @@ def main():
     client = create_mqtt_client()
     worker = InferenceWorker(confidence_threshold=args.confidence_threshold)
     service = TelemetryService(client, worker, args.max_devices)
+    pairing = PairingService(client)
 
     def on_connect(cli, userdata, flags, reason_code, properties=None):
         if reason_code == 0:
             logging.info("Connected to MQTT broker.")
-            cli.subscribe([(TELEMETRY_SUBSCRIPTION, 0), (HEALTH_SUBSCRIPTION, 0)])
+            cli.subscribe([(TELEMETRY_SUBSCRIPTION, 0), (HEALTH_SUBSCRIPTION, 0),
+                           (DEVICE_STATUS_SUBSCRIPTION, 1), (PAIR_REQUEST_SUBSCRIPTION, 1)])
         else:
             logging.error("Connection failed: %s", reason_code)
 
+    def on_message(cli, userdata, message):
+        if not pairing.handle_message(message):
+            service.on_message(cli, userdata, message)
+
     client.on_connect = on_connect
-    client.on_message = service.on_message
+    client.on_message = on_message
     try:
         worker.start()
         connect_with_retry(client)

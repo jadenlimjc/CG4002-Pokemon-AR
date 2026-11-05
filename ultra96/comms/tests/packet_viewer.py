@@ -12,13 +12,14 @@ from process_telemetry import BODY, CRC, PacketError, decode_packet
 
 def packet_line(model_id, payload, require_crc=False):
     packet = decode_packet(payload, require_crc=require_crc)
-    ax, ay, az, gx, gy, gz, touch, flags = packet.features
+    ax, ay, az, gx, gy, gz, flags = packet.features
+    touch = flags & 0x07
     crc = f"0x{CRC.unpack_from(payload, BODY.size)[0]:08x} (valid)" if packet.checked else "absent (legacy)"
     return (
         f"[{model_id}] sample_index={packet.sequence} timestamp_ms={packet.timestamp_ms} "
         f"accel_x={ax} accel_y={ay} accel_z={az} "
         f"gyro_x={gx} gyro_y={gy} gyro_z={gz} "
-        f"touch_mask=0x{touch:04x} flags=0x{flags:02x} crc32={crc}"
+        f"menu_flags=0x{touch:02x} flags=0x{flags:02x} crc32={crc}"
     )
 
 

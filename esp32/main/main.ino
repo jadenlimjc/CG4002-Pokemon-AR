@@ -35,7 +35,7 @@ std::atomic<bool> hapticRequested{false};
 void setupHardware();
 void updateHardware(bool telemetryEnabled, bool haptic);
 bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
-                         uint16_t touchMask, bool streamStart, bool changeGated);
+                         uint8_t touchFlags, bool streamStart, bool changeGated);
 
 // Stable per-board identity. All boards run the same firmware.
 char model_id[13];
@@ -225,6 +225,7 @@ TelemetryRtt telemetryRtt;
 
 void connectWiFi();
 void connectMQTT();
+void publishOnlineStatus();
 
 void SensorSampleTask(void* pvParameters);
 void NetworkTask(void* pvParameters);
@@ -357,7 +358,7 @@ void SensorSampleTask(void* pvParameters) {
 
 // Copy MotionSensor's getEvent() readings directly into the float32 packet.
 bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
-                         uint16_t touchMask, bool streamStart, bool changeGated) {
+                         uint8_t touchFlags, bool streamStart, bool changeGated) {
     if (!std::isfinite(a.acceleration.x) || !std::isfinite(a.acceleration.y) ||
         !std::isfinite(a.acceleration.z) || !std::isfinite(g.gyro.x) ||
         !std::isfinite(g.gyro.y) || !std::isfinite(g.gyro.z)) return false;
@@ -374,10 +375,9 @@ bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
     packet.gyro_x = g.gyro.x;
     packet.gyro_y = g.gyro.y;
     packet.gyro_z = g.gyro.z;
-    packet.touch_mask = touchMask;
-    packet.flags = (changeGated ? TELEMETRY_CHANGE_GATED : 0) |
-        (streamStart ? TELEMETRY_STREAM_START : 0) |
-        (touchMask ? TELEMETRY_ANY_TOUCH : 0);
+    packet.flags = (touchFlags & TELEMETRY_TOUCH_MASK) |
+        (changeGated ? TELEMETRY_CHANGE_GATED : 0) |
+        (streamStart ? TELEMETRY_STREAM_START : 0);
     packet.crc32 = telemetryCrc32(
         reinterpret_cast<const uint8_t*>(&packet), offsetof(TelemetryPacket, crc32));
 
@@ -451,10 +451,18 @@ void NetworkTask(void* pvParameters) {
         // ----------------------------------
 
         if (xQueueReceive(telemetryQueue, &packet, pdMS_TO_TICKS(5)) == pdTRUE) {
+            uint8_t menuFlags = packet.flags & TELEMETRY_TOUCH_MASK;
             TelemetryPacket newer;
             while (xQueueReceive(telemetryQueue, &newer, 0) == pdTRUE) {
                 packet = newer;
+                menuFlags |= newer.flags & TELEMETRY_TOUCH_MASK;
                 ++staleTelemetryDiscards;
+            }
+            if ((packet.flags & TELEMETRY_TOUCH_MASK) != menuFlags) {
+                packet.flags = (packet.flags & ~TELEMETRY_TOUCH_MASK) | menuFlags;
+                packet.crc32 = telemetryCrc32(
+                    reinterpret_cast<const uint8_t*>(&packet),
+                    offsetof(TelemetryPacket, crc32));
             }
             if (demoMode.load() == AUTO && WiFi.status() == WL_CONNECTED && client.connected()) {
                 // Millisecond subtraction remains valid across the device clock wrap.
@@ -636,9 +644,7 @@ void connectMQTT() {
             // --------------------------------
 
             telemetryRtt.begin();
-            String online_payload = "{\"state\":\"online\",\"rssi\":" + String(WiFi.RSSI()) +
-                                    ",\"rtt_session\":" + String(telemetryRtt.session()) + "}";
-            client.publish(topic_status, online_payload.c_str(), true);
+            publishOnlineStatus();
             mqtt_connection_failures = 0;
 
             client.subscribe(topic_ack);
@@ -660,14 +666,28 @@ void connectMQTT() {
     }
 }
 
+// Retained discovery record. The broker replaces it with the offline LWT if
+// this connection disappears; pairing ownership is deliberately kept on U96.
+void publishOnlineStatus() {
+    char payload[192];
+    const int length = snprintf(payload, sizeof(payload),
+        "{\"state\":\"online\",\"device_id\":\"%s\",\"pairing_protocol\":1,"
+        "\"mode\":\"%s\",\"rssi\":%d,\"rtt_session\":%lu}",
+        model_id, modeNames[demoMode.load()], WiFi.RSSI(),
+        (unsigned long)telemetryRtt.session());
+    if (length > 0 && static_cast<size_t>(length) < sizeof(payload)) {
+        client.publish(topic_status, payload, true);
+    }
+}
+
 // Manual demonstrations only: keep automatic telemetry off Serial.
 void printGesturePacket(const char* direction, const TelemetryPacket& p) {
     Serial.printf("  %s seq=%lu device_ms=%lu CRC=OK (%08lx)\n",
                   direction, (unsigned long)p.sample_index,
                   (unsigned long)p.timestamp_ms, (unsigned long)p.crc32);
-    Serial.printf("  accel=(%.4f,%.4f,%.4f) m/s^2 gyro=(%.4f,%.4f,%.4f) rad/s touch_mask=0x%04x flags=0x%02x\n",
+    Serial.printf("  accel=(%.4f,%.4f,%.4f) m/s^2 gyro=(%.4f,%.4f,%.4f) rad/s flags=0x%02x\n",
                   p.accel_x, p.accel_y, p.accel_z, p.gyro_x, p.gyro_y,
-                  p.gyro_z, p.touch_mask, p.flags);
+                  p.gyro_z, p.flags);
 }
 
 void printDemoReceipt(const uint8_t* request, const uint8_t* response) {
@@ -757,10 +777,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
             }
             // Repeated explicit mode requests are idempotent for ACK retries.
             client.publish(topic_mode, modeNames[selected]);
-            char status[128];
-            snprintf(status, sizeof(status), "{\"state\":\"online\",\"mode\":\"%s\",\"rtt_session\":%lu}",
-                     modeNames[selected], (unsigned long)telemetryRtt.session());
-            client.publish(topic_status, status, true);
+            publishOnlineStatus();
             Serial.printf("[DEMO] Mode confirmed: %s\n", modeNames[selected]);
         }
     } else if (strcmp(topic, topic_haptic) == 0 && demoMode.load() == AUTO) {
