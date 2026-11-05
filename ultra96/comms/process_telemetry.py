@@ -15,14 +15,14 @@ GYRO_SCALE = 180.0 / np.pi
 
 
 def model_input(features):
-    """Convert the live [256, 8] buffer to the CNN's normalized [6, 256] input.
+    """Convert the live [128, 8] buffer to the CNN's normalized [6, 128] input.
 
     The buffer holds g and degrees/s; training uses fractions of sensor range.
     Touch fields are excluded. Keep the shared window immutable.
     """
     features = np.asarray(features)
-    if features.shape != (256, 8):
-        raise ValueError(f"Expected live window (256, 8), got {features.shape}")
+    if features.shape != (128, 8):
+        raise ValueError(f"Expected live window (128, 8), got {features.shape}")
     scales = np.array([ACCEL_RANGE_G] * 3 + [GYRO_RANGE_DPS] * 3, dtype=np.float32)
     result = np.ascontiguousarray((features[:, :6] / scales).T, dtype=np.float32)
     if not np.isfinite(result).all():
@@ -99,7 +99,7 @@ class SequenceStats:
 
 
 class TelemetryBuffer:
-    def __init__(self, window_size=256, hop_size=25, max_gap_fill=5, queue_maxsize=10):
+    def __init__(self, window_size=128, hop_size=25, max_gap_fill=5, queue_maxsize=10):
         self.window_size = window_size
         self.hop_size = hop_size
         self.step_counter = 0
