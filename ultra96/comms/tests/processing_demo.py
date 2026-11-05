@@ -120,7 +120,7 @@ def main():
     client.on_message = demo.on_message
     trace.emit(f"FPGA inference; confidence threshold={worker.confidence_threshold:.2f}. "
                "One accelerator/worker shared by all selected boards.")
-    trace.emit("256-sample windows, 25-sample hop (~2.56 s warm-up, ~250 ms updates per board at 100 Hz).")
+    trace.emit("128-sample windows, 25-sample hop (~2.56 s warm-up, ~500 ms updates per board at 50 Hz).")
     trace.emit("receive_to_result_ms excludes network transit and earlier window samples. "
                "LOW_CONFIDENCE/SUPPRESSED results do not send a gameplay event.")
     trace.emit("Press Enter when starting a gesture; q + Enter or Ctrl-C stops. Keep the ESP32s in AUTO mode.")

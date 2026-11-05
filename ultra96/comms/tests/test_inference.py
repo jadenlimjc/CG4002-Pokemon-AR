@@ -141,7 +141,7 @@ class GameplayTests(unittest.TestCase):
         self.client.publish.return_value.rc = 0
         self.accelerator = FakeAccelerator()
         self.worker = SimpleNamespace(accelerator=self.accelerator, confidence_threshold=0.75)
-        self.processor = TelemetryProcessor(self.client, 'A', self.worker)
+        self.processor = TelemetryProcessor(self.client, 'A', self.worker, cooldown_seconds=0)
 
     def test_real_predictions_preserve_gameplay_contract_and_per_board_state(self):
         results = []
@@ -206,34 +206,32 @@ class GameplayTests(unittest.TestCase):
         self.client.publish.assert_not_called()
         self.assertEqual(self.processor.run_inference(live_window())['status'], 'PUBLISHED')
 
-    def test_single_neutral_rearms_recovering_gesture(self):
+    def test_neutral_uses_normal_confirmation(self):
         for _ in range(3):
             self.processor.run_inference(live_window())
         self.accelerator.label = 0
         result = self.processor.run_inference(live_window())
-        self.assertEqual(result['reason'], 'NEUTRAL')
+        self.assertEqual(result['status'], 'CONFIRMING')
         self.assertEqual(result['confirmation_count'], 1)
-        self.assertEqual(result['confirmation_steps'], 1)
-        self.assertEqual(self.processor.gesture_sequence.state, 'NEUTRAL')
-        self.accelerator.label = 4
-        for _ in range(3):
+        self.assertEqual(result['confirmation_steps'], 3)
+        for _ in range(2):
             result = self.processor.run_inference(live_window())
-        self.assertEqual(result['status'], 'PUBLISHED')
-        self.assertEqual(self.client.publish.call_count, 2)
+        self.assertEqual(result['reason'], 'NEUTRAL')
+        self.assertEqual(self.processor.gesture_sequence.state, 'NEUTRAL')
+        self.client.publish.assert_called_once()
 
-    def test_return_motion_stays_blocked_until_single_neutral_prediction(self):
+    def test_return_motion_is_blocked_until_cooldown_expires(self):
         def predict(label, count):
             self.accelerator.label = label
             return [self.processor.run_inference(live_window()) for _ in range(count)]
 
+        self.processor.cooldown_seconds = 2
         self.assertEqual(predict(6, 3)[-1]['status'], 'PUBLISHED')  # Guard.
         returning = predict(5, 3)[-1]  # Lowering the hand resembles Swipe.
-        self.assertEqual(returning['reason'], 'RECOVERING')
+        self.assertEqual(returning['reason'], 'COOLDOWN')
         self.assertEqual(returning['status'], 'SUPPRESSED')
-        neutral = predict(0, 1)[-1]
-        self.assertEqual(neutral['reason'], 'NEUTRAL')
-        self.assertEqual(neutral['confirmation_steps'], 1)
-        self.assertEqual(self.processor.gesture_sequence.state, 'NEUTRAL')
+        self.assertEqual(returning['confirmation_count'], 0)
+        self.processor.cooldown_until = 0
         self.assertEqual(predict(5, 3)[-1]['status'], 'PUBLISHED')
         self.assertEqual(self.client.publish.call_count, 2)
 

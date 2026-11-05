@@ -32,7 +32,7 @@ statistics. There are no haptic, config, file-transfer, or mode controls.
   a new result. Packet reception is shown separately: receiving packets does
   not prove that inference is keeping up.
 - **DECISION / WHY** explain whether the prediction sent an event, was too
-  uncertain, was repeated, was out of sequence, or failed to publish.
+  uncertain, was blocked by cooldown, was out of sequence, or failed to publish.
 - **LAST SENT** persists across later predictions and log messages. It shows
   both the classifier label and the actual gameplay event/ID, confidence, and
   local send time. For example, `NEUTRAL -> CANCEL` is an intentional catch
@@ -42,49 +42,51 @@ statistics. There are no haptic, config, file-transfer, or mode controls.
   `NEUTRAL` means ready for ordinary actions; `AIMING` means Aim was sent;
   `AWAITING_RESET` means Throw was sent and a confident Neutral/Stop Aim is
   required before another action.
-  `RECOVERING` means a battle action was sent; one confident Neutral prediction
-  rearms recognition. Other labels still require three consecutive predictions.
+- After a battle action is published, every classifier result is suppressed for
+  two seconds with reason `COOLDOWN`. Confirmation restarts after the cooldown.
 - Packet rate is the unique arrivals in the last second versus the expected
-  **100 Hz**; the session average counts received sample intervals. CRC,
+  **50 Hz**; the session average counts received sample intervals. CRC,
   malformed/retained packets, gaps, duplicate packets, backwards/reset
   counters, silence/recovery counts, RTT, inference timing, and skipped windows
   help distinguish recognition problems from data-flow problems. Sequence
   gaps are observed missing slots, not proof of network loss. RTT is measured
   by the board and needs its status/session plus RTT reports; `--` is unknown.
 
-The default confidence threshold is **0.90**, up from 0.75. It is a conservative
-starting point for testing, not a measured optimum or a calibrated probability
-of correctness. Both this dashboard and the production service accept
-`--confidence-threshold` as a fraction from 0 to 1. The threshold applies to
-every label, including reset/neutral. It can also reject real gestures or make
-resetting harder; compare the CURRENT confidence with the reason when that happens.
+The default confidence threshold is **0.75**. Per-gesture overrides can be added
+to `GESTURE_CONFIDENCE_THRESHOLDS` in `visualiser_protocol.py`; any classifier
+label not present in that mapping retains the default. Thresholds apply before
+confirmation, including for reset/neutral. They can also reject real gestures
+or make resetting harder; compare CURRENT confidence with WHY when that happens.
+
+```python
+GESTURE_CONFIDENCE_THRESHOLDS = {
+    "PUNCH": 0.85,
+    "GUARD": 0.70,
+}
+```
 
 | Reason | Meaning / next action |
 | --- | --- |
 | `VALID` | Valid gesture; `PUBLISHED` means MQTT accepted it. |
-| `LOW_CONFIDENCE` | Below the threshold. State and repeat filter stay unchanged. |
-| `REPEATED` | Same held battle gesture already sent. Return to confirmed Neutral before another gesture. |
-| `RECOVERING` | Battle action already sent. Other gestures are blocked until confirmed Neutral, including hand-return movements. |
-| `NOT_AIMING` | Throw/Stop Aim while neutral. Aim must be sent before Throw. Idle Stop Aim does not rearm a held battle gesture. |
+| `LOW_CONFIDENCE` | Below the resolved threshold. State stays unchanged and confirmation resets. |
+| `COOLDOWN` | A battle action was just sent. All predictions are ignored and confirmation is reset for two seconds. |
+| `NOT_AIMING` | Throw/Stop Aim while neutral. Aim must be sent before Throw. |
 | `ALREADY_AIMING` | Repeated Aim; finish or cancel the catch sequence. |
 | `AIMING_LOCK` | Battle action while aiming; Throw or cancel first. |
 | `AWAITING_RESET` | A throw already occurred; return to Neutral or Stop Aim. |
-| `NEUTRAL` | Confident neutral clears the repeat filter without a gameplay event. |
+| `NEUTRAL` | Confident neutral requires no gameplay event. |
 | `RESET` | Neutral/Stop Aim ends a catch sequence and sends CANCEL. |
 | `PUBLISH_FAILED` | MQTT rejected an otherwise valid send. State and LAST SENT stay unchanged; a later valid prediction can retry. |
 
 ## Physical test pass
 
-1. Check that reception settles around 100 Hz with no unexpected CRC errors
-   or gaps. The existing **256 samples / 25-sample hop** are unchanged:
-   approximately 2.56 seconds to fill the first window and 0.25 seconds between
-   available windows at 100 Hz, before scheduling/inference time.
-2. Perform each battle gesture, then hold it. Confirm one send followed by
-   `REPEATED`. Return to confident Neutral and repeat the gesture. Also try a
-   different battle gesture directly: expect `RECOVERING` with no new send.
-   Specifically try Guard -> hand down and Use Item -> hand back. One confident
-   Neutral prediction should rearm recognition; the next action still needs
-   three consecutive predictions.
+1. Check that reception settles around 50 Hz with no unexpected CRC errors
+   or gaps. The existing **128 samples / 25-sample hop** are unchanged:
+   approximately 2.56 seconds to fill the first window and 0.5 seconds between
+   available windows at 50 Hz, before scheduling/inference time.
+2. Perform each battle gesture, then immediately try the same and a different
+   gesture. Expect `COOLDOWN` with no new send for two seconds. After it expires,
+   three fresh matching predictions should publish the next battle action.
 3. Try Throw without Aim (`NOT_AIMING`), then Aim -> Throw -> Neutral. Expect
    `ARM_PULLBACK`, `CATCH_THROW`, and `CANCEL`; check the state after each.
    While aiming, try a battle action and verify `AIMING_LOCK`. Cancel with
@@ -110,7 +112,7 @@ python -B -m unittest discover -s ultra96/comms/tests -p 'test_*.py'
 ```
 
 The suite covers packet decoding and scheduling, all gesture labels in each
-catch state, threshold boundaries, rejected-label repeat handling, publish
+catch state, threshold boundaries, cooldown handling, publish
 failure/retry, independent current/last-sent snapshots, per-board isolation,
 packet rate/CRC/gaps/RTT, and dashboard rendering/terminal restoration. Mocked
 classifier outputs verify software behavior; they do not establish recognition
