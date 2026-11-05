@@ -204,7 +204,7 @@ class InferenceWorker:
 
 
 class TelemetryProcessor:
-    def __init__(self, client, model_id, worker, window_size=128, hop_size=25,
+    def __init__(self, client, model_id, worker, window_size=128, hop_size=15,
                  confirmation_steps=3,
                  cooldown_seconds=DEFAULT_GESTURE_COOLDOWN_SECONDS):
         if type(confirmation_steps) is not int or confirmation_steps < 1:
@@ -478,7 +478,7 @@ def main():
                         help="maximum distinct device buffers per run (default: 64)")
     parser.add_argument("--confidence-threshold", type=validate_confidence_threshold,
                         default=DEFAULT_CONFIDENCE_THRESHOLD,
-                        help="minimum confidence, 0..1 (default: 0.75)")
+                        help="minimum confidence, 0..1 (default: 0.60)")
     args = parser.parse_args()
     if args.max_devices < 1:
         parser.error("--max-devices must be positive")

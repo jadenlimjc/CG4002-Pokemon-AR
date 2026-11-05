@@ -145,13 +145,15 @@ class GameplayTests(unittest.TestCase):
 
     def test_real_predictions_preserve_gameplay_contract_and_per_board_state(self):
         results = []
-        for label in (1, 3, 4, 0, 4, 4):  # Aim, throw, blocked punch, reset, punch, repeat.
+        # Neutral is ignored in both catch states; only Stop Aim sends CANCEL.
+        for label in (1, 0, 3, 0, 4, 2, 4):
             self.accelerator.label = label
             for _ in range(3):
                 result = self.processor.run_inference(live_window())
             results.append(result)
         self.assertEqual([r['status'] for r in results],
-                         ['PUBLISHED', 'PUBLISHED', 'SUPPRESSED', 'PUBLISHED', 'PUBLISHED', 'SUPPRESSED'])
+                         ['PUBLISHED', 'SUPPRESSED', 'PUBLISHED', 'SUPPRESSED',
+                          'SUPPRESSED', 'PUBLISHED', 'PUBLISHED'])
         events = [json.loads(call.args[1]) for call in self.client.publish.call_args_list]
         self.assertEqual([event['action'] for event in events],
                          ['ARM_PULLBACK', 'CATCH_THROW', 'CANCEL', 'BATTLE_MOVE'])

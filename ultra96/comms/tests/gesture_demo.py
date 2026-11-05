@@ -152,7 +152,7 @@ class GestureMonitor:
             timing = current["timing_ms"]
             lines.append(f" Timing ms: inference {show(timing['inference'])} | "
                          f"queue {show(timing['queue'])} | receive->result {show(timing['receive_to_result'])}")
-        lines.append(f" Window: {len(self.processor.buffer.buffer)}/128 | hop 25 | "
+        lines.append(f" Window: {len(self.processor.buffer.buffer)}/128 | hop 15 | "
                      f"skipped {self.processor.skipped_windows}")
         counts = snapshot["decision_counts"]
         lines.append(f" Decisions: {sum(counts.values())} | low confidence {counts.get('LOW_CONFIDENCE', 0)} | "
@@ -301,7 +301,7 @@ def main():
     parser = parser_for(__doc__)
     parser.add_argument("--confidence-threshold", type=confidence_threshold,
                         default=DEFAULT_CONFIDENCE_THRESHOLD,
-                        help="default minimum confidence, 0..1 (default: 0.75)")
+                        help="default minimum confidence, 0..1 (default: 0.60)")
     parser.add_argument("--max-devices", type=int, default=64)
     args = parser.parse_args()
     if args.max_devices < 1:
