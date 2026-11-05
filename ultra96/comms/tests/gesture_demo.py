@@ -109,7 +109,8 @@ class GestureMonitor:
         else:
             age = now - snapshot["updated_at"]
             stale = " STALE" if age >= self.health.silence_timeout else ""
-            lines += [f" CURRENT: {current['predicted_action']} | {current['confidence']:.2%} | "
+            lines += [f" CURRENT: {current['predicted_action']} | {current['confidence']:.2%} "
+                      f"(threshold {current['confidence_threshold']:.2%}) | "
                       f"{age:.1f}s ago{stale}",
                       f" DECISION: {current['status']} / {current['reason']}",
                       f" WHY: {current['detail']}"]
@@ -132,7 +133,7 @@ class GestureMonitor:
             average = (self.packets - 1) / elapsed if elapsed > 0 else 0
             kbps = sum(size for _, size in self.recent_bytes) * 8 / 1000
             lines += [f" Telemetry: {state} | last {last} | presence {self.health.presence}",
-                      f" Rate: {hz} / 100 Hz expected | avg {average:.1f} Hz | {kbps:.2f} kbps",
+                      f" Rate: {hz} / 50 Hz expected | avg {average:.1f} Hz | {kbps:.2f} kbps",
                       f" Packets: {self.packets} unique / {self.received} received | retained {self.retained}",
                       f" CRC: {self.checked} checked / {self.unchecked} unchecked | "
                       f"bad {self.bad_crc} / length {self.bad_length} / missing {self.missing_crc}",
@@ -151,11 +152,11 @@ class GestureMonitor:
             timing = current["timing_ms"]
             lines.append(f" Timing ms: inference {show(timing['inference'])} | "
                          f"queue {show(timing['queue'])} | receive->result {show(timing['receive_to_result'])}")
-        lines.append(f" Window: {len(self.processor.buffer.buffer)}/256 | hop 25 | "
+        lines.append(f" Window: {len(self.processor.buffer.buffer)}/128 | hop 25 | "
                      f"skipped {self.processor.skipped_windows}")
         counts = snapshot["decision_counts"]
         lines.append(f" Decisions: {sum(counts.values())} | low confidence {counts.get('LOW_CONFIDENCE', 0)} | "
-                     f"repeat {counts.get('REPEATED', 0)} | send failed {counts.get('PUBLISH_FAILED', 0)}")
+                     f"cooldown {counts.get('COOLDOWN', 0)} | send failed {counts.get('PUBLISH_FAILED', 0)}")
         return lines
 
 
@@ -300,7 +301,7 @@ def main():
     parser = parser_for(__doc__)
     parser.add_argument("--confidence-threshold", type=confidence_threshold,
                         default=DEFAULT_CONFIDENCE_THRESHOLD,
-                        help="minimum confidence, 0..1 (default: 0.90)")
+                        help="default minimum confidence, 0..1 (default: 0.75)")
     parser.add_argument("--max-devices", type=int, default=64)
     args = parser.parse_args()
     if args.max_devices < 1:
