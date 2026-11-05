@@ -36,11 +36,11 @@ def decode_frame(payload):
 
 
 MODES = ("auto", "file", "pipeline")
-# SI IMU samples (m/s^2, rad/s), touch mask, flags; restart after editing.
+# SI IMU samples (m/s^2, rad/s) and flags; restart after editing.
 DUMMY_SAMPLES = (
-    (1.2, -0.8, 9.8, 0.2, -0.3, 0.45, 0, 0),
-    (-4.5, 2.2, 9.0, -0.8, 0.7, 0.3, 5, 1),
-    (8.0, -1.2, 8.5, 1.6, -0.9, 0.25, 0, 0),
+    (1.2, -0.8, 9.8, 0.2, -0.3, 0.45, 0),
+    (-4.5, 2.2, 9.0, -0.8, 0.7, 0.3, 5),
+    (8.0, -1.2, 8.5, 1.6, -0.9, 0.25, 0),
 )
 
 

@@ -1,6 +1,7 @@
 """Hardware-free checks of the packet viewer and processing trace."""
 
 from types import SimpleNamespace
+import json
 import struct
 import unittest
 from unittest.mock import Mock
@@ -11,12 +12,12 @@ import numpy as np
 from packet_viewer import PacketViewer, packet_line
 from processing_demo import ProcessingDemo, ResultTrace
 from process_telemetry import BODY, CRC, InferenceWindow, PacketError, decode_packet
-from main import InferenceWorker
+from main import InferenceWorker, TelemetryService
 
 
 def payload(sequence=0, *, checked=True, flags=0x81, ax=9.80665):
     body = BODY.pack(sequence, sequence * 10, ax, -9.80665, 4.903325,
-                     0.125, -0.25, 0.5, 5, flags)
+                     0.125, -0.25, 0.5, flags)
     return body + CRC.pack(zlib.crc32(body)) if checked else body
 
 
@@ -29,14 +30,14 @@ class PacketViewerTests(unittest.TestCase):
     def test_esp32_float32_layout_and_crc(self):
         # Independent wire fixture: do not derive its format from BODY.
         values = (1.25, -2.5, 9.80665, 0.125, -0.25, 0.5)
-        body = struct.pack("<II6fHB", 0xffffffff, 1234, *values, 5, 0x81)
+        body = struct.pack("<II6fB", 0xffffffff, 1234, *values, 0x85)
         data = body + struct.pack("<I", zlib.crc32(body))
-        self.assertEqual(len(data), 39)
+        self.assertEqual(len(data), 37)
         packet = decode_packet(data, require_crc=True)
         self.assertEqual((packet.sequence, packet.timestamp_ms), (0xffffffff, 1234))
         np.testing.assert_allclose(packet.features[:6], values, rtol=1e-7)
-        self.assertEqual(packet.features[6:], (5, 0x81))
-        for offset in (8, 34, 35, 38):
+        self.assertEqual(packet.features[6:], (0x85,))
+        for offset in (8, 32, 33, 36):
             damaged = bytearray(data)
             damaged[offset] ^= 1
             with self.assertRaisesRegex(PacketError, "bad_crc"):
@@ -51,7 +52,7 @@ class PacketViewerTests(unittest.TestCase):
         for field in ("[board1]", "sample_index=7", "timestamp_ms=70",
                       "accel_x=9.80665", "accel_y=-9.80665", "accel_z=4.903325",
                       "gyro_x=0.125", "gyro_y=-0.25", "gyro_z=0.5",
-                      "touch_mask=0x0005", "flags=0x81",
+                      "menu_flags=0x01", "flags=0x81",
                       f"crc32=0x{zlib.crc32(payload(7)[:-4]):08x} (valid)"):
             self.assertIn(field, line)
 
@@ -105,9 +106,27 @@ class ProcessingTests(unittest.TestCase):
         strict.on_message(self.client, None, message(payload(3, checked=False)))
         self.assertFalse(strict.processors)
 
+    def test_menu_bits_piggyback_on_telemetry_and_relay_by_player_label(self):
+        worker = SimpleNamespace(confidence_threshold=0.75, submit=Mock())
+        service = TelemetryService(self.client, worker)
+        service.on_message(
+            self.client, None,
+            message(payload(7, flags=0x02),
+                    topic="esp32/dce6f6215788/telemetry"))
+        topic, body = self.client.publish.call_args.args[:2]
+        self.assertEqual(topic, "ultra96/1/menu_controls")
+        self.assertEqual(json.loads(body), {"flags": 2, "sequence": 7})
+        self.assertEqual(self.client.publish.call_args.kwargs,
+                         {"qos": 0, "retain": False})
+        service.on_message(
+            self.client, None,
+            message(payload(7, flags=0x02),
+                    topic="esp32/dce6f6215788/telemetry"))
+        self.assertEqual(self.client.publish.call_count, 1)
+
     def test_marker_requires_fresh_published_match_and_tracks_each_board(self):
         trace = ResultTrace(expected="THROW", output=self.output)
-        features = np.zeros((256, 8))
+        features = np.zeros((128, 8))
         result = dict(model_id="board1", action="THROW", confidence=0.9,
                       inference_source="fixture", skipped_windows=0, timestamp_ms=10000,
                       status="PUBLISHED", published_action="CATCH_THROW",

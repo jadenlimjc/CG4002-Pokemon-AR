@@ -61,7 +61,7 @@ class ResultTrace:
             ax, ay, az, gx, gy, gz, touch, any_touch = window.features[-1]
             self.emit(f"  Last processed sample: accel_g=({ax:.4f}, {ay:.4f}, {az:.4f}) "
                       f"gyro_dps=({gx:.4f}, {gy:.4f}, {gz:.4f}) "
-                      f"touch_mask={int(touch)} any_touch={int(any_touch)}")
+                      f"menu_flags={int(touch)} any_menu_input={int(any_touch)}")
             if result['inference_source'] == 'fpga':
                 self.emit("  FPGA ms: " + " ".join(
                     f"{key}={show(timing[key])}" for key in

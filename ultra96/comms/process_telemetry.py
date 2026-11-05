@@ -30,9 +30,10 @@ def model_input(features):
     return result
 
 
-# ESP32 wire format: sequence, milliseconds, IMU, touch mask, flags, optional CRC.
-BODY = struct.Struct("<II6fHB")
+# ESP32 wire format: sequence, milliseconds, IMU, flags, optional CRC.
+BODY = struct.Struct("<II6fB")
 CRC = struct.Struct("<I")
+MENU_CONTROL_MASK = 0x07
 
 
 class PacketError(ValueError):
@@ -110,8 +111,8 @@ class TelemetryBuffer:
         self.sequence_stats = SequenceStats()
 
     def _convert_units(self, raw_readings: tuple) -> list:
-        ax, ay, az, gx, gy, gz, touch_mask, flags = raw_readings
-        any_touch = flags & 0x01
+        ax, ay, az, gx, gy, gz, flags = raw_readings
+        touch_flags = flags & MENU_CONTROL_MASK
 
         return [
             ax * ACCEL_SCALE,
@@ -120,8 +121,8 @@ class TelemetryBuffer:
             gx * GYRO_SCALE,
             gy * GYRO_SCALE,
             gz * GYRO_SCALE,
-            float(touch_mask),
-            float(any_touch),
+            float(touch_flags),
+            float(bool(touch_flags)),
         ]
 
     def add_packet(self, payload: bytes, received_at=None):

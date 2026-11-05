@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using MQTTnet;
 using MQTTnet.Client;
 using MQTTnet.Formatter;
+using MQTTnet.Protocol;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 
@@ -99,8 +100,10 @@ namespace CG4002.Comms
         readonly SemaphoreSlim publishGate = new SemaphoreSlim(1, 1);
         readonly Dictionary<string, ReceivedMessage> latest = new Dictionary<string, ReceivedMessage>();
         readonly Queue<ReceivedMessage> pending = new Queue<ReceivedMessage>();
+        readonly string phoneId;
         readonly string clientId = "unity-" + Guid.NewGuid().ToString("N").Substring(0, 16);
         IMqttClient mqtt;
+        string activeInferenceDevice;
         string status = "Idle";
         long rejected, dropped;
         int running;
@@ -108,7 +111,13 @@ namespace CG4002.Comms
         public bool IsConnected { get { lock (gate) return mqtt != null && mqtt.IsConnected; } }
         public long RejectedMessages { get { lock (gate) return rejected; } }
         public long DroppedMessages { get { lock (gate) return dropped; } }
-        public SshMqttClient(ConnectionSecrets settings) { settings.Validate(); secrets = settings; }
+        public SshMqttClient(ConnectionSecrets settings, string stablePhoneId)
+        {
+            settings.Validate();
+            if (!ValidModel(stablePhoneId)) throw new ArgumentException("Invalid phone ID.");
+            secrets = settings;
+            phoneId = stablePhoneId;
+        }
         void SetStatus(string text) { lock (gate) status = text; }
         public ReceivedMessage[] Snapshot()
         { lock (gate) return latest.Values.OrderBy(x => x.ModelId).ThenBy(x => x.Topic).ToArray(); }
@@ -200,12 +209,13 @@ namespace CG4002.Comms
                     SetStatus("Connecting to MQTT...");
                     await connection.ConnectAsync(options, cancellation).ConfigureAwait(false);
                     var subscriptions = new MqttClientSubscribeOptionsBuilder()
-                        .WithTopicFilter("esp32/+/telemetry").WithTopicFilter("esp32/+/status")
-                        .WithTopicFilter("ultra96/+/inference").Build();
+                        .WithTopicFilter("ultra96/+/status")
+                        .WithTopicFilter($"visualiser/{phoneId}/pair/result", MqttQualityOfServiceLevel.AtLeastOnce)
+                        .Build();
                     var result = await connection.SubscribeAsync(subscriptions, cancellation).ConfigureAwait(false);
                     if (result.Items.Any(x => (int)x.ResultCode >= 128))
                         throw new IOException("Broker rejected a subscription.");
-                    lock (gate) { mqtt = connection; status = "Connected over SSH"; }
+                    lock (gate) { mqtt = connection; activeInferenceDevice = null; status = "Connected over SSH"; }
                     while (connection.IsConnected && jump.IsConnected && ultra.IsConnected)
                         await Task.Delay(500, cancellation).ConfigureAwait(false);
                     throw new IOException("Connection closed.");
@@ -215,7 +225,7 @@ namespace CG4002.Comms
                     await publishGate.WaitAsync().ConfigureAwait(false);
                     try
                     {
-                        lock (gate) mqtt = null;
+                        lock (gate) { mqtt = null; activeInferenceDevice = null; }
                         using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
                             if (connection.IsConnected)
                                 try { await connection.DisconnectAsync(new MqttClientDisconnectOptions(), timeout.Token).ConfigureAwait(false); }
@@ -234,9 +244,79 @@ namespace CG4002.Comms
         public Task SendConfigAsync(string modelId, string json, CancellationToken cancellation = default) =>
             PublishAsync(modelId, "config", json, cancellation);
 
+        public Task PublishPairingRequestAsync(string json, CancellationToken cancellation = default) =>
+            PublishTopicAsync($"visualiser/{phoneId}/pair/request", json,
+                              MqttQualityOfServiceLevel.AtLeastOnce, cancellation);
+
+        public async Task SetPairedDeviceAsync(string modelId, CancellationToken cancellation = default)
+        {
+            if (!ValidPlayer(modelId)) throw new ArgumentException("Player ID must be 1 or 2.");
+            using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation))
+            {
+                timeout.CancelAfter(TimeSpan.FromSeconds(5));
+                await publishGate.WaitAsync(timeout.Token).ConfigureAwait(false);
+                try
+                {
+                    IMqttClient connection;
+                    string previous;
+                    lock (gate) { connection = mqtt; previous = activeInferenceDevice; }
+                    if (connection == null || !connection.IsConnected) throw new IOException("Not connected.");
+                    if (previous == modelId) return;
+                    var subscription = new MqttClientSubscribeOptionsBuilder()
+                        .WithTopicFilter($"ultra96/{modelId}/inference")
+                        .WithTopicFilter($"ultra96/{modelId}/menu_controls")
+                        .Build();
+                    var result = await connection.SubscribeAsync(subscription, timeout.Token).ConfigureAwait(false);
+                    if (result.Items.Any(x => (int)x.ResultCode >= 128))
+                        throw new IOException("Broker rejected the inference subscription.");
+                    if (!string.IsNullOrEmpty(previous))
+                    {
+                        var removal = new MqttClientUnsubscribeOptionsBuilder()
+                            .WithTopicFilter($"ultra96/{previous}/inference")
+                            .WithTopicFilter($"ultra96/{previous}/menu_controls")
+                            .Build();
+                        await connection.UnsubscribeAsync(removal, timeout.Token).ConfigureAwait(false);
+                    }
+                    lock (gate) activeInferenceDevice = modelId;
+                }
+                finally { publishGate.Release(); }
+            }
+        }
+
+        public async Task ClearPairedDeviceAsync(CancellationToken cancellation = default)
+        {
+            using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation))
+            {
+                timeout.CancelAfter(TimeSpan.FromSeconds(5));
+                await publishGate.WaitAsync(timeout.Token).ConfigureAwait(false);
+                try
+                {
+                    IMqttClient connection;
+                    string previous;
+                    lock (gate) { connection = mqtt; previous = activeInferenceDevice; }
+                    if (string.IsNullOrEmpty(previous)) return;
+                    if (connection == null || !connection.IsConnected) throw new IOException("Not connected.");
+                    var removal = new MqttClientUnsubscribeOptionsBuilder()
+                        .WithTopicFilter($"ultra96/{previous}/inference")
+                        .WithTopicFilter($"ultra96/{previous}/menu_controls")
+                        .Build();
+                    await connection.UnsubscribeAsync(removal, timeout.Token).ConfigureAwait(false);
+                    lock (gate) activeInferenceDevice = null;
+                }
+                finally { publishGate.Release(); }
+            }
+        }
+
         async Task PublishAsync(string modelId, string suffix, string payload, CancellationToken cancellation)
         {
             if (!ValidModel(modelId)) throw new ArgumentException("Invalid model ID.");
+            await PublishTopicAsync($"esp32/{modelId}/{suffix}", payload,
+                                    MqttQualityOfServiceLevel.AtMostOnce, cancellation).ConfigureAwait(false);
+        }
+
+        async Task PublishTopicAsync(string topic, string payload, MqttQualityOfServiceLevel qos,
+                                     CancellationToken cancellation)
+        {
             if (payload == null || Encoding.UTF8.GetByteCount(payload) > 4096)
                 throw new ArgumentException("Command is empty or too large.");
             using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation))
@@ -247,9 +327,11 @@ namespace CG4002.Comms
                 {
                     IMqttClient connection; lock (gate) connection = mqtt;
                     if (connection == null || !connection.IsConnected) throw new IOException("Not connected.");
-                    await connection.PublishAsync(new MqttApplicationMessageBuilder()
-                        .WithTopic($"esp32/{modelId}/{suffix}").WithPayload(payload)
+                    var result = await connection.PublishAsync(new MqttApplicationMessageBuilder()
+                        .WithTopic(topic).WithPayload(payload).WithQualityOfServiceLevel(qos)
                         .WithRetainFlag(false).Build(), timeout.Token).ConfigureAwait(false);
+                    if ((int)result.ReasonCode >= 128)
+                        throw new IOException("Broker rejected the publication.");
                 }
                 finally { publishGate.Release(); }
             }
@@ -258,15 +340,19 @@ namespace CG4002.Comms
         void Store(string topic, ArraySegment<byte> segment)
         {
             var parts = (topic ?? "").Split('/');
-            if (parts.Length != 3 || !ValidModel(parts[1]) || segment.Count > 4096 ||
-                !((parts[0] == "esp32" && (parts[2] == "telemetry" || parts[2] == "status")) ||
-                  (parts[0] == "ultra96" && parts[2] == "inference")))
+            bool deviceMessage = parts.Length == 3 && ValidPlayer(parts[1]) &&
+                parts[0] == "ultra96" &&
+                (parts[2] == "status" || parts[2] == "inference" ||
+                 parts[2] == "menu_controls");
+            bool pairingResult = parts.Length == 4 && parts[0] == "visualiser" &&
+                parts[1] == phoneId && parts[2] == "pair" && parts[3] == "result";
+            if (segment.Count > 4096 || (!deviceMessage && !pairingResult))
             { lock (gate) rejected++; return; }
             var bytes = segment.ToArray();
             string text;
-            try { text = parts[2] == "telemetry" ? TelemetryPacket.Decode(bytes).ToString() : Encoding.UTF8.GetString(bytes); }
-            catch (InvalidDataException) { lock (gate) rejected++; return; }
-            var message = new ReceivedMessage(parts[1], topic, bytes, text);
+            try { text = Encoding.UTF8.GetString(bytes); }
+            catch (ArgumentException) { lock (gate) rejected++; return; }
+            var message = new ReceivedMessage(deviceMessage ? parts[1] : null, topic, bytes, text);
             lock (gate)
             {
                 if (!latest.ContainsKey(topic) && latest.Count >= 192) { rejected++; return; }
@@ -275,5 +361,7 @@ namespace CG4002.Comms
                 pending.Enqueue(message);
             }
         }
+
+        static bool ValidPlayer(string id) => id == "1" || id == "2";
     }
 }
