@@ -1,6 +1,6 @@
 // Copied from hardware/main_oop/main_oop.ino. Hardware objects and lifecycle
 // stay here; main.ino schedules updateHardware() and transports sensor events.
-// OFF: send every 100 Hz reading. ON: send only significant motion changes.
+// OFF: send every 50 Hz reading. ON: send only significant motion changes.
 constexpr bool DETECT_MOTION = false;
 
 #include "config.h"
@@ -257,7 +257,7 @@ void printImuReadings(const sensors_event_t& a, const sensors_event_t& g) {
 // Called by updateHardware() while started and automatic telemetry is enabled.
 // -------------------------------------------------
 void runSensorCycle() {
-  // SensorSampleTask supplies the 100 Hz cadence. Preserve MotionSensor's
+  // SensorSampleTask supplies the 50 Hz cadence. Preserve MotionSensor's
   // initialization, SI conversion and internal buffer without changing it.
   if (!motionReady) {
     if (millis() - lastMotionInitAttempt < 1000) return;
@@ -270,7 +270,7 @@ void runSensorCycle() {
   motion.read(a, g, temp);   // reads AND buffers internally
   // printImuReadings(a, g);
 
-  // Always read and buffer at 100 Hz. Optional gating uses the unchanged API.
+  // Always read and buffer at 50 Hz. Optional gating uses the unchanged API.
   const uint16_t touchMask =
       (indexButton.isTouched() ? TELEMETRY_TOUCH_INDEX : 0) |
       (middleButton.isTouched() ? TELEMETRY_TOUCH_MIDDLE : 0) |
