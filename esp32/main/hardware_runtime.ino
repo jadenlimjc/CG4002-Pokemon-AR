@@ -1,6 +1,6 @@
 // Copied from hardware/main_oop/main_oop.ino. Hardware objects and lifecycle
 // stay here; main.ino schedules updateHardware() and transports sensor events.
-// OFF: send every 100 Hz reading. ON: send only significant motion changes.
+// OFF: send every 50 Hz reading. ON: send only significant motion changes.
 constexpr bool DETECT_MOTION = false;
 
 #include "config.h"
@@ -9,7 +9,6 @@ constexpr bool DETECT_MOTION = false;
 #include "vibrationMotor.h"
 #include "rgbLed.h"
 #include "passiveBuzzer.h"
-#include "hallSensor.h"
 #include "motionSensor.h"
 #include "appStateMachine.h"
 
@@ -23,7 +22,6 @@ SingleHoldButton ringButton(TOUCH_RING, TOUCH_THRESHOLD, TOGGLE_HOLD_TIME_MS);
 VibrationMotor motor(VIBRATION_MOTOR_PIN, MOTOR_RUN_TIME_MS);
 RgbLed led(RED_PIN, GREEN_PIN, BLUE_PIN, LED_PWM_FREQUENCY, LED_PWM_RESOLUTION);
 PassiveBuzzer buzzer(BUZZER_PIN, BUZZER_PWM_FREQUENCY, BUZZER_PWM_RESOLUTION);
-HallSensor hall(HALL_DIGITAL_PIN, HALL_ANALOG_PIN);
 MotionSensor motion;
 AppStateMachine app;
 
@@ -50,11 +48,6 @@ bool isSelectPressed = false;
 
 bool indexSelectFiredTouch = false;
 
-bool isHallTriggered = false; //hall sensor state, sent to ultra96
-bool hallFirstCheck = true;
-bool prevHallState = false;
-unsigned long hallLastPrintTime = 0;
-
 // =====================================================
 // Free-function ISRs (required - cannot be member functions)
 // =====================================================
@@ -67,16 +60,12 @@ void IRAM_ATTR onMiddleTouchIsr() {
 void IRAM_ATTR onRingTouchIsr()   { 
   ringButton.onIsr(); 
 }
-void IRAM_ATTR onHallChangeIsr()  { 
-  hall.onIsr(); 
-}
 
 void handleIndexHoldToggle();
 void checkSelectGesture();
 void routeGestures();
 void checkSimulatedModelResponse();
 void runSensorCycle();
-void checkHallStatusChange();
 void initHardware();
 void shutdownHardware();
 
@@ -84,14 +73,10 @@ void shutdownHardware();
 // setup / loop
 // =====================================================
 void setupHardware() {
+  indexButton.begin(onIndexTouchIsr);
+  middleButton.begin(onMiddleTouchIsr);
+  ringButton.begin(onRingTouchIsr);
 
-  // Serial.println("Touch and hold index finger for 5 seconds to start...");
-
-  // indexButton.begin(onIndexTouchIsr);
-  // middleButton.begin(onMiddleTouchIsr);
-  // ringButton.begin(onRingTouchIsr);
-
-  // TODO: Comment these out once the above is uncommented
   initHardware();
   programStarted = true;
 
@@ -179,11 +164,6 @@ void handleIndexHoldToggle() {
 // Index 0.5s select / exit-browse gesture
 // -------------------------------------------------
 void checkSelectGesture() {
-  if (app.current != STATE_BATTLE && app.current != STATE_EXPLORER) {
-    indexSelectFiredTouch = false;
-    return;
-  }
-
   if (!indexButton.isTouched()) {
     indexSelectFiredTouch = false;  // reset once finger lifts
     return;
@@ -193,14 +173,12 @@ void checkSelectGesture() {
       indexButton.heldForMs() >= SELECT_HOLD_TIME_MS &&
       indexButton.heldForMs() < START_HOLD_TIME_MS) {
 
+    indexSelectFiredTouch = true;
     bool indexSelectTouched = app.handleIndexAction();
     if (indexSelectTouched) {
-      indexSelectFiredTouch = true;
       indexMotorTrigger = true;
-      if (app.current == STATE_BATTLE) {
-        isSelectPressed = true;
-      }
     }
+    isSelectPressed = true;
   }
 }
 
@@ -210,12 +188,14 @@ void checkSelectGesture() {
 void routeGestures() {
   if (middleButton.checkHoldConfirmed()) {
     middleMotorTrigger = true;
+    isUpPressed = true;
     app.cycleState();
     app.printAll();
   }
 
   if (ringButton.checkHoldConfirmed()) {
     ringMotorTrigger = true;
+    isDownPressed = true;
     app.cycleRing();
     app.printAll();
   }
@@ -253,11 +233,11 @@ void printImuReadings(const sensors_event_t& a, const sensors_event_t& g) {
 }
 
 // -------------------------------------------------
-// Main sensing cycle: MPU6050 motion + hall sensor
+// Main sensing cycle: MPU6050 motion
 // Called by updateHardware() while started and automatic telemetry is enabled.
 // -------------------------------------------------
 void runSensorCycle() {
-  // SensorSampleTask supplies the 100 Hz cadence. Preserve MotionSensor's
+  // SensorSampleTask supplies the 50 Hz cadence. Preserve MotionSensor's
   // initialization, SI conversion and internal buffer without changing it.
   if (!motionReady) {
     if (millis() - lastMotionInitAttempt < 1000) return;
@@ -270,13 +250,13 @@ void runSensorCycle() {
   motion.read(a, g, temp);   // reads AND buffers internally
   // printImuReadings(a, g);
 
-  // Always read and buffer at 100 Hz. Optional gating uses the unchanged API.
-  const uint16_t touchMask =
-      (indexButton.isTouched() ? TELEMETRY_TOUCH_INDEX : 0) |
-      (middleButton.isTouched() ? TELEMETRY_TOUCH_MIDDLE : 0) |
-      (ringButton.isTouched() ? TELEMETRY_TOUCH_RING : 0);
-  if ((!DETECT_MOTION || motion.hasSignificantChange()) &&
-      enqueueMotionSample(a, g, touchMask, telemetryStreamStart, DETECT_MOTION)) {
+  // Always read and buffer at 50 Hz. Optional gating uses the unchanged API.
+  const uint8_t touchFlags =
+      (isSelectPressed ? TELEMETRY_TOUCH_INDEX : 0) |
+      (isUpPressed ? TELEMETRY_TOUCH_MIDDLE : 0) |
+      (isDownPressed ? TELEMETRY_TOUCH_RING : 0);
+  if ((!DETECT_MOTION || touchFlags || motion.hasSignificantChange()) &&
+      enqueueMotionSample(a, g, touchFlags, telemetryStreamStart, DETECT_MOTION)) {
     motion.markTransmitted();
     telemetryStreamStart = false;
   }
@@ -293,34 +273,6 @@ void runSensorCycle() {
     // Serial.println("STATUS: NORMAL - Buzzer OFF, LED RED");
   }
 
-
-  // Serial.println("----------------------------------------------------------------");
-  // hall.printStatus();
-  // Serial.println("----------------------------------------------------------------");
-  // app.printAll();
-  // Serial.println("----------------------------------------------------------------");
-}
-
-
-void checkHallStatusChange() {
-  if (indexMotorRunning || middleMotorRunning || ringMotorRunning) {
-    return; // skip hall check while motor is running - avoid false trigger from motor's own field/noise
-  }
-
-  const unsigned long MIN_PRINT_INTERVAL_MS = 200;
-
-  isHallTriggered = (hall.state() == 0);
-
-  bool stateChanged = (prevHallState != isHallTriggered);
-
-  if ((hallFirstCheck || stateChanged) &&
-      (millis() - hallLastPrintTime >= MIN_PRINT_INTERVAL_MS)) {
-    hall.printStatus();
-    hallLastPrintTime = millis();
-    hallFirstCheck = false;
-  }
-
-  prevHallState = isHallTriggered;
 }
 // -------------------------------------------------
 // Hardware init / shutdown, called on index 5s toggle
@@ -331,7 +283,6 @@ void initHardware() {
   motor.stopAll();
   indexMotorRunning = middleMotorRunning = ringMotorRunning = false;
 
-  // hall.begin(onHallChangeIsr);
   motionReady = motion.begin();
   lastMotionInitAttempt = millis();
 
@@ -346,7 +297,6 @@ void shutdownHardware() {
 
   led.off();
   buzzer.off();
-  // hall.end();
 
   middleButton.resetTouchState();
   ringButton.resetTouchState();
@@ -356,9 +306,6 @@ void shutdownHardware() {
   app.reset();
 
   isUpPressed = isDownPressed = isSelectPressed = false;
-  // isHallTriggered = false;
-  // hallFirstCheck = true;
-  // prevHallState = false;
 
   Serial.println("Program stopped. Hardware shut down. All state reset to initial.");
 }

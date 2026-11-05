@@ -9,7 +9,6 @@ TUNNEL_SCRIPT="$SCRIPT_DIR/tunnel_ultra96.sh"
 # Excluded paths are also protected from rsync's --delete. Keep both runs aligned.
 PROTECTED_PATHS=(
     --exclude='/esp32/'
-    --exclude='/ultra96/fpga/'
     --exclude='/ultra96/vitis/'
     --exclude='/ultra96/pytorch/'
     --exclude='/ultra96/real_data/processed/'

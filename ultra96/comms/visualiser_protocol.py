@@ -8,7 +8,7 @@ import math
 import time
 from dataclasses import dataclass
 
-DEFAULT_CONFIDENCE_THRESHOLD = 0.
+DEFAULT_CONFIDENCE_THRESHOLD = 0.60
 
 
 def confidence_threshold(value):
@@ -31,6 +31,25 @@ GESTURE_MAPPING = {
     "USE_ITEM": ("BATTLE_ACTION", 3),
     "NEUTRAL": ("NONE", 0),
 }
+
+# Add classifier-label-specific overrides here. Labels not listed use
+# DEFAULT_CONFIDENCE_THRESHOLD.
+GESTURE_CONFIDENCE_THRESHOLDS = {
+    "FLEE": 0.90,
+    "NEUTRAL": 0.80,
+    "AIM": 0.50,
+    "DOWNWARD_SWIPE": 0.85,
+}
+
+
+def confidence_threshold_overrides(values=None):
+    values = GESTURE_CONFIDENCE_THRESHOLDS if values is None else values
+    overrides = {}
+    for action, value in dict(values).items():
+        if action not in GESTURE_MAPPING:
+            raise ValueError(f"Unsupported confidence-threshold action: {action!r}")
+        overrides[action] = confidence_threshold(value)
+    return overrides
 
 
 def create_gesture_payload(predicted_action, confidence, *, timestamp_ms=None):
@@ -62,7 +81,6 @@ def create_gesture_payload(predicted_action, confidence, *, timestamp_ms=None):
 @dataclass(frozen=True)
 class SequenceState:
     name: str = "NEUTRAL"
-    last_action: str | None = None
 
 
 @dataclass(frozen=True)
@@ -78,18 +96,19 @@ class GestureDecision:
 class GestureSequence:
     """Per-device confidence gate and catch sequencing, owned by inference.
 
-    Aim arms one throw. Stop Aim or Neutral cancels/rearms; after a throw that
-    reset is required before another gesture. A battle gesture enters RECOVERING;
-    only confident Neutral rearms recognition. Rejected labels, including Stop
-    Aim during recovery, never clear the repeat latch. Live callers confirm
-    gameplay labels before evaluating them here; a confident Neutral can rearm
-    RECOVERING immediately.
+    Aim arms one throw. Stop Aim explicitly cancels/rearms; Neutral is consumed
+    without changing the catch state. After a throw, Stop Aim is required before
+    another gesture. Battle actions return immediately to the ready state; the
+    live caller applies a post-publish cooldown before accepting another gesture.
 
-    No voting, dwell time, cooldown, or changes to the model window are applied.
+    No voting, dwell time, or changes to the model window are applied here.
     evaluate() is pure; commit() lets transport failure leave the state intact.
     """
-    def __init__(self, threshold=DEFAULT_CONFIDENCE_THRESHOLD):
+    def __init__(self, threshold=DEFAULT_CONFIDENCE_THRESHOLD, threshold_overrides=None):
         self.confidence_threshold = confidence_threshold(threshold)
+        self.confidence_threshold_overrides = confidence_threshold_overrides(
+            threshold_overrides
+        )
         self._state = SequenceState()
 
     @property
@@ -104,9 +123,12 @@ class GestureSequence:
     def awaiting_reset(self):
         return self.state == "AWAITING_RESET"
 
-    @property
-    def last_action(self):
-        return self._state.last_action
+    def confidence_threshold_for(self, predicted_action):
+        if predicted_action not in GESTURE_MAPPING:
+            raise ValueError(f"Unsupported classifier action: {predicted_action!r}")
+        return self.confidence_threshold_overrides.get(
+            predicted_action, self.confidence_threshold
+        )
 
     def evaluate(self, predicted_action, confidence, *, timestamp_ms=None):
         payload = create_gesture_payload(predicted_action, confidence,
@@ -116,38 +138,37 @@ class GestureSequence:
         def reject(reason, detail):
             return GestureDecision(before, before, None, reason, detail)
 
-        if payload["confidence"] < self.confidence_threshold:
+        threshold = self.confidence_threshold_for(predicted_action)
+        if payload["confidence"] < threshold:
             return reject("LOW_CONFIDENCE", f"Confidence {payload['confidence']:.2%} is below "
-                          f"{self.confidence_threshold:.2%}; state and repeat latch unchanged.")
-        if predicted_action in ("NEUTRAL", "STOP_AIMING"):
-            if self.aiming or self.awaiting_reset:
-                cancel = create_gesture_payload("STOP_AIMING", confidence,
-                                                timestamp_ms=payload["timestamp"])
-                return GestureDecision(before, SequenceState(), cancel, "RESET",
-                                       "Return to neutral; send CANCEL and rearm gestures.")
-            if predicted_action == "STOP_AIMING":
-                return reject("NOT_AIMING", "STOP_AIMING is invalid while neutral; repeat latch unchanged.")
-            return GestureDecision(before, SequenceState(), None, "NEUTRAL",
-                                   "Confident neutral; repeat latch cleared. No gameplay event needed.")
-        if self.awaiting_reset:
-            return reject("AWAITING_RESET", "Throw already sent; return to NEUTRAL or STOP_AIMING first.")
-        if self.state == "RECOVERING":
-            if predicted_action == self.last_action:
-                return reject("REPEATED", f"{predicted_action} already sent; return to confirmed NEUTRAL first.")
-            return reject("RECOVERING", "Battle action already sent; return to confirmed NEUTRAL before another gesture.")
+                          f"the {threshold:.2%} threshold; state unchanged.")
+
+        if predicted_action == "NEUTRAL":
+            return reject("NEUTRAL", "Neutral is ignored; gesture state unchanged.")
+
         if predicted_action == "AIM":
             if self.aiming:
-                return reject("ALREADY_AIMING", "AIM already sent; waiting for THROW, STOP_AIMING or NEUTRAL.")
-            after = SequenceState("AIMING", predicted_action)
-        elif predicted_action == "THROW":
+                return reject("ALREADY_AIMING", "AIM already sent; waiting for THROW or STOP_AIMING.")
+            after = SequenceState("AIMING")
+
+        elif predicted_action in {"THROW", "STOP_AIMING"}:
             if not self.aiming:
-                return reject("NOT_AIMING", "THROW is invalid until AIM has been sent.")
-            after = SequenceState("AWAITING_RESET", predicted_action)
-        elif self.aiming:
-            return reject("AIMING_LOCK", "Finish with THROW or cancel with STOP_AIMING / NEUTRAL first.")
+                return reject(
+                    "NOT_AIMING",
+                    f"{predicted_action} is invalid until AIM has been sent.",
+                )
+            after = SequenceState()
+
         else:
-            after = SequenceState("RECOVERING", predicted_action)
-        return GestureDecision(before, after, payload, "VALID", "Confidence and gesture sequence are valid.")
+            after = before
+
+        return GestureDecision(
+            before,
+            after,
+            payload,
+            "VALID",
+            "Confidence and gesture sequence are valid.",
+        )
 
     def commit(self, decision):
         if self._state != decision.before:

@@ -257,7 +257,7 @@ Create an empty parent `--- Managers ---` (optional, for organization), then cre
 | GameObject Name | Component to Add | Inspector Setup |
 |----------------|------------------|-----------------|
 | `GameStateManager` | `GameStateManager.cs` | No fields to set |
-| `NetworkManager` | `NetworkManager.cs` | Set **Model Id** to your FireBeetle ID (empty = accept all). Set **Minimum Confidence** (default 0). |
+| `NetworkManager` | `NetworkManager.cs` | Set **Minimum Confidence** (default 0). A future pairing screen should call `GetOnlineDevices()` and `PairAsync(deviceId)`; there is no inspector-selected FireBeetle. |
 | `BattleManager` | `BattleManager.cs` | **Player Pokemon**: drag a PokemonData asset. **Pokeball Prefab**: drag Pokeball prefab. **Reticle UI**: drag the Reticle GameObject (created in 6c). **Throw Arc** / **Max Jiggles** / **Jiggle Interval**: tune to taste. |
 | `CatchManager` | `CatchManager.cs` | **Pokeball Prefab**: drag Pokeball prefab. **Reticle UI**: drag the Reticle GameObject. **Sparkle VFX**: drag SparkleVFX prefab. **Smoke VFX**: drag SmokeVFX prefab. **Fizzle VFX**: drag FizzleVFX prefab. |
 | `PokemonSpawner` | `PokemonSpawner.cs` | Populate **Grass Pool**, **Sky Pool**, **Default Pool** arrays with PokemonData assets. Tune **Spawn Distance**, **Spawn Cooldown**, **Terrain Detection Threshold**. |
@@ -413,9 +413,66 @@ Press **Play**. The `MockInputController` shows keyboard controls in the top-lef
 
 ## Network Protocol
 
-Ultra96 publishes non-retained MQTT messages to `ultra96/<model_id>/inference`.
-`SshMqttClient` subscribes; `NetworkManager.Update()` drains its queue,
-validates/filters messages, and raises game events on Unity's main thread.
+Ultra96 publishes non-retained MQTT messages to `ultra96/<player_id>/inference`.
+The visualiser subscribes to an exact inference topic only after acquiring that
+FireBeetle's pairing lease. `NetworkManager.Update()` drains its queue,
+validates messages, and raises game events on Unity's main thread.
+
+### Multi-device pairing API
+
+Every visualiser installation generates a stable `phone_id` in `PlayerPrefs`.
+Phones refer to the two controllers only as player `"1"` and player `"2"`.
+Ultra96 translates those labels to physical ESP32 IDs:
+`dce6f6215788` is player 1 and `cc386a2b1838` is player 2. The physical IDs
+never form part of the visualiser API.
+The Ultra96 grants the first requester an exclusive five-minute lease for a
+FireBeetle. The app renews it every 30 seconds. MQTT disconnects, ESP32 LWT
+offline messages, app pauses, and Ultra96 restarts do not release it immediately;
+the same phone ID can reclaim an unexpired persisted lease after reconnecting.
+
+No pairing UI or ESP32 confirmation input is included. A future screen can use:
+
+```csharp
+IReadOnlyList<PairableDevice> devices = NetworkManager.Instance.GetOnlineDevices();
+PairingResult result = await NetworkManager.Instance.PairAsync(devices[0].DeviceId);
+bool paired = NetworkManager.Instance.IsPaired;
+string deviceId = NetworkManager.Instance.PairedDeviceId;
+bool received = NetworkManager.Instance.TryConsumeMenuControls(
+    out bool middle, out bool index, out bool ring);
+```
+
+`DevicesChanged` signals discovery changes and `PairingChanged` signals local
+pairing-state changes. `ForgetPairingAsync()` is the explicit release operation;
+normal shutdown and temporary outages deliberately do not call it. Pairing a
+different available FireBeetle atomically transfers the phone's lock, while a
+`LOCKED` result leaves its existing pairing unchanged.
+
+The control topics are:
+
+| Topic | Purpose |
+|---|---|
+| `esp32/<physical_id>/status` | ESP32 retained online record and broker-generated offline LWT |
+| `esp32/<physical_id>/telemetry` | IMU packet; menu input piggybacks in the low three `flags` bits |
+| `visualiser/<phone_id>/pair/request` | QoS 1 `acquire`, `renew`, or `release` request |
+| `visualiser/<phone_id>/pair/result` | QoS 1 result correlated by `request_id` |
+| `ultra96/<player_id>/status` | Ultra96-translated retained presence for player 1 or 2 |
+| `ultra96/<player_id>/inference` | Ultra96-translated gesture stream |
+| `ultra96/<player_id>/menu_controls` | Ultra96-translated menu-control event |
+
+The ESP32 hardware runtime maps the confirmed middle hold to up, the confirmed
+ring hold to down, and the confirmed index hold to select. These one-shot inputs
+use `flags` bit 0 for index, bit 1 for middle, and bit 2 for ring in the next
+normal telemetry packet. Ultra96 extracts the bitmask and emits the small
+player-labelled `menu_controls` event; the ESP32 makes no additional MQTT
+publication. Unity exposes the result as pending input through
+`MiddlePressPending`, `RingPressPending`, and
+`IndexPressPending`. `TryConsumeMenuControls(...)` reads and clears the
+pending input without depending on Unity script execution order. This networking
+layer does not add or wire any menu UI.
+
+The runtime lease file is `ultra96/comms/pairing_leases.json` and is intentionally
+ignored by Git. A lease expires only after five minutes without a successful
+renewal, or is removed immediately by `ForgetPairingAsync()`/an atomic switch.
 
 Payload format:
 

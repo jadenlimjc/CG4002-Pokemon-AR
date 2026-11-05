@@ -22,9 +22,14 @@ import tty
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from integration_support import live_client, parser_for
 from main import InferenceWorker, TelemetryProcessor, validate_model_id
-from process_telemetry import PacketError, SequenceStats, decode_packet
+from process_telemetry import (BODY, CRC, MENU_CONTROL_MASK, PacketError,
+                               SequenceStats, decode_packet)
 from telemetry_diagnostics import TelemetryHealth, TelemetryRtt
 from visualiser_protocol import DEFAULT_CONFIDENCE_THRESHOLD, confidence_threshold
+
+
+CONTROL_LATCH_SECONDS = 0.75
+CONTROL_BITS = (("middle", 0x02), ("index", 0x01), ("ring", 0x04))
 
 
 class GestureMonitor:
@@ -39,9 +44,13 @@ class GestureMonitor:
         self.sequences = SequenceStats()
         self.received = self.retained = self.packets = self.checked = self.unchecked = 0
         self.bad_crc = self.bad_length = self.missing_crc = 0
+        self.last_bad_length_bytes = None
         self.payload_bytes = 0
         self.first_packet_at = None
         self.recent_bytes = deque(maxlen=10000)
+        self.control_flags = 0
+        self.control_last_seen = {name: None for name, _ in CONTROL_BITS}
+        self.control_counts = {name: 0 for name, _ in CONTROL_BITS}
 
     def on_message(self, message, now):
         with self.lock:
@@ -77,6 +86,8 @@ class GestureMonitor:
             packet = decode_packet(message.payload, require_crc=self.require_crc)
         except PacketError as error:
             setattr(self, error.kind, getattr(self, error.kind) + 1)
+            if error.kind == "bad_length":
+                self.last_bad_length_bytes = len(message.payload)
             return False
         if packet.checked:
             self.checked += 1
@@ -86,6 +97,11 @@ class GestureMonitor:
                              packet, message.payload)
         if not self.sequences.observe(packet):
             return False
+        self.control_flags = int(packet.features[-1]) & MENU_CONTROL_MASK
+        for name, bit in CONTROL_BITS:
+            if self.control_flags & bit:
+                self.control_last_seen[name] = now
+                self.control_counts[name] += 1
         self.health.observe(now, packet.sequence, packet.timestamp_ms)
         if self.first_packet_at is None:
             self.first_packet_at = now
@@ -99,6 +115,22 @@ class GestureMonitor:
         while self.recent_bytes and self.recent_bytes[0][0] <= now - 1:
             self.recent_bytes.popleft()
 
+    def control_lines(self, now):
+        """Render one-shot confirmed holds long enough to see in the dashboard."""
+        with self.lock:
+            states = []
+            for name, _ in CONTROL_BITS:
+                seen = self.control_last_seen[name]
+                active = seen is not None and now - seen <= CONTROL_LATCH_SECONDS
+                states.append(f"{name} {'YES' if active else 'no'}")
+            counts = " | ".join(
+                f"{name} {self.control_counts[name]}" for name, _ in CONTROL_BITS)
+            return [
+                f" Touch input (confirmed holds, {CONTROL_LATCH_SECONDS:.2f}s display): "
+                + " | ".join(states),
+                f" Touch events: {counts} | latest flags 0x{self.control_flags:02x}",
+            ]
+
     def lines(self, now):
         snapshot = self.processor.inference_snapshot()
         current, sent = snapshot["current"], snapshot["last_sent"]
@@ -109,7 +141,8 @@ class GestureMonitor:
         else:
             age = now - snapshot["updated_at"]
             stale = " STALE" if age >= self.health.silence_timeout else ""
-            lines += [f" CURRENT: {current['predicted_action']} | {current['confidence']:.2%} | "
+            lines += [f" CURRENT: {current['predicted_action']} | {current['confidence']:.2%} "
+                      f"(threshold {current['confidence_threshold']:.2%}) | "
                       f"{age:.1f}s ago{stale}",
                       f" DECISION: {current['status']} / {current['reason']}",
                       f" WHY: {current['detail']}"]
@@ -132,13 +165,19 @@ class GestureMonitor:
             average = (self.packets - 1) / elapsed if elapsed > 0 else 0
             kbps = sum(size for _, size in self.recent_bytes) * 8 / 1000
             lines += [f" Telemetry: {state} | last {last} | presence {self.health.presence}",
-                      f" Rate: {hz} / 100 Hz expected | avg {average:.1f} Hz | {kbps:.2f} kbps",
+                      f" Rate: {hz} / 50 Hz expected | avg {average:.1f} Hz | {kbps:.2f} kbps",
                       f" Packets: {self.packets} unique / {self.received} received | retained {self.retained}",
                       f" CRC: {self.checked} checked / {self.unchecked} unchecked | "
                       f"bad {self.bad_crc} / length {self.bad_length} / missing {self.missing_crc}",
                       f" Gaps: {self.sequences.gap_slots} | repeats {self.sequences.duplicates} | "
                       f"back/reset {self.sequences.backwards}",
                       f" Silences: {self.health.outages} | recoveries {self.health.recoveries}"]
+            lines += self.control_lines(now)
+            if self.last_bad_length_bytes is not None:
+                lines.append(
+                    f" PACKET FORMAT MISMATCH: received {self.last_bad_length_bytes} bytes; "
+                    f"this checkout expects {BODY.size} without CRC or "
+                    f"{BODY.size + CRC.size} with CRC.")
             show = lambda value: "--" if value is None else f"{value:.2f}"
             rtt_age = "no report" if self.rtt.last_seen is None else f"{now-self.rtt.last_seen:.1f}s old"
             minimum = None if self.rtt.minimum_us is None else self.rtt.minimum_us / 1000
@@ -151,11 +190,11 @@ class GestureMonitor:
             timing = current["timing_ms"]
             lines.append(f" Timing ms: inference {show(timing['inference'])} | "
                          f"queue {show(timing['queue'])} | receive->result {show(timing['receive_to_result'])}")
-        lines.append(f" Window: {len(self.processor.buffer.buffer)}/256 | hop 25 | "
+        lines.append(f" Window: {len(self.processor.buffer.buffer)}/128 | hop 15 | "
                      f"skipped {self.processor.skipped_windows}")
         counts = snapshot["decision_counts"]
         lines.append(f" Decisions: {sum(counts.values())} | low confidence {counts.get('LOW_CONFIDENCE', 0)} | "
-                     f"repeat {counts.get('REPEATED', 0)} | send failed {counts.get('PUBLISH_FAILED', 0)}")
+                     f"cooldown {counts.get('COOLDOWN', 0)} | send failed {counts.get('PUBLISH_FAILED', 0)}")
         return lines
 
 
@@ -300,7 +339,7 @@ def main():
     parser = parser_for(__doc__)
     parser.add_argument("--confidence-threshold", type=confidence_threshold,
                         default=DEFAULT_CONFIDENCE_THRESHOLD,
-                        help="minimum confidence, 0..1 (default: 0.90)")
+                        help="default minimum confidence, 0..1 (default: 0.60)")
     parser.add_argument("--max-devices", type=int, default=64)
     args = parser.parse_args()
     if args.max_devices < 1:

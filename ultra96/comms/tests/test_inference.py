@@ -16,7 +16,8 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from main import Action, InferenceWorker, TelemetryProcessor, TelemetryService, create_accelerator
+from main import (Action, InferenceWorker, TelemetryProcessor, TelemetryService,
+                  create_accelerator, device_topics)
 from process_telemetry import (BODY, CRC,
                                InferenceWindow, TelemetryBuffer, model_input)
 from processing_demo import ProbeProcessor, ResultTrace
@@ -39,18 +40,24 @@ class FakeAccelerator:
 
 
 def live_window():
-    features = np.zeros((256, 8), dtype=np.float32)
+    features = np.zeros((128, 8), dtype=np.float32)
     features[:, :6] = [1, -1, 0.5, 250, -250, 0]
     features.setflags(write=False)
     now = time.monotonic()
-    return InferenceWindow(features, 255, 2550, now, now)
+    return InferenceWindow(features, 127, 2540, now, now)
 
 
 class ModelTests(unittest.TestCase):
+    def test_production_hardware_ids_use_phone_facing_player_topics(self):
+        self.assertEqual(device_topics("dce6f6215788")["inference"],
+                         "ultra96/1/inference")
+        self.assertEqual(device_topics("cc386a2b1838")["inference"],
+                         "ultra96/2/inference")
+
     def test_normalization_shape_touch_exclusion_and_immutable_input(self):
         window = live_window()
         inputs = model_input(window.features)
-        self.assertEqual(inputs.shape, (6, 256))
+        self.assertEqual(inputs.shape, (6, 128))
         self.assertEqual(inputs.dtype, np.float32)
         self.assertTrue(inputs.flags.c_contiguous)
         np.testing.assert_allclose(inputs[:, 0], [0.125, -0.125, 0.0625, 0.5, -0.5, 0])
@@ -58,7 +65,7 @@ class ModelTests(unittest.TestCase):
         changed_touch = window.features.copy()
         changed_touch[:, 6:] = [65535, 1]
         np.testing.assert_array_equal(model_input(changed_touch), inputs)
-        for invalid in (np.zeros((6, 256)), np.full((256, 8), np.nan)):
+        for invalid in (np.zeros((6, 128)), np.full((128, 8), np.nan)):
             with self.assertRaises(ValueError):
                 model_input(invalid)
 
@@ -68,7 +75,7 @@ class ModelTests(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         buffer = TelemetryBuffer()
-        for index in range(256):
+        for index in range(128):
             buffer.add_packet(payload(index, flags=1))
         window = buffer.output_queue.get_nowait()
         # Independent MotionSensor/Adafruit SI reference for the wire fixture.
@@ -76,7 +83,7 @@ class ModelTests(unittest.TestCase):
         physical = np.tile([
             9.80665, -9.80665, 0.5 * 9.80665,
             0.125, -0.25, 0.5,
-        ], (256, 1)).astype(np.float32)
+        ], (128, 1)).astype(np.float32)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'gesture.csv'
             np.savetxt(path, physical, delimiter=',', header='ax,ay,az,gx,gy,gz', comments='')
@@ -95,7 +102,7 @@ class ModelTests(unittest.TestCase):
 class BufferTests(unittest.TestCase):
     @staticmethod
     def packet(sequence, timestamp, ax=9.80665, flags=0):
-        body = BODY.pack(sequence, timestamp, ax, 0, 0, 0, 0, 0, 0, flags)
+        body = BODY.pack(sequence, timestamp, ax, 0, 0, 0, 0, 0, flags)
         return body + CRC.pack(zlib.crc32(body))
 
     def test_small_sequence_gap_holds_previous_float32_sample(self):
@@ -141,17 +148,19 @@ class GameplayTests(unittest.TestCase):
         self.client.publish.return_value.rc = 0
         self.accelerator = FakeAccelerator()
         self.worker = SimpleNamespace(accelerator=self.accelerator, confidence_threshold=0.75)
-        self.processor = TelemetryProcessor(self.client, 'A', self.worker)
+        self.processor = TelemetryProcessor(self.client, 'A', self.worker, cooldown_seconds=0)
 
     def test_real_predictions_preserve_gameplay_contract_and_per_board_state(self):
         results = []
-        for label in (1, 3, 4, 0, 4, 4):  # Aim, throw, blocked punch, reset, punch, repeat.
+        # Neutral is ignored in both catch states; only Stop Aim sends CANCEL.
+        for label in (1, 0, 3, 0, 4, 2, 4):
             self.accelerator.label = label
             for _ in range(3):
                 result = self.processor.run_inference(live_window())
             results.append(result)
         self.assertEqual([r['status'] for r in results],
-                         ['PUBLISHED', 'PUBLISHED', 'SUPPRESSED', 'PUBLISHED', 'PUBLISHED', 'SUPPRESSED'])
+                         ['PUBLISHED', 'SUPPRESSED', 'PUBLISHED', 'SUPPRESSED',
+                          'SUPPRESSED', 'PUBLISHED', 'PUBLISHED'])
         events = [json.loads(call.args[1]) for call in self.client.publish.call_args_list]
         self.assertEqual([event['action'] for event in events],
                          ['ARM_PULLBACK', 'CATCH_THROW', 'CANCEL', 'BATTLE_MOVE'])
@@ -160,7 +169,7 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual(events[-1]['timestamp'], events[-1]['timestamp_ms'])
         self.assertEqual(events[-1]['inference_source'], 'fpga')
         self.assertEqual(events[-1]['timing_ms']['total'], 1.0)
-        self.assertEqual(events[-1]['model_input_shape'], [6, 256])
+        self.assertEqual(events[-1]['model_input_shape'], [6, 128])
         self.assertGreaterEqual(events[-1]['timing_ms']['queue'], 0)
         self.assertGreaterEqual(events[-1]['timing_ms']['receive_to_result'],
                                 events[-1]['timing_ms']['inference'])
@@ -206,34 +215,32 @@ class GameplayTests(unittest.TestCase):
         self.client.publish.assert_not_called()
         self.assertEqual(self.processor.run_inference(live_window())['status'], 'PUBLISHED')
 
-    def test_single_neutral_rearms_recovering_gesture(self):
+    def test_neutral_uses_normal_confirmation(self):
         for _ in range(3):
             self.processor.run_inference(live_window())
         self.accelerator.label = 0
         result = self.processor.run_inference(live_window())
-        self.assertEqual(result['reason'], 'NEUTRAL')
+        self.assertEqual(result['status'], 'CONFIRMING')
         self.assertEqual(result['confirmation_count'], 1)
-        self.assertEqual(result['confirmation_steps'], 1)
-        self.assertEqual(self.processor.gesture_sequence.state, 'NEUTRAL')
-        self.accelerator.label = 4
-        for _ in range(3):
+        self.assertEqual(result['confirmation_steps'], 3)
+        for _ in range(2):
             result = self.processor.run_inference(live_window())
-        self.assertEqual(result['status'], 'PUBLISHED')
-        self.assertEqual(self.client.publish.call_count, 2)
+        self.assertEqual(result['reason'], 'NEUTRAL')
+        self.assertEqual(self.processor.gesture_sequence.state, 'NEUTRAL')
+        self.client.publish.assert_called_once()
 
-    def test_return_motion_stays_blocked_until_single_neutral_prediction(self):
+    def test_return_motion_is_blocked_until_cooldown_expires(self):
         def predict(label, count):
             self.accelerator.label = label
             return [self.processor.run_inference(live_window()) for _ in range(count)]
 
+        self.processor.cooldown_seconds = 2
         self.assertEqual(predict(6, 3)[-1]['status'], 'PUBLISHED')  # Guard.
         returning = predict(5, 3)[-1]  # Lowering the hand resembles Swipe.
-        self.assertEqual(returning['reason'], 'RECOVERING')
+        self.assertEqual(returning['reason'], 'COOLDOWN')
         self.assertEqual(returning['status'], 'SUPPRESSED')
-        neutral = predict(0, 1)[-1]
-        self.assertEqual(neutral['reason'], 'NEUTRAL')
-        self.assertEqual(neutral['confirmation_steps'], 1)
-        self.assertEqual(self.processor.gesture_sequence.state, 'NEUTRAL')
+        self.assertEqual(returning['confirmation_count'], 0)
+        self.processor.cooldown_until = 0
         self.assertEqual(predict(5, 3)[-1]['status'], 'PUBLISHED')
         self.assertEqual(self.client.publish.call_count, 2)
 
@@ -328,17 +335,17 @@ class SchedulingTests(unittest.TestCase):
 
         worker.start()
         try:
-            send('A', 0, 256)
+            send('A', 0, 128)
             self.assertTrue(entered.wait(2))
             # Inference is held at the gate throughout all these MQTT callbacks.
-            send('B', 0, 256)
-            send('A', 256, 281)
-            send('B', 256, 281)
-            send('A', 281, 306)
+            send('B', 0, 128)
+            send('A', 128, 143)
+            send('B', 128, 143)
+            send('A', 143, 158)
             with worker.condition:
                 self.assertEqual(list(worker.pending), ['B', 'A'])
-                self.assertEqual(worker.pending['B'][1].last_sequence, 280)
-                self.assertEqual(worker.pending['A'][1].last_sequence, 305)
+                self.assertEqual(worker.pending['B'][1].last_sequence, 142)
+                self.assertEqual(worker.pending['A'][1].last_sequence, 157)
             self.assertEqual(service.processors['A'].skipped_windows, 1)
             self.assertEqual(service.processors['B'].skipped_windows, 1)
             release.set()
@@ -348,7 +355,7 @@ class SchedulingTests(unittest.TestCase):
             release.set()
             worker.close()
         self.assertEqual([(board, seq) for board, seq, _ in completed],
-                         [('A', 255), ('B', 280), ('A', 305)])
+                         [('A', 127), ('B', 142), ('A', 157)])
         self.assertEqual([inputs[0, -1] for _, inputs in calls], [0.125, 0.25, 0.125])
         owner = calls[0][0]
         self.assertNotEqual(owner, get_ident())

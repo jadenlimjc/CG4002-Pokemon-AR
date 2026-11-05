@@ -61,7 +61,7 @@ class ResultTrace:
             ax, ay, az, gx, gy, gz, touch, any_touch = window.features[-1]
             self.emit(f"  Last processed sample: accel_g=({ax:.4f}, {ay:.4f}, {az:.4f}) "
                       f"gyro_dps=({gx:.4f}, {gy:.4f}, {gz:.4f}) "
-                      f"touch_mask={int(touch)} any_touch={int(any_touch)}")
+                      f"menu_flags={int(touch)} any_menu_input={int(any_touch)}")
             if result['inference_source'] == 'fpga':
                 self.emit("  FPGA ms: " + " ".join(
                     f"{key}={show(timing[key])}" for key in
@@ -120,7 +120,7 @@ def main():
     client.on_message = demo.on_message
     trace.emit(f"FPGA inference; confidence threshold={worker.confidence_threshold:.2f}. "
                "One accelerator/worker shared by all selected boards.")
-    trace.emit("256-sample windows, 25-sample hop (~2.56 s warm-up, ~250 ms updates per board at 100 Hz).")
+    trace.emit("128-sample windows, 15-sample hop (~2.56 s warm-up, ~300 ms updates per board at 50 Hz).")
     trace.emit("receive_to_result_ms excludes network transit and earlier window samples. "
                "LOW_CONFIDENCE/SUPPRESSED results do not send a gameplay event.")
     trace.emit("Press Enter when starting a gesture; q + Enter or Ctrl-C stops. Keep the ESP32s in AUTO mode.")

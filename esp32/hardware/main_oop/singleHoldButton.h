@@ -1,7 +1,7 @@
 #ifndef SINGLE_HOLD_BUTTON_H
 #define SINGLE_HOLD_BUTTON_H
 
-#include "TouchButton.h"
+#include "touchButton.h"
 
 // =====================================================
 // SingleHoldButton: fires exactly once per continuous

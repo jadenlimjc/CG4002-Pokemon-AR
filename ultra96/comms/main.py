@@ -7,6 +7,7 @@ from copy import deepcopy
 from enum import Enum
 import json
 import logging
+import math
 import os
 from pathlib import Path
 from queue import Empty
@@ -19,9 +20,16 @@ from dotenv import find_dotenv, load_dotenv
 import paho.mqtt.client as mqtt
 import numpy as np
 
-from process_telemetry import PacketError, TelemetryBuffer, decode_packet, model_input
+from process_telemetry import (
+    MENU_CONTROL_MASK, PacketError, TelemetryBuffer, decode_packet, model_input,
+)
+from pairing import (
+    DEVICE_STATUS_SUBSCRIPTION, PAIR_REQUEST_SUBSCRIPTION,
+    PairingService, player_id_for_model,
+)
 from visualiser_protocol import (
     DEFAULT_CONFIDENCE_THRESHOLD, GestureSequence,
+    confidence_threshold_overrides as validate_confidence_threshold_overrides,
     confidence_threshold as validate_confidence_threshold,
 )
 
@@ -36,6 +44,8 @@ HEALTH_SUBSCRIPTION = "esp32/+/health"
 HEALTH_COUNTERS = ("boot_id", "report_index", "queue_drops", "enqueue_failures",
                    "publish_failures", "disconnected_discards", "published_samples",
                    "queue_depth", "max_publish_age_ms")
+DEFAULT_GESTURE_COOLDOWN_SECONDS = 2.0
+COOLDOWN_GAMEPLAY_ACTIONS = frozenset(("BATTLE_MOVE", "BATTLE_ACTION"))
 
 
 def decode_health(payload):
@@ -75,7 +85,10 @@ def device_topics(model_id):
         ("telemetry", "telemetry"), ("status", "status"), ("ack", "telemetry_ack"),
         ("rtt", "rtt"), ("health", "health"), ("config", "config"), ("haptic", "haptic/cmd"),
     )}
-    topics["inference"] = f"ultra96/{model_id}/inference"
+    # Test/demo IDs retain their name, while production hardware is translated
+    # to the stable player label exposed to phones.
+    public_id = player_id_for_model(model_id) or model_id
+    topics["inference"] = f"ultra96/{public_id}/inference"
     return topics
 
 
@@ -111,9 +124,13 @@ class InferenceWorker:
     or inference. MQTT callbacks therefore remain independent of inference.
     """
     def __init__(self, accelerator_factory=None,
-                 confidence_threshold=DEFAULT_CONFIDENCE_THRESHOLD):
+                 confidence_threshold=DEFAULT_CONFIDENCE_THRESHOLD,
+                 gesture_confidence_thresholds=None):
         self.accelerator_factory = accelerator_factory or create_accelerator
         self.confidence_threshold = validate_confidence_threshold(confidence_threshold)
+        self.gesture_confidence_thresholds = validate_confidence_threshold_overrides(
+            gesture_confidence_thresholds
+        )
         self.accelerator = None
         self.ready = Event()
         self.failed = Event()
@@ -196,18 +213,28 @@ class InferenceWorker:
 
 
 class TelemetryProcessor:
-    def __init__(self, client, model_id, worker, window_size=256, hop_size=25,
-                 confirmation_steps=3):
+    def __init__(self, client, model_id, worker, window_size=128, hop_size=35,
+                 confirmation_steps=2,
+                 cooldown_seconds=DEFAULT_GESTURE_COOLDOWN_SECONDS):
         if type(confirmation_steps) is not int or confirmation_steps < 1:
             raise ValueError("confirmation_steps must be a positive integer")
+        cooldown_seconds = float(cooldown_seconds)
+        if not math.isfinite(cooldown_seconds) or cooldown_seconds < 0:
+            raise ValueError("cooldown_seconds must be finite and non-negative")
         self.confirmation_steps = confirmation_steps
+        self.cooldown_seconds = cooldown_seconds
+        self.cooldown_until = 0.0
         self.candidate_action = None
         self.confirmation_count = 0
         self.client = client
         self.model_id = validate_model_id(model_id)
+        self.player_id = player_id_for_model(model_id) or model_id
         self.topics = device_topics(model_id)
         self.worker = worker
-        self.gesture_sequence = GestureSequence(worker.confidence_threshold)
+        self.gesture_sequence = GestureSequence(
+            worker.confidence_threshold,
+            getattr(worker, "gesture_confidence_thresholds", None),
+        )
         self.result_lock = Lock()
         self.latest_result = None
         self.last_sent = None
@@ -252,17 +279,22 @@ class TelemetryProcessor:
 
         decision = None
         event = None
-        required_confirmation_steps = (
-            0
-            if predicted_action == "NEUTRAL" and self.gesture_sequence.state == "RECOVERING"
-            else self.confirmation_steps
-        )
+        threshold = self.gesture_sequence.confidence_threshold_for(predicted_action)
+        cooldown_remaining_seconds = max(0.0, self.cooldown_until - completed)
 
-        if confidence < self.gesture_sequence.confidence_threshold:
+        if cooldown_remaining_seconds > 0:
+            self.candidate_action = None
+            self.confirmation_count = 0
+            status = "SUPPRESSED"
+            reason = "COOLDOWN"
+            detail = (f"Ignoring gestures for another {cooldown_remaining_seconds:.2f}s "
+                      "after the previous battle action.")
+        elif confidence < threshold:
             self.candidate_action = None
             self.confirmation_count = 0
             status = reason = "LOW_CONFIDENCE"
-            detail = "Confidence below threshold; confirmation reset."
+            detail = (f"Confidence {confidence:.2%} is below the "
+                      f"{threshold:.2%} threshold; confirmation reset.")
         else:
             if predicted_action != self.candidate_action:
                 self.candidate_action = predicted_action
@@ -270,14 +302,14 @@ class TelemetryProcessor:
 
             self.confirmation_count = min(
                 self.confirmation_count + 1,
-                required_confirmation_steps,
+                self.confirmation_steps,
             )
 
-            if self.confirmation_count < required_confirmation_steps:
+            if self.confirmation_count < self.confirmation_steps:
                 status = reason = "CONFIRMING"
                 detail = (
                     f"Confirming {predicted_action}: "
-                    f"{self.confirmation_count}/{required_confirmation_steps}."
+                    f"{self.confirmation_count}/{self.confirmation_steps}."
                 )
             else:
                 decision = self.gesture_sequence.evaluate(
@@ -289,24 +321,27 @@ class TelemetryProcessor:
                 reason, detail = decision.reason, decision.detail
 
                 if event is None:
-                    # Confident neutral can clear the repeat latch without sending.
+                    # Neutral and rejected sequence transitions do not send.
                     self.gesture_sequence.commit(decision)
 
         result = {
-            "model_id": self.model_id,
+            "model_id": self.player_id,
             "predicted_action": predicted_action,
             "confidence": confidence,
             "confirmation_count": self.confirmation_count,
-            "confirmation_steps": required_confirmation_steps,
+            "confirmation_steps": self.confirmation_steps,
             "inference_source": "fpga",
             "window_shape": list(window.features.shape),
-            "model_input_shape": [6, 256],
+            "model_input_shape": [6, 128],
             "sample_sequence": window.last_sequence,
             "sample_timestamp_ms": window.timestamp_ms,
             "skipped_windows": self.skipped_windows,
             "timestamp_ms": timestamp_ms,
             "timing_ms": timing,
-            "confidence_threshold": self.gesture_sequence.confidence_threshold,
+            "confidence_threshold": threshold,
+            "default_confidence_threshold": self.gesture_sequence.confidence_threshold,
+            "cooldown_seconds": self.cooldown_seconds,
+            "cooldown_remaining_seconds": cooldown_remaining_seconds,
         }
         sent = None
         if event is not None:
@@ -315,6 +350,9 @@ class TelemetryProcessor:
             status = "PUBLISHED" if info.rc == 0 else "PUBLISH_FAILED"
             if info.rc == 0:
                 self.gesture_sequence.commit(decision)
+                if event["action"] in COOLDOWN_GAMEPLAY_ACTIONS:
+                    self.cooldown_until = time.monotonic() + self.cooldown_seconds
+                    result["cooldown_remaining_seconds"] = self.cooldown_seconds
                 # QoS 0 acceptance is not a receipt from the broker or AR app.
                 sent = {"predicted_action": predicted_action, "action": event["action"],
                         "gesture_id": event["gesture_id"], "confidence": confidence,
@@ -371,6 +409,7 @@ class TelemetryService:
         self.max_devices = max_devices
         self.processor_factory = processor_factory
         self.processors = {}
+        self.last_menu_sequence = {}
 
     def on_message(self, client, userdata, msg):
         received_at = time.monotonic()
@@ -405,6 +444,16 @@ class TelemetryService:
             packet = decode_packet(msg.payload)
         except PacketError:
             return
+        menu_flags = int(packet.features[-1]) & MENU_CONTROL_MASK
+        player_id = player_id_for_model(model_id)
+        if (menu_flags and player_id is not None
+                and self.last_menu_sequence.get(model_id) != packet.sequence):
+            payload = json.dumps({"flags": menu_flags, "sequence": packet.sequence},
+                                 separators=(",", ":"), sort_keys=True)
+            info = client.publish(f"ultra96/{player_id}/menu_controls", payload,
+                                  qos=0, retain=False)
+            if info.rc == 0:
+                self.last_menu_sequence[model_id] = packet.sequence
         if model_id not in self.processors:
             if len(self.processors) >= self.max_devices:
                 logging.warning("Device limit reached; ignoring %s", model_id)
@@ -450,7 +499,7 @@ def main():
                         help="maximum distinct device buffers per run (default: 64)")
     parser.add_argument("--confidence-threshold", type=validate_confidence_threshold,
                         default=DEFAULT_CONFIDENCE_THRESHOLD,
-                        help="minimum confidence, 0..1 (default: 0.75)")
+                        help="minimum confidence, 0..1 (default: 0.60)")
     args = parser.parse_args()
     if args.max_devices < 1:
         parser.error("--max-devices must be positive")
@@ -461,16 +510,22 @@ def main():
     client = create_mqtt_client()
     worker = InferenceWorker(confidence_threshold=args.confidence_threshold)
     service = TelemetryService(client, worker, args.max_devices)
+    pairing = PairingService(client)
 
     def on_connect(cli, userdata, flags, reason_code, properties=None):
         if reason_code == 0:
             logging.info("Connected to MQTT broker.")
-            cli.subscribe([(TELEMETRY_SUBSCRIPTION, 0), (HEALTH_SUBSCRIPTION, 0)])
+            cli.subscribe([(TELEMETRY_SUBSCRIPTION, 0), (HEALTH_SUBSCRIPTION, 0),
+                           (DEVICE_STATUS_SUBSCRIPTION, 1), (PAIR_REQUEST_SUBSCRIPTION, 1)])
         else:
             logging.error("Connection failed: %s", reason_code)
 
+    def on_message(cli, userdata, message):
+        if not pairing.handle_message(message):
+            service.on_message(cli, userdata, message)
+
     client.on_connect = on_connect
-    client.on_message = service.on_message
+    client.on_message = on_message
     try:
         worker.start()
         connect_with_retry(client)
