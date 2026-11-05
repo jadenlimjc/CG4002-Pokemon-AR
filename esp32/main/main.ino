@@ -22,9 +22,9 @@
 // CONFIGURATION
 // ==========================================
 
-// Task cadence for the 100 Hz training recordings. MPU setup belongs to
+// Task cadence for the 50 Hz training recordings. MPU setup belongs to
 // the copied MotionSensor, invoked by hardware_runtime.ino.
-constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 100;
+constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 50;
 constexpr uint16_t SENSOR_PERIOD_MS = 1000 / SENSOR_SAMPLE_RATE_HZ;
 constexpr TickType_t SENSOR_PERIOD_TICKS = pdMS_TO_TICKS(SENSOR_PERIOD_MS);
 static_assert(SENSOR_PERIOD_TICKS > 0 && configTICK_RATE_HZ % SENSOR_SAMPLE_RATE_HZ == 0,
