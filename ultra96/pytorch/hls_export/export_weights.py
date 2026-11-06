@@ -1,6 +1,6 @@
 """Export a matching checkpoint, fixed-point BN coefficients, and HLS test vectors.
 
-Pass --test-data to select the sampling rate/window size. Without --checkpoint,
+Default input is 50 Hz / 128 samples. Pass --test-data to select another configuration. Without --checkpoint,
 the newest completed matching real-data run is selected, including runs inside
 configuration folders. Set vitis/gesture_cnn.h IN_LENGTH to the dataset window
 size before exporting. All validation and BN compilation precede output writes.
@@ -26,14 +26,14 @@ PYTORCH_DIR = os.path.dirname(SCRIPT_DIR)
 ULTRA96_DIR = os.path.dirname(PYTORCH_DIR)
 DEFAULT_OUTPUT_DIR = os.path.join(ULTRA96_DIR, "vitis")
 DEFAULT_TEST_DATA = os.path.normpath(os.path.join(
-    ULTRA96_DIR, "real_data", "processed_100hz_256", "real_gestures_test.npz"
+    ULTRA96_DIR, "real_data", "processed_50hz_128", "real_gestures_test.npz"
 ))
 
 
 HLS_HEADER = Path(DEFAULT_OUTPUT_DIR) / "gesture_cnn.h"
 
 
-def resolve_checkpoint(model_path=None, checkpoint_dir=None, sample_rate=100, window_size=256):
+def resolve_checkpoint(model_path=None, checkpoint_dir=None, sample_rate=50, window_size=128):
     """Find the newest completed real-data run matching the requested input."""
     if model_path is not None:
         selected = Path(model_path).expanduser()
@@ -203,12 +203,6 @@ def export_weights_and_vectors(
     (output_dir / 'weights.h').write_text(header.getvalue())
     np.savetxt(output_dir / 'golden_input.dat', golden_input.numpy().flatten(), fmt='%.8f')
     np.savetxt(output_dir / 'golden_output.dat', golden_output.numpy().flatten(), fmt='%.8f')
-    manifest = {"sample_rate_hz": sample_rate, "window_size": window_size,
-                "input_shape": [6, window_size], "class_names": class_names,
-                "model_config": config, "checkpoint": str(model_path.resolve()),
-                "test_data": str(Path(test_data_path).resolve()), "golden_sample_index": 0,
-                "hls_header": str(HLS_HEADER.resolve())}
-    (output_dir / 'export.json').write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Exported {label} to {output_dir.resolve()}")
 
 
@@ -217,7 +211,7 @@ def parse_args():
     parser.add_argument("--checkpoint", default=None,
                         help="checkpoint path; defaults to the latest completed real-data run matching the test dataset")
     parser.add_argument("--test-data", default=DEFAULT_TEST_DATA,
-                        help="processed real test NPZ; its metadata selects sampling rate and window size")
+                        help="processed real test NPZ (default: 50 Hz / 128 samples); metadata selects input configuration")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--hls-include-dir", help="Vitis include directory for exact BN precomputation")
     parser.add_argument("--cxx", help="Host C++ compiler command (default: CXX or g++)")
