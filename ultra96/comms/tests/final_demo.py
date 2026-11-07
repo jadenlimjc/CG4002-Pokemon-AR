@@ -1,10 +1,9 @@
-"""Live gesture dashboard: predictions, send decisions, state, and packet health.
+"""Final live demo: inference, manual gameplay controls, and key link metrics.
 
 Run this instead of main.py/comms_demo.py, so only one service sends gestures
 and telemetry ACKs. Uses the production TelemetryProcessor and FPGA worker.
 """
 
-from collections import deque
 from contextlib import contextmanager
 from datetime import datetime
 import json
@@ -22,18 +21,28 @@ import tty
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from integration_support import live_client, parser_for
 from main import InferenceWorker, TelemetryProcessor, validate_model_id
-from process_telemetry import (BODY, CRC, MENU_CONTROL_MASK, PacketError,
-                               SequenceStats, decode_packet)
+from pairing import player_id_for_model
+from process_telemetry import (MENU_CONTROL_MASK, PacketError, SequenceStats,
+                               decode_packet)
 from telemetry_diagnostics import TelemetryHealth, TelemetryRtt
 from visualiser_protocol import DEFAULT_CONFIDENCE_THRESHOLD, confidence_threshold
 
 
-CONTROL_LATCH_SECONDS = 0.75
-CONTROL_BITS = (("middle", 0x02), ("index", 0x01), ("ring", 0x04))
+MANUAL_ACTIONS = {
+    "1": ("SET_TUTORIAL", "TUTORIAL"),
+    "t": ("SET_TUTORIAL", "TUTORIAL"),
+    "2": ("SET_GOD_MODE", "GOD MODE"),
+    "g": ("SET_GOD_MODE", "GOD MODE"),
+    "3": ("SET_FULL_PLAY", "FULL PLAY"),
+    "f": ("SET_FULL_PLAY", "FULL PLAY"),
+    "4": ("SKIP_STEP", None),
+    "s": ("SKIP_STEP", None),
+}
+SUPPORTED_MANUAL_ACTIONS = frozenset(action for action, _ in MANUAL_ACTIONS.values())
 
 
 class GestureMonitor:
-    """Packet statistics only; production code owns all gesture decisions."""
+    """Per-device inference state, manual controls, and compact link metrics."""
 
     def __init__(self, processor, require_crc=False):
         self.processor = processor
@@ -42,15 +51,9 @@ class GestureMonitor:
         self.health = TelemetryHealth(time.monotonic())
         self.rtt = TelemetryRtt()
         self.sequences = SequenceStats()
-        self.received = self.retained = self.packets = self.checked = self.unchecked = 0
-        self.bad_crc = self.bad_length = self.missing_crc = 0
-        self.last_bad_length_bytes = None
-        self.payload_bytes = 0
-        self.first_packet_at = None
-        self.recent_bytes = deque(maxlen=10000)
-        self.control_flags = 0
-        self.control_last_seen = {name: None for name, _ in CONTROL_BITS}
-        self.control_counts = {name: 0 for name, _ in CONTROL_BITS}
+        self.gameplay_mode = "FULL PLAY"
+        self.last_manual_action = "-- none sent"
+        self.last_menu_sequence = None
 
     def on_message(self, message, now):
         with self.lock:
@@ -78,58 +81,55 @@ class GestureMonitor:
                 self.rtt.receive(message.payload, message.retain, now)
             return False
 
-        self.received += 1
         if message.retain:
-            self.retained += 1
             return False
         try:
             packet = decode_packet(message.payload, require_crc=self.require_crc)
-        except PacketError as error:
-            setattr(self, error.kind, getattr(self, error.kind) + 1)
-            if error.kind == "bad_length":
-                self.last_bad_length_bytes = len(message.payload)
+        except PacketError:
             return False
-        if packet.checked:
-            self.checked += 1
-        else:
-            self.unchecked += 1
         self.rtt.acknowledge(self.processor.client, self.processor.topics["ack"],
                              packet, message.payload)
+        menu_flags = int(packet.features[-1]) & MENU_CONTROL_MASK
+        player_id = player_id_for_model(self.processor.model_id)
+        if (menu_flags and player_id is not None
+                and self.last_menu_sequence != packet.sequence):
+            payload = json.dumps({"flags": menu_flags, "sequence": packet.sequence},
+                                 separators=(",", ":"), sort_keys=True)
+            info = self.processor.client.publish(
+                f"ultra96/{player_id}/menu_controls", payload, qos=0, retain=False)
+            if info.rc == 0:
+                self.last_menu_sequence = packet.sequence
         if not self.sequences.observe(packet):
             return False
-        self.control_flags = int(packet.features[-1]) & MENU_CONTROL_MASK
-        for name, bit in CONTROL_BITS:
-            if self.control_flags & bit:
-                self.control_last_seen[name] = now
-                self.control_counts[name] += 1
         self.health.observe(now, packet.sequence, packet.timestamp_ms)
-        if self.first_packet_at is None:
-            self.first_packet_at = now
-        self.packets += 1
-        self.payload_bytes += len(message.payload)
-        self.recent_bytes.append((now, len(message.payload)))
-        self._prune(now)
         return True
 
-    def _prune(self, now):
-        while self.recent_bytes and self.recent_bytes[0][0] <= now - 1:
-            self.recent_bytes.popleft()
-
-    def control_lines(self, now):
-        """Render one-shot confirmed holds long enough to see in the dashboard."""
+    def publish_manual_action(self, action, gameplay_mode=None):
+        if action not in SUPPORTED_MANUAL_ACTIONS:
+            raise ValueError(f"Unsupported manual action: {action!r}")
+        payload = {
+            "action": action,
+            "gesture_id": 0,
+            "confidence": 1.0,
+            "timestamp": 0,
+        }
+        info = self.processor.client.publish(
+            self.processor.topics["inference"],
+            json.dumps(payload, separators=(",", ":")),
+            qos=0,
+            retain=False,
+        )
         with self.lock:
-            states = []
-            for name, _ in CONTROL_BITS:
-                seen = self.control_last_seen[name]
-                active = seen is not None and now - seen <= CONTROL_LATCH_SECONDS
-                states.append(f"{name} {'YES' if active else 'no'}")
-            counts = " | ".join(
-                f"{name} {self.control_counts[name]}" for name, _ in CONTROL_BITS)
-            return [
-                f" Touch input (confirmed holds, {CONTROL_LATCH_SECONDS:.2f}s display): "
-                + " | ".join(states),
-                f" Touch events: {counts} | latest flags 0x{self.control_flags:02x}",
-            ]
+            if info.rc == 0:
+                if gameplay_mode is not None:
+                    self.gameplay_mode = gameplay_mode
+                self.last_manual_action = f"{action} (MQTT accepted)"
+                logging.info("[%s] Manual action %s sent", self.processor.model_id, action)
+                return True
+            self.last_manual_action = f"{action} FAILED (rc={info.rc})"
+            logging.error("[%s] Manual action %s failed: %s",
+                          self.processor.model_id, action, info.rc)
+            return False
 
     def lines(self, now):
         snapshot = self.processor.inference_snapshot()
@@ -157,44 +157,15 @@ class GestureMonitor:
         lines.append("")
         with self.lock:
             self.health.check(now)
-            self._prune(now)
-            state, age, hz = self.health.snapshot(now)
-            last = "never" if age is None else f"{age:.1f}s ago"
-            elapsed = 0 if self.first_packet_at is None else max(0, now - self.first_packet_at)
-            # There are N-1 sample intervals between N received samples.
-            average = (self.packets - 1) / elapsed if elapsed > 0 else 0
-            kbps = sum(size for _, size in self.recent_bytes) * 8 / 1000
-            lines += [f" Telemetry: {state} | last {last} | presence {self.health.presence}",
-                      f" Rate: {hz} / 50 Hz expected | avg {average:.1f} Hz | {kbps:.2f} kbps",
-                      f" Packets: {self.packets} unique / {self.received} received | retained {self.retained}",
-                      f" CRC: {self.checked} checked / {self.unchecked} unchecked | "
-                      f"bad {self.bad_crc} / length {self.bad_length} / missing {self.missing_crc}",
-                      f" Gaps: {self.sequences.gap_slots} | repeats {self.sequences.duplicates} | "
-                      f"back/reset {self.sequences.backwards}",
-                      f" Silences: {self.health.outages} | recoveries {self.health.recoveries}"]
-            lines += self.control_lines(now)
-            if self.last_bad_length_bytes is not None:
-                lines.append(
-                    f" PACKET FORMAT MISMATCH: received {self.last_bad_length_bytes} bytes; "
-                    f"this checkout expects {BODY.size} without CRC or "
-                    f"{BODY.size + CRC.size} with CRC.")
+            _, _, hz = self.health.snapshot(now)
             show = lambda value: "--" if value is None else f"{value:.2f}"
-            rtt_age = "no report" if self.rtt.last_seen is None else f"{now-self.rtt.last_seen:.1f}s old"
-            minimum = None if self.rtt.minimum_us is None else self.rtt.minimum_us / 1000
-            maximum = None if self.rtt.maximum_us is None else self.rtt.maximum_us / 1000
-            lines += [f" RTT ms: mean {show(self.rtt.mean_ms)} / min {show(minimum)} / "
-                      f"max {show(maximum)} ({rtt_age})",
-                      f" RTT: {self.rtt.samples} samples | timeouts {self.rtt.timeouts} | "
-                      f"ACK errors {self.rtt.ack_errors} | invalid reports {self.rtt.invalid_reports}"]
-        if current:
-            timing = current["timing_ms"]
-            lines.append(f" Timing ms: inference {show(timing['inference'])} | "
-                         f"queue {show(timing['queue'])} | receive->result {show(timing['receive_to_result'])}")
-        lines.append(f" Window: {len(self.processor.buffer.buffer)}/128 | hop 15 | "
-                     f"skipped {self.processor.skipped_windows}")
-        counts = snapshot["decision_counts"]
-        lines.append(f" Decisions: {sum(counts.values())} | low confidence {counts.get('LOW_CONFIDENCE', 0)} | "
-                     f"cooldown {counts.get('COOLDOWN', 0)} | send failed {counts.get('PUBLISH_FAILED', 0)}")
+            lines += [f" MODES: throw {self.processor.throw_action} | gameplay {self.gameplay_mode}",
+                      " INPUT: [1/t] Tutorial | [2/g] God mode | "
+                      "[3/f] Full play | [4/s] Skip step",
+                      f" MANUAL SEND: {self.last_manual_action}",
+                      f" Packet rate: {hz} Hz / 50 Hz expected",
+                      f" RTT: {show(self.rtt.mean_ms)} ms | Est. one-way: "
+                      f"{show(self.rtt.estimated_one_way_ms)} ms"]
         return lines
 
 
@@ -265,13 +236,16 @@ class GestureDashboard:
         boards = self.boards()
         if key == "\t" and boards:
             self.selected = (self.selected + 1) % len(boards)
+        elif key in MANUAL_ACTIONS and boards:
+            action, gameplay_mode = MANUAL_ACTIONS[key]
+            boards[self.selected].publish_manual_action(action, gameplay_mode)
         return key != "q"
 
     def lines(self, now=None):
         now = time.monotonic() if now is None else now
         boards = self.boards()
         broker = "connected" if self.broker_online else "DISCONNECTED"
-        lines = [f" GESTURE TEST | Broker {broker} | threshold {self.worker.confidence_threshold:.2%}"]
+        lines = [f" FINAL DEMO | Broker {broker} | threshold {self.worker.confidence_threshold:.2%}"]
         if not boards:
             return lines + [" Waiting for ESP32 telemetry or status..."]
         monitor = boards[self.selected]
@@ -289,10 +263,10 @@ class GestureDashboard:
                 "\033[1;32m" if clean.startswith(" LAST SENT:") else ""
             )
             lines.extend(f"{color}{part}\033[0m" if color else part for part in wrapped)
-        footer = " [Tab] Next device | [q / Ctrl-C] Quit"
+        footer = " [1-4 / t,g,f,s] Manual action | [Tab] Device | [q / Ctrl-C] Quit"
         if len(lines) > max(0, height - 2):
             lines = lines[:max(0, height - 2)]
-            footer = " Resize taller for more stats. [Tab] Device | [q] Quit"
+            footer = " Resize taller. [1-4] Action | [Tab] Device | [q] Quit"
         clean_log = "".join(char if char.isprintable() else " " for char in self.last_log)
         lines += [f" Log: {clean_log}"[:max(1, width - 1)], footer[:max(1, width - 1)]]
         # Write once from the UI thread, clearing obsolete rows each refresh.
@@ -347,7 +321,7 @@ def main():
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         parser.error("the dashboard requires an interactive terminal")
     worker = InferenceWorker(confidence_threshold=args.confidence_threshold)
-    client = live_client(parser, args, None, "gesture-demo")
+    client = live_client(parser, args, None, "final-demo")
     dashboard = GestureDashboard(client, worker, args.model_id, args.require_crc, args.max_devices)
     client.on_connect, client.on_disconnect = dashboard.on_connect, dashboard.on_disconnect
     client.on_message = dashboard.on_message
