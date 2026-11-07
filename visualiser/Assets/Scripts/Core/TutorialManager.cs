@@ -34,7 +34,8 @@ public class TutorialManager : MonoBehaviour
             expectedGesture = GestureAction.NONE,
             autoAdvanceOnPhase = true,
             triggerPhase = GamePhase.Encounter,
-            forceSpawnBefore = true
+            forceSpawnBefore = true,
+            autoAdvanceDelay = 5f
         },
         new TutorialStep {
             name = "Aim",
@@ -44,11 +45,12 @@ public class TutorialManager : MonoBehaviour
         new TutorialStep {
             name = "Catch Throw",
             instruction = "Throw to catch the Pokemon!",
-            expectedGesture = GestureAction.CATCH_THROW
+            expectedGesture = GestureAction.CATCH_THROW,
+            forceSpawnAfter = true
         },
         new TutorialStep {
             name = "Battle Entry",
-            instruction = "A new Pokemon appeared! Aim and throw a battle pokeball!",
+            instruction = "A new Pokemon appeared! Press the button then aim and throw your own Pokemon to battle!",
             expectedGesture = GestureAction.POKEBALL_THROW,
             forceSpawnBefore = true,
             autoAdvanceOnPhase = true,
@@ -66,12 +68,12 @@ public class TutorialManager : MonoBehaviour
         },
         new TutorialStep {
             name = "Battle Catch",
-            instruction = "Press Catch to enter catch mode, then Aim and Throw!",
+            instruction = "Aim and throw to catch the Pokemon in battle!",
             expectedGesture = GestureAction.BATTLE_CATCH
         },
         new TutorialStep {
             name = "Run Away",
-            instruction = "Press Run twice to flee from battle!",
+            instruction = "Turn around to run from battle!",
             expectedGesture = GestureAction.BATTLE_RUN
         },
         new TutorialStep {
