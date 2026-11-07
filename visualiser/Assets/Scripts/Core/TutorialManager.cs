@@ -50,7 +50,7 @@ public class TutorialManager : MonoBehaviour
         },
         new TutorialStep {
             name = "Battle Entry",
-            instruction = "A new Pokemon appeared! Press the button then aim and throw your own Pokemon to battle!",
+            instruction = "A new Pokemon appeared! Press the button on your index finger to toggle to your own Pokemon, then aim and throw your Pokemon to battle!",
             expectedGesture = GestureAction.POKEBALL_THROW,
             forceSpawnBefore = true,
             autoAdvanceOnPhase = true,
