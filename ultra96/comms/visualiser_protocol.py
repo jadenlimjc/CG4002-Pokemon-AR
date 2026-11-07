@@ -9,6 +9,9 @@ import time
 from dataclasses import dataclass
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.60
+CATCH_THROW_ACTION = "CATCH_THROW"
+POKEBALL_THROW_ACTION = "POKEBALL_THROW"
+THROW_ACTIONS = frozenset((CATCH_THROW_ACTION, POKEBALL_THROW_ACTION))
 
 
 def confidence_threshold(value):
@@ -21,7 +24,7 @@ def confidence_threshold(value):
 GESTURE_MAPPING = {
     "AIM": ("ARM_PULLBACK", 0),
     "STOP_AIMING": ("CANCEL", 0),
-    "THROW": ("CATCH_THROW", 0),
+    "THROW": (CATCH_THROW_ACTION, 0),
     "PUNCH": ("BATTLE_MOVE", 1),
     "DOWNWARD_SWIPE": ("BATTLE_MOVE", 2),
     "UPPERCUT": ("BATTLE_MOVE", 3),
@@ -52,7 +55,8 @@ def confidence_threshold_overrides(values=None):
     return overrides
 
 
-def create_gesture_payload(predicted_action, confidence, *, timestamp_ms=None):
+def create_gesture_payload(predicted_action, confidence, *, timestamp_ms=None,
+                           throw_action=CATCH_THROW_ACTION):
     """Return Unity's four fields; caller may append diagnostic metadata.
 
     NEUTRAL is represented internally as NONE and consumed by GestureSequence;
@@ -63,6 +67,10 @@ def create_gesture_payload(predicted_action, confidence, *, timestamp_ms=None):
         action, gesture_id = GESTURE_MAPPING[predicted_action]
     except KeyError:
         raise ValueError(f"Unsupported classifier action: {predicted_action!r}") from None
+    if throw_action not in THROW_ACTIONS:
+        raise ValueError(f"Unsupported throw action: {throw_action!r}")
+    if predicted_action == "THROW":
+        action = throw_action
     confidence = float(confidence)
     if not math.isfinite(confidence) or not 0 <= confidence <= 1:
         raise ValueError("confidence must be finite and between 0 and 1")
@@ -130,9 +138,11 @@ class GestureSequence:
             predicted_action, self.confidence_threshold
         )
 
-    def evaluate(self, predicted_action, confidence, *, timestamp_ms=None):
+    def evaluate(self, predicted_action, confidence, *, timestamp_ms=None,
+                 throw_action=CATCH_THROW_ACTION):
         payload = create_gesture_payload(predicted_action, confidence,
-                                         timestamp_ms=timestamp_ms)
+                                         timestamp_ms=timestamp_ms,
+                                         throw_action=throw_action)
         before = self._state
 
         def reject(reason, detail):
@@ -175,8 +185,14 @@ class GestureSequence:
             raise ValueError("Cannot commit a decision from an outdated gesture state")
         self._state = decision.after
 
-    def consume(self, predicted_action, confidence, *, timestamp_ms=None):
+    def consume(self, predicted_action, confidence, *, timestamp_ms=None,
+                throw_action=CATCH_THROW_ACTION):
         """Convenience for transport-free consumers; live sends use evaluate/commit."""
-        decision = self.evaluate(predicted_action, confidence, timestamp_ms=timestamp_ms)
+        decision = self.evaluate(
+            predicted_action,
+            confidence,
+            timestamp_ms=timestamp_ms,
+            throw_action=throw_action,
+        )
         self.commit(decision)
         return decision.payload

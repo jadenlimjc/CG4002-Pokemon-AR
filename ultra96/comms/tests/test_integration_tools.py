@@ -125,6 +125,56 @@ class ProcessingTests(unittest.TestCase):
                     topic="esp32/dce6f6215788/telemetry"))
         self.assertEqual(self.client.publish.call_count, 1)
 
+    def test_index_toggles_throw_mode_once_and_remains_menu_select(self):
+        worker = SimpleNamespace(confidence_threshold=0.75, submit=Mock())
+        service = TelemetryService(self.client, worker)
+        index_event = message(
+            payload(7, flags=0x01),
+            topic="esp32/dce6f6215788/telemetry",
+        )
+
+        service.on_message(self.client, None, index_event)
+        processor = service.processors['dce6f6215788']
+        self.assertEqual(processor.throw_action, 'POKEBALL_THROW')
+        topic, body = self.client.publish.call_args.args[:2]
+        self.assertEqual(topic, "ultra96/1/menu_controls")
+        self.assertEqual(json.loads(body), {"flags": 1, "sequence": 7})
+
+        service.on_message(self.client, None, index_event)
+        self.assertEqual(processor.throw_action, 'POKEBALL_THROW')
+        self.assertEqual(self.client.publish.call_count, 1)
+
+        service.on_message(
+            self.client, None,
+            message(payload(8, flags=0x01),
+                    topic="esp32/dce6f6215788/telemetry"))
+        self.assertEqual(processor.throw_action, 'POKEBALL_THROW')
+
+        service.on_message(
+            self.client, None,
+            message(payload(9, flags=0),
+                    topic="esp32/dce6f6215788/telemetry"))
+        service.on_message(
+            self.client, None,
+            message(payload(10, flags=0x01),
+                    topic="esp32/dce6f6215788/telemetry"))
+        self.assertEqual(processor.throw_action, 'CATCH_THROW')
+        self.assertEqual(self.client.publish.call_count, 3)
+
+    def test_index_is_preserved_when_relaying_combined_menu_controls(self):
+        worker = SimpleNamespace(confidence_threshold=0.75, submit=Mock())
+        service = TelemetryService(self.client, worker)
+        service.on_message(
+            self.client, None,
+            message(payload(7, flags=0x03),
+                    topic="esp32/dce6f6215788/telemetry"))
+
+        topic, body = self.client.publish.call_args.args[:2]
+        self.assertEqual(topic, "ultra96/1/menu_controls")
+        self.assertEqual(json.loads(body), {"flags": 3, "sequence": 7})
+        self.assertEqual(service.processors['dce6f6215788'].throw_action,
+                         'POKEBALL_THROW')
+
     def test_gesture_dashboard_shows_latched_touch_events_from_flags(self):
         processor = Mock()
         processor.client = self.client

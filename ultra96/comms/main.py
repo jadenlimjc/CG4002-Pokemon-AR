@@ -21,14 +21,16 @@ import paho.mqtt.client as mqtt
 import numpy as np
 
 from process_telemetry import (
-    MENU_CONTROL_MASK, PacketError, TelemetryBuffer, decode_packet, model_input,
+    INDEX_CONTROL_FLAG, MENU_CONTROL_MASK, PacketError, TelemetryBuffer,
+    decode_packet, model_input,
 )
 from pairing import (
     DEVICE_STATUS_SUBSCRIPTION, PAIR_REQUEST_SUBSCRIPTION,
     PairingService, player_id_for_model,
 )
 from visualiser_protocol import (
-    DEFAULT_CONFIDENCE_THRESHOLD, GestureSequence,
+    CATCH_THROW_ACTION, DEFAULT_CONFIDENCE_THRESHOLD, GestureSequence,
+    POKEBALL_THROW_ACTION,
     confidence_threshold_overrides as validate_confidence_threshold_overrides,
     confidence_threshold as validate_confidence_threshold,
 )
@@ -235,6 +237,10 @@ class TelemetryProcessor:
             worker.confidence_threshold,
             getattr(worker, "gesture_confidence_thresholds", None),
         )
+        self.throw_mode_lock = Lock()
+        self._throw_action = CATCH_THROW_ACTION
+        self.index_control_active = False
+        self.last_throw_mode_sequence = None
         self.result_lock = Lock()
         self.latest_result = None
         self.last_sent = None
@@ -245,9 +251,36 @@ class TelemetryProcessor:
         self.health_report = None
         self.buffer = TelemetryBuffer(window_size=window_size, hop_size=hop_size)
 
+    @property
+    def throw_action(self):
+        with self.throw_mode_lock:
+            return self._throw_action
+
+    def toggle_throw_mode(self):
+        """Toggle this device's throw output and return the newly selected action."""
+        with self.throw_mode_lock:
+            self._throw_action = (
+                POKEBALL_THROW_ACTION
+                if self._throw_action == CATCH_THROW_ACTION
+                else CATCH_THROW_ACTION
+            )
+            return self._throw_action
+
     def process_packet(self, payload: bytes, received_at=None):
         # Paho supplies the entire MQTT message, even if TCP fragmented it.
         # MQTT owns the sample buffer; the worker owns gesture sequencing.
+        try:
+            packet = decode_packet(payload)
+        except PacketError:
+            return
+        index_control_active = bool(int(packet.features[-1]) & INDEX_CONTROL_FLAG)
+        if (index_control_active and not self.index_control_active
+                and self.last_throw_mode_sequence != packet.sequence):
+            self.last_throw_mode_sequence = packet.sequence
+            throw_action = self.toggle_throw_mode()
+            logging.info("[%s] Index control selected %s mode",
+                         self.model_id, throw_action)
+        self.index_control_active = index_control_active
         self.buffer.add_packet(payload, received_at=received_at)
         while True:
             try:
@@ -279,6 +312,7 @@ class TelemetryProcessor:
 
         decision = None
         event = None
+        throw_action = self.throw_action
         threshold = self.gesture_sequence.confidence_threshold_for(predicted_action)
         cooldown_remaining_seconds = max(0.0, self.cooldown_until - completed)
 
@@ -315,6 +349,7 @@ class TelemetryProcessor:
                 decision = self.gesture_sequence.evaluate(
                     predicted_action, confidence,
                     timestamp_ms=timestamp_ms,
+                    throw_action=throw_action,
                 )
                 event = decision.payload
                 status = "SUPPRESSED"
@@ -342,6 +377,7 @@ class TelemetryProcessor:
             "default_confidence_threshold": self.gesture_sequence.confidence_threshold,
             "cooldown_seconds": self.cooldown_seconds,
             "cooldown_remaining_seconds": cooldown_remaining_seconds,
+            "throw_action": throw_action,
         }
         sent = None
         if event is not None:

@@ -52,7 +52,9 @@ statistics. There are no haptic, config, file-transfer, or mode controls.
   gaps are observed missing slots, not proof of network loss. RTT is measured
   by the board and needs its status/session plus RTT reports; `--` is unknown.
 - **Touch input** shows confirmed SingleHoldButton events from telemetry
-  `flags`: middle/up is bit 1, index/select is bit 0, and ring/down is bit 2.
+  `flags`: middle/up is bit 1, index/throw-mode toggle is bit 0, and ring/down
+  is bit 2. Index alternates that device between `CATCH_THROW` (the default)
+  and `POKEBALL_THROW` while still being relayed as a menu-select event.
   These are one-shot events rather than continuous touch levels, so the
   dashboard keeps each `YES` visible for 0.75 seconds and also shows cumulative
   event counts. A packet-format warning usually means the flashed ESP32 and
