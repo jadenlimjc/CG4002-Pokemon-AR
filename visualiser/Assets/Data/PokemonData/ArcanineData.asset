@@ -43,7 +43,7 @@ MonoBehaviour:
     accuracy: 100
     isProtect: 0
     animationTrigger: isAttacking
-  - moveName: Fire Blask
+  - moveName: Fire Blast
     moveType: 2
     power: 120
     accuracy: 80
