@@ -13,6 +13,7 @@ public class ModeSelectUI : MonoBehaviour
     [SerializeField] private Button tutorialButton;
     [SerializeField] private Button godModeButton;
     [SerializeField] private Button fullPlayButton;
+    [SerializeField] private Button pairDeviceButton;
 
     [Header("Settings")]
     [SerializeField] private bool showOnStart = true;
@@ -35,6 +36,8 @@ public class ModeSelectUI : MonoBehaviour
             godModeButton.onClick.AddListener(() => SelectMode(DemoMode.GodMode));
         if (fullPlayButton != null)
             fullPlayButton.onClick.AddListener(() => SelectMode(DemoMode.FullPlay));
+        if (pairDeviceButton != null)
+            pairDeviceButton.onClick.AddListener(OpenPairing);
 
         if (showOnStart)
             Show();
@@ -59,6 +62,12 @@ public class ModeSelectUI : MonoBehaviour
     {
         if (modeSelectPanel != null)
             modeSelectPanel.SetActive(false);
+    }
+
+    private void OpenPairing()
+    {
+        Hide();
+        PairingUI.Instance?.Show();
     }
 
     public bool IsVisible => modeSelectPanel != null && modeSelectPanel.activeSelf;
