@@ -53,7 +53,8 @@ public class CatchManager : MonoBehaviour
 
     private void HandleGesture(GestureAction action, float confidence)
     {
-        if (GameStateManager.Instance.CurrentPhase != GamePhase.Encounter) return;
+        var phase = GameStateManager.Instance.CurrentPhase;
+        if (phase != GamePhase.Idle && phase != GamePhase.Encounter) return;
 
         switch (action)
         {
@@ -65,17 +66,31 @@ public class CatchManager : MonoBehaviour
             case GestureAction.CATCH_THROW when isAiming:
                 isAiming = false;
                 HideReticle();
-                GameStateManager.Instance.TransitionTo(GamePhase.CatchAttempt);
-                if (IsPokemonInReticle())
+                WildPokemonInstance catchTarget = FindPokemonInReticle();
+                if (catchTarget != null)
+                {
+                    PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
+                    spawner.EngagePokemon(catchTarget);
+                    GameStateManager.Instance.TransitionTo(GamePhase.CatchAttempt);
                     StartCoroutine(ThrowPokeball(true));
+                }
                 else
+                {
+                    GameStateManager.Instance.TransitionTo(GamePhase.CatchAttempt);
                     StartCoroutine(ThrowPokeball(false));
+                }
                 break;
 
             case GestureAction.POKEBALL_THROW when isAiming:
                 isAiming = false;
                 HideReticle();
-                GameStateManager.Instance.TransitionTo(GamePhase.BattleEntry);
+                WildPokemonInstance battleTarget = FindPokemonInReticle();
+                if (battleTarget != null)
+                {
+                    PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
+                    spawner.EngagePokemon(battleTarget);
+                    GameStateManager.Instance.TransitionTo(GamePhase.BattleEntry);
+                }
                 break;
 
             case GestureAction.CANCEL when isAiming:
@@ -97,66 +112,74 @@ public class CatchManager : MonoBehaviour
             reticleUI.SetActive(false);
     }
 
-    private bool IsPokemonInReticle()
+    private WildPokemonInstance FindPokemonInReticle()
     {
         PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
-        if (spawner == null || spawner.CurrentWildPokemon == null)
-        {
-            Debug.Log("[Catch] No spawner or wild pokemon found");
-            return false;
-        }
+        if (spawner == null) return null;
 
-        Renderer renderer = spawner.CurrentWildPokemon.GetComponentInChildren<Renderer>();
-        if (renderer == null)
-        {
-            Debug.Log("[Catch] No renderer on wild pokemon");
-            return false;
-        }
-
-        // Project the Pokemon's bounding box corners to screen space
-        Bounds bounds = renderer.bounds;
         Vector2 screenCenter = new Vector2(Screen.width / 2f, Screen.height / 2f);
+        WildPokemonInstance bestMatch = null;
+        float bestDist = float.MaxValue;
 
-        Vector3[] corners = new Vector3[8];
-        corners[0] = new Vector3(bounds.min.x, bounds.min.y, bounds.min.z);
-        corners[1] = new Vector3(bounds.max.x, bounds.min.y, bounds.min.z);
-        corners[2] = new Vector3(bounds.min.x, bounds.max.y, bounds.min.z);
-        corners[3] = new Vector3(bounds.max.x, bounds.max.y, bounds.min.z);
-        corners[4] = new Vector3(bounds.min.x, bounds.min.y, bounds.max.z);
-        corners[5] = new Vector3(bounds.max.x, bounds.min.y, bounds.max.z);
-        corners[6] = new Vector3(bounds.min.x, bounds.max.y, bounds.max.z);
-        corners[7] = new Vector3(bounds.max.x, bounds.max.y, bounds.max.z);
-
-        float minX = float.MaxValue, maxX = float.MinValue;
-        float minY = float.MaxValue, maxY = float.MinValue;
-
-        for (int i = 0; i < 8; i++)
+        foreach (var wild in spawner.AllWildPokemon)
         {
-            Vector3 sp = Camera.main.WorldToScreenPoint(corners[i]);
-            if (sp.z <= 0) continue;
-            minX = Mathf.Min(minX, sp.x);
-            maxX = Mathf.Max(maxX, sp.x);
-            minY = Mathf.Min(minY, sp.y);
-            maxY = Mathf.Max(maxY, sp.y);
+            if (wild.GameObject == null || !wild.GameObject.activeInHierarchy) continue;
+
+            Renderer renderer = wild.GameObject.GetComponentInChildren<Renderer>();
+            if (renderer == null) continue;
+
+            Bounds bounds = renderer.bounds;
+
+            Vector3[] corners = new Vector3[8];
+            corners[0] = new Vector3(bounds.min.x, bounds.min.y, bounds.min.z);
+            corners[1] = new Vector3(bounds.max.x, bounds.min.y, bounds.min.z);
+            corners[2] = new Vector3(bounds.min.x, bounds.max.y, bounds.min.z);
+            corners[3] = new Vector3(bounds.max.x, bounds.max.y, bounds.min.z);
+            corners[4] = new Vector3(bounds.min.x, bounds.min.y, bounds.max.z);
+            corners[5] = new Vector3(bounds.max.x, bounds.min.y, bounds.max.z);
+            corners[6] = new Vector3(bounds.min.x, bounds.max.y, bounds.max.z);
+            corners[7] = new Vector3(bounds.max.x, bounds.max.y, bounds.max.z);
+
+            float minX = float.MaxValue, maxX = float.MinValue;
+            float minY = float.MaxValue, maxY = float.MinValue;
+            bool anyVisible = false;
+
+            for (int i = 0; i < 8; i++)
+            {
+                Vector3 sp = Camera.main.WorldToScreenPoint(corners[i]);
+                if (sp.z <= 0) continue;
+                anyVisible = true;
+                minX = Mathf.Min(minX, sp.x);
+                maxX = Mathf.Max(maxX, sp.x);
+                minY = Mathf.Min(minY, sp.y);
+                maxY = Mathf.Max(maxY, sp.y);
+            }
+            if (!anyVisible) continue;
+
+            float closestX = Mathf.Clamp(screenCenter.x, minX, maxX);
+            float closestY = Mathf.Clamp(screenCenter.y, minY, maxY);
+            float dist = Vector2.Distance(screenCenter, new Vector2(closestX, closestY));
+
+            if (dist <= reticleRadius && dist < bestDist)
+            {
+                bestDist = dist;
+                bestMatch = wild;
+            }
         }
 
-        // Check if reticle circle overlaps with Pokemon's screen rect
-        float closestX = Mathf.Clamp(screenCenter.x, minX, maxX);
-        float closestY = Mathf.Clamp(screenCenter.y, minY, maxY);
-        float dist = Vector2.Distance(screenCenter, new Vector2(closestX, closestY));
-
-        bool hit = dist <= reticleRadius;
-        Debug.Log($"[Catch] Pokemon screen rect: ({minX:F0},{minY:F0})-({maxX:F0},{maxY:F0}), reticle dist to rect: {dist:F0}px, hit: {hit}");
-        return hit;
+        Debug.Log($"[Catch] FindPokemonInReticle: {(bestMatch != null ? bestMatch.Data.pokemonName : "none")}, dist: {bestDist:F0}px");
+        return bestMatch;
     }
 
     private IEnumerator ThrowPokeball(bool hit)
     {
-        Debug.Log($"[Catch] ThrowPokeball called, hit={hit}");
         PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
-        if (spawner == null || spawner.CurrentWildPokemon == null)
+        WildPokemonInstance target = spawner?.EngagedPokemon;
+
+        Debug.Log($"[Catch] ThrowPokeball called, hit={hit}");
+        if (hit && (target == null || target.GameObject == null))
         {
-            Debug.Log("[Catch] ThrowPokeball aborted — no spawner or wild pokemon");
+            Debug.Log("[Catch] ThrowPokeball aborted — no engaged pokemon");
             yield break;
         }
 
@@ -165,16 +188,14 @@ public class CatchManager : MonoBehaviour
 
         if (hit)
         {
-            targetPos = spawner.CurrentWildPokemon.transform.position;
+            targetPos = target.GameObject.transform.position;
         }
         else
         {
-            // Miss: throw toward screen center world projection but offset past the Pokemon
             Ray ray = Camera.main.ScreenPointToRay(new Vector3(Screen.width / 2f, Screen.height / 2f, 0));
             targetPos = ray.GetPoint(5f);
         }
 
-        // Spawn pokeball
         if (pokeballPrefab != null)
         {
             activePokeball = Instantiate(pokeballPrefab, startPos, Quaternion.identity);
@@ -186,7 +207,6 @@ public class CatchManager : MonoBehaviour
             activePokeball.transform.localScale = Vector3.one * 0.1f;
         }
 
-        // Animate throw arc
         float duration = hit ? 0.8f : 1.2f;
         float elapsed = 0f;
 
@@ -209,7 +229,7 @@ public class CatchManager : MonoBehaviour
 
         if (hit)
         {
-            yield return StartCoroutine(CatchSequence(spawner));
+            yield return StartCoroutine(CatchSequence(spawner, target));
         }
         else
         {
@@ -227,27 +247,23 @@ public class CatchManager : MonoBehaviour
 
         yield return new WaitForSeconds(0.5f);
 
-        GameStateManager.Instance.TransitionTo(GamePhase.Encounter);
+        GameStateManager.Instance.TransitionTo(GamePhase.Idle);
     }
 
-    private IEnumerator CatchSequence(PokemonSpawner spawner)
+    private IEnumerator CatchSequence(PokemonSpawner spawner, WildPokemonInstance target)
     {
-        Vector3 targetPos = spawner.CurrentWildPokemon.transform.position;
+        Vector3 targetPos = target.GameObject.transform.position;
 
-        // Pokeball hit - hide wild Pokemon
-        spawner.CurrentWildPokemon.SetActive(false);
+        target.GameObject.SetActive(false);
 
-        // Spawn smoke VFX
         if (smokeVFX != null)
             Instantiate(smokeVFX, targetPos, Quaternion.identity);
 
-        // Pokeball lands at target
         activePokeball.transform.position = targetPos;
 
-        // Calculate catch success via jiggle sequence
         float catchRate = (DemoModeManager.Instance != null && DemoModeManager.Instance.IsGodMode)
             ? 1f
-            : spawner.CurrentPokemonData.baseCatchRate;
+            : target.Data.baseCatchRate;
         bool caught = false;
 
         for (int i = 0; i < maxJiggles; i++)
@@ -274,10 +290,11 @@ public class CatchManager : MonoBehaviour
             if (sparkleVFX != null)
                 Instantiate(sparkleVFX, activePokeball.transform.position, Quaternion.identity);
 
-            OnCatchResult?.Invoke(true, spawner.CurrentPokemonData.pokemonName);
+            OnCatchResult?.Invoke(true, target.Data.pokemonName);
 
             yield return new WaitForSeconds(2f);
             Destroy(activePokeball);
+            spawner.RemoveWildPokemon(target);
             GameStateManager.Instance.TransitionTo(GamePhase.CatchResult);
 
             yield return new WaitForSeconds(3f);
@@ -285,19 +302,19 @@ public class CatchManager : MonoBehaviour
         }
         else
         {
-            OnCatchResult?.Invoke(false, spawner.CurrentPokemonData.pokemonName);
+            OnCatchResult?.Invoke(false, target.Data.pokemonName);
 
             Destroy(activePokeball);
-            spawner.CurrentWildPokemon.SetActive(true);
+            target.GameObject.SetActive(true);
 
-            Animator wildAnim = spawner.CurrentWildPokemon.GetComponent<Animator>();
-            if (wildAnim != null)
-                wildAnim.SetTrigger("breakFree");
+            if (target.Animator != null)
+                target.Animator.SetTrigger("breakFree");
 
             GameStateManager.Instance.TransitionTo(GamePhase.CatchResult);
 
             yield return new WaitForSeconds(2f);
-            GameStateManager.Instance.TransitionTo(GamePhase.Encounter);
+            spawner.DisengagePokemon();
+            GameStateManager.Instance.TransitionTo(GamePhase.Idle);
         }
     }
 

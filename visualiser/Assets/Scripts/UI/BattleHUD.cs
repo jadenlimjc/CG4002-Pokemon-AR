@@ -119,14 +119,13 @@ public class BattleHUD : MonoBehaviour
     private void ShowBattleUI()
     {
         BattleManager battle = BattleManager.Instance;
-        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
 
         if (battle == null) return;
 
         if (playerNameText != null)
             playerNameText.text = battle.PlayerPokemon?.pokemonName ?? "???";
-        if (wildNameText != null && spawner?.CurrentPokemonData != null)
-            wildNameText.text = spawner.CurrentPokemonData.pokemonName;
+        if (wildNameText != null && battle.WildPokemonData != null)
+            wildNameText.text = battle.WildPokemonData.pokemonName;
 
         if (promptPanel != null) promptPanel.SetActive(true);
         if (promptText != null)

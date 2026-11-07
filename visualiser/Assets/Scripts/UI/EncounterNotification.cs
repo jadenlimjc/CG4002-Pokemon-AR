@@ -16,6 +16,7 @@ public class EncounterNotification : MonoBehaviour
     [SerializeField] private float fadeOutDuration = 0.5f;
 
     private CanvasGroup canvasGroup;
+    private Coroutine activeAnimation;
 
     private void Awake()
     {
@@ -28,38 +29,33 @@ public class EncounterNotification : MonoBehaviour
 
     private void OnEnable()
     {
-        if (GameStateManager.Instance != null)
-            GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
+        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
+        if (spawner != null)
+            spawner.OnPokemonSpawned += HandlePokemonSpawned;
     }
 
     private void Start()
     {
-        if (GameStateManager.Instance != null)
+        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
+        if (spawner != null)
         {
-            GameStateManager.Instance.OnPhaseChanged -= HandlePhaseChanged;
-            GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
+            spawner.OnPokemonSpawned -= HandlePokemonSpawned;
+            spawner.OnPokemonSpawned += HandlePokemonSpawned;
         }
     }
 
     private void OnDisable()
     {
-        if (GameStateManager.Instance != null)
-            GameStateManager.Instance.OnPhaseChanged -= HandlePhaseChanged;
+        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
+        if (spawner != null)
+            spawner.OnPokemonSpawned -= HandlePokemonSpawned;
     }
 
-    private void HandlePhaseChanged(GamePhase oldPhase, GamePhase newPhase)
+    private void HandlePokemonSpawned(WildPokemonInstance instance)
     {
-        if (newPhase == GamePhase.Encounter && oldPhase == GamePhase.Idle)
-        {
-            PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
-            string name = spawner?.CurrentPokemonData?.pokemonName ?? "???";
-            string terrain = spawner?.LastDetectedTerrain ?? "Unknown";
-            ShowNotification(name, terrain);
-        }
-        else if (oldPhase == GamePhase.Encounter)
-        {
-            HideImmediate();
-        }
+        string name = instance?.Data?.pokemonName ?? "???";
+        string terrain = instance?.SpawnTerrain ?? "Unknown";
+        ShowNotification(name, terrain);
     }
 
     private void ShowNotification(string pokemonName, string terrain)
@@ -70,7 +66,9 @@ public class EncounterNotification : MonoBehaviour
         if (terrainTypeText != null)
             terrainTypeText.text = $"Terrain: {terrain}";
 
-        StartCoroutine(AnimateNotification());
+        if (activeAnimation != null)
+            StopCoroutine(activeAnimation);
+        activeAnimation = StartCoroutine(AnimateNotification());
     }
 
     private IEnumerator AnimateNotification()
@@ -78,7 +76,6 @@ public class EncounterNotification : MonoBehaviour
         notificationPanel?.SetActive(true);
         if (exclamationIcon != null) exclamationIcon.SetActive(true);
 
-        // Fade in
         float elapsed = 0f;
         while (elapsed < fadeInDuration)
         {
@@ -90,10 +87,8 @@ public class EncounterNotification : MonoBehaviour
 
         if (canvasGroup != null) canvasGroup.alpha = 1f;
 
-        // Hold
         yield return new WaitForSeconds(displayDuration);
 
-        // Fade out (but keep the encounter UI visible)
         elapsed = 0f;
         while (elapsed < fadeOutDuration)
         {
@@ -104,6 +99,7 @@ public class EncounterNotification : MonoBehaviour
         }
 
         HideImmediate();
+        activeAnimation = null;
     }
 
     private void HideImmediate()

@@ -17,14 +17,15 @@ public class BattleManager : MonoBehaviour
 
     [Header("Spawn Offset")]
     [SerializeField] private float playerPokemonDistance = 1.5f;
-    [SerializeField] private float playerPokemonSide = 0.5f; // offset to the right
+    [SerializeField] private float playerPokemonSide = 0.5f;
 
     public int PlayerHP => playerHP;
     public int WildHP => wildHP;
     public int PlayerMaxHP => playerPokemon != null ? playerPokemon.maxHP : 100;
-    public int WildMaxHP => FindFirstObjectByType<PokemonSpawner>()?.CurrentPokemonData?.maxHP ?? 100;
+    public int WildMaxHP => engagedWild?.Data?.maxHP ?? wildPokemonData?.maxHP ?? 100;
     public bool IsPlayerTurn => isPlayerTurn;
     public PokemonData PlayerPokemon => playerPokemon;
+    public PokemonData WildPokemonData => wildPokemonData;
 
     public delegate void BattleEventHandler(string message);
     public event BattleEventHandler OnBattleMessage;
@@ -50,6 +51,7 @@ public class BattleManager : MonoBehaviour
     private Animator playerAnimator;
     private Animator wildAnimator;
     private PokemonData wildPokemonData;
+    private WildPokemonInstance engagedWild;
     private bool isBattleCatching = false;
     private bool isBattleAiming = false;
     private bool isWaitingRunConfirm = false;
@@ -96,11 +98,17 @@ public class BattleManager : MonoBehaviour
         }
         else if (newPhase == GamePhase.BattleResult)
         {
+            if (wildHP <= 0 && engagedWild != null)
+            {
+                PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
+                spawner?.RemoveWildPokemon(engagedWild);
+            }
             StartCoroutine(DelayedTransition(GamePhase.Idle, 3f));
         }
         else if (newPhase == GamePhase.Idle)
         {
             CleanupBattle();
+            engagedWild = null;
         }
     }
 
@@ -190,26 +198,25 @@ public class BattleManager : MonoBehaviour
     private void StartBattle()
     {
         PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
-        wildPokemonData = spawner.CurrentPokemonData;
+        engagedWild = spawner.EngagedPokemon;
+        wildPokemonData = engagedWild.Data;
 
         playerHP = playerPokemon.maxHP;
         wildHP = wildPokemonData.maxHP;
 
         OnHPChanged?.Invoke(playerHP, wildHP);
 
-        StartCoroutine(BattleEntrySequence(spawner));
+        StartCoroutine(BattleEntrySequence());
     }
 
-    private IEnumerator BattleEntrySequence(PokemonSpawner spawner)
+    private IEnumerator BattleEntrySequence()
     {
-        // Calculate player pokemon spawn position
         Transform cam = Camera.main.transform;
         Vector3 spawnPos = cam.position
             + cam.forward * playerPokemonDistance
             + cam.right * playerPokemonSide;
         spawnPos.y -= 0.5f;
 
-        // Throw pokeball from slightly behind-left of camera to spawn position
         Vector3 throwStart = cam.position - cam.right * 0.3f - cam.up * 0.3f + cam.forward * 0.3f;
 
         GameObject pokeball;
@@ -242,23 +249,21 @@ public class BattleManager : MonoBehaviour
 
         Destroy(pokeball);
 
-        // Spawn pokemon at the pre-calculated position
         SpawnPlayerPokemon(spawnPos);
 
-        // Get wild Pokemon animator and face the player's Pokemon
-        if (spawner.CurrentWildPokemon != null)
+        if (engagedWild?.GameObject != null)
         {
-            wildAnimator = spawner.CurrentWildPokemon.GetComponent<Animator>();
+            wildAnimator = engagedWild.Animator;
 
             if (playerPokemonInstance != null)
             {
-                Vector3 lookDir = playerPokemonInstance.transform.position - spawner.CurrentWildPokemon.transform.position;
+                Vector3 lookDir = playerPokemonInstance.transform.position - engagedWild.GameObject.transform.position;
                 lookDir.y = 0;
                 if (lookDir != Vector3.zero)
                 {
-                    Vector3 prefabAngles = spawner.CurrentPokemonData.modelPrefab.transform.rotation.eulerAngles;
+                    Vector3 prefabAngles = engagedWild.Data.modelPrefab.transform.rotation.eulerAngles;
                     float targetY = Quaternion.LookRotation(lookDir).eulerAngles.y;
-                    spawner.CurrentWildPokemon.transform.rotation = Quaternion.Euler(prefabAngles.x, targetY, prefabAngles.z);
+                    engagedWild.GameObject.transform.rotation = Quaternion.Euler(prefabAngles.x, targetY, prefabAngles.z);
                 }
             }
         }
@@ -284,10 +289,9 @@ public class BattleManager : MonoBehaviour
         );
         playerPokemonInstance.transform.localScale = Vector3.one * playerPokemon.spawnScale;
 
-        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
-        if (spawner.CurrentWildPokemon != null)
+        if (engagedWild?.GameObject != null)
         {
-            Vector3 lookDir = spawner.CurrentWildPokemon.transform.position - spawnPos;
+            Vector3 lookDir = engagedWild.GameObject.transform.position - spawnPos;
             lookDir.y = 0;
             if (lookDir != Vector3.zero)
                 playerPokemonInstance.transform.rotation = Quaternion.LookRotation(lookDir);
@@ -313,7 +317,6 @@ public class BattleManager : MonoBehaviour
 
         yield return new WaitForSeconds(minWait);
 
-        // Wait until the triggered animation starts transitioning
         yield return null;
 
         AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
@@ -336,7 +339,6 @@ public class BattleManager : MonoBehaviour
 
         yield return StartCoroutine(WaitForAnimation(playerAnimator));
 
-        // Check if Protect
         if (move.isProtect)
         {
             yield return StartCoroutine(ExecuteWildMove(blocked: true));
@@ -344,7 +346,6 @@ public class BattleManager : MonoBehaviour
             yield break;
         }
 
-        // Calculate damage
         bool hits = Random.Range(0, 100) < move.accuracy;
         if (hits)
         {
@@ -364,7 +365,6 @@ public class BattleManager : MonoBehaviour
             yield return StartCoroutine(ShowMessage("The attack missed!"));
         }
 
-        // Check if wild fainted
         if (wildHP <= 0)
         {
             yield return StartCoroutine(ShowMessage($"Wild {wildPokemonData.pokemonName} fainted!"));
@@ -378,7 +378,6 @@ public class BattleManager : MonoBehaviour
 
         yield return new WaitForSeconds(turnTransitionDelay);
 
-        // Wild Pokemon's turn
         yield return StartCoroutine(ExecuteWildMove());
 
         isProcessingMove = false;
@@ -413,7 +412,6 @@ public class BattleManager : MonoBehaviour
 
         yield return StartCoroutine(ShowMessage($"Dealt {wildDamage} damage!"));
 
-        // Check if player fainted
         if (playerHP <= 0)
         {
             yield return StartCoroutine(ShowMessage($"{playerPokemon.pokemonName} fainted!"));
@@ -435,22 +433,24 @@ public class BattleManager : MonoBehaviour
         yield return new WaitForSeconds(1.5f);
 
         CleanupBattle();
-        GameStateManager.Instance.TransitionTo(GamePhase.Encounter);
+        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
+        spawner?.DisengagePokemon();
+        GameStateManager.Instance.TransitionTo(GamePhase.Idle);
         isProcessingMove = false;
     }
 
     private IEnumerator ExecuteBattleCatch()
     {
         isProcessingMove = true;
-        PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
-        if (spawner == null || spawner.CurrentWildPokemon == null)
+
+        if (engagedWild == null || engagedWild.GameObject == null)
         {
             isProcessingMove = false;
             yield break;
         }
 
         Vector3 startPos = Camera.main.transform.position + Camera.main.transform.forward * 0.5f;
-        Vector3 targetPos = spawner.CurrentWildPokemon.transform.position;
+        Vector3 targetPos = engagedWild.GameObject.transform.position;
 
         if (pokeballPrefab != null)
             activePokeball = Instantiate(pokeballPrefab, startPos, Quaternion.identity);
@@ -475,7 +475,7 @@ public class BattleManager : MonoBehaviour
         }
 
         activePokeball.transform.rotation = Quaternion.identity;
-        spawner.CurrentWildPokemon.SetActive(false);
+        engagedWild.GameObject.SetActive(false);
         activePokeball.transform.position = targetPos;
 
         float hpRatio = (float)wildHP / wildPokemonData.maxHP;
@@ -505,6 +505,8 @@ public class BattleManager : MonoBehaviour
         {
             OnBattleMessage?.Invoke($"Gotcha! {wildPokemonData.pokemonName} was caught!");
             Destroy(activePokeball);
+            PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
+            spawner?.RemoveWildPokemon(engagedWild);
             yield return new WaitForSeconds(2f);
             GameStateManager.Instance.TransitionTo(GamePhase.BattleResult);
             yield return new WaitForSeconds(1f);
@@ -514,7 +516,7 @@ public class BattleManager : MonoBehaviour
         {
             OnBattleMessage?.Invoke($"{wildPokemonData.pokemonName} broke free!");
             Destroy(activePokeball);
-            spawner.CurrentWildPokemon.SetActive(true);
+            engagedWild.GameObject.SetActive(true);
 
             if (wildAnimator != null)
                 wildAnimator.SetTrigger("breakFree");
@@ -547,9 +549,7 @@ public class BattleManager : MonoBehaviour
 
     private int CalculateDamage(int power, int attack, int defense)
     {
-        // Simplified Pokemon damage formula
         float damage = ((2f * 50f / 5f + 2f) * power * ((float)attack / defense)) / 50f + 2f;
-        // Add some randomness (85-100%)
         damage *= Random.Range(0.85f, 1f);
         return Mathf.Max(1, Mathf.RoundToInt(damage));
     }
