@@ -22,7 +22,16 @@ public class MockInputController : MonoBehaviour
             switch (e.keyCode)
             {
                 case KeyCode.A:
-                    Debug.Log("[MockInput] ARM_PULLBACK triggered (show reticle)");
+                    if (GameStateManager.Instance != null &&
+                        GameStateManager.Instance.CurrentPhase == GamePhase.BattleActive)
+                    {
+                        Debug.Log("[MockInput] BATTLE_CATCH + ARM_PULLBACK triggered");
+                        GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_CATCH, mockConfidence);
+                    }
+                    else
+                    {
+                        Debug.Log("[MockInput] ARM_PULLBACK triggered (show reticle)");
+                    }
                     GestureEvents.RaiseGestureReceived(GestureAction.ARM_PULLBACK, mockConfidence);
                     break;
                 case KeyCode.C:
