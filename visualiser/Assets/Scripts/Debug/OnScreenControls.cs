@@ -31,6 +31,11 @@ public class OnScreenControls : MonoBehaviour
 
         CreateButton("Aim", leftX, y, () =>
         {
+            if (GameStateManager.Instance != null &&
+                GameStateManager.Instance.CurrentPhase == GamePhase.BattleActive)
+            {
+                GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_CATCH, mockConfidence);
+            }
             GestureEvents.RaiseGestureReceived(GestureAction.ARM_PULLBACK, mockConfidence);
         });
 
