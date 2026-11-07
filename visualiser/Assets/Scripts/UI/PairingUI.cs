@@ -24,6 +24,7 @@ public class PairingUI : MonoBehaviour
 
     [Header("Buttons")]
     [SerializeField] private Button unpairButton;
+    [SerializeField] private Button closeButton;
 
     [Header("Feedback")]
     [SerializeField] private TextMeshProUGUI statusMessageText;
@@ -52,6 +53,8 @@ public class PairingUI : MonoBehaviour
             device2Button.onClick.AddListener(() => PairWithDevice("2"));
         if (unpairButton != null)
             unpairButton.onClick.AddListener(ForgetPairing);
+        if (closeButton != null)
+            closeButton.onClick.AddListener(ClosePairing);
 
         var net = NetworkManager.Instance;
         if (net != null && net.IsPaired)
@@ -236,6 +239,12 @@ public class PairingUI : MonoBehaviour
             UpdateUnpairButton();
             RefreshDeviceList();
         }
+    }
+
+    private void ClosePairing()
+    {
+        Hide();
+        ModeSelectUI.Instance?.Show();
     }
 
     private void SetStatusMessage(string message)
