@@ -132,6 +132,12 @@ public class OnScreenControls : MonoBehaviour
             if (VRModeManager.Instance != null)
                 VRModeManager.Instance.ToggleVR();
         });
+
+        CreateButton("Mode", -buttonWidth * 1.5f - spacing * 2, y, () =>
+        {
+            if (ModeSelectUI.Instance != null)
+                ModeSelectUI.Instance.Show();
+        });
     }
 
     private void CreateButton(string label, float x, float y, UnityEngine.Events.UnityAction onClick)

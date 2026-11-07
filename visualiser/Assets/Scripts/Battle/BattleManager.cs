@@ -405,6 +405,8 @@ public class BattleManager : MonoBehaviour
 
         int wildDamage = CalculateDamage(50, wildPokemonData.attack, playerPokemon.defense);
         playerHP = Mathf.Max(0, playerHP - wildDamage);
+        if (DemoModeManager.Instance != null && DemoModeManager.Instance.IsGodMode)
+            playerHP = Mathf.Max(1, playerHP);
         OnHPChanged?.Invoke(playerHP, wildHP);
 
         Handheld.Vibrate();
@@ -476,9 +478,10 @@ public class BattleManager : MonoBehaviour
         spawner.CurrentWildPokemon.SetActive(false);
         activePokeball.transform.position = targetPos;
 
-        float catchRate = wildPokemonData.baseCatchRate;
         float hpRatio = (float)wildHP / wildPokemonData.maxHP;
-        catchRate = Mathf.Clamp01(catchRate + (1f - hpRatio) * 0.3f);
+        float catchRate = (DemoModeManager.Instance != null && DemoModeManager.Instance.IsGodMode)
+            ? 1f
+            : Mathf.Clamp01(wildPokemonData.baseCatchRate + (1f - hpRatio) * 0.3f);
         Debug.Log($"[BattleCatch] baseCatchRate={wildPokemonData.baseCatchRate}, hpRatio={hpRatio:F2}, finalCatchRate={catchRate:F2}");
 
         bool caught = true;

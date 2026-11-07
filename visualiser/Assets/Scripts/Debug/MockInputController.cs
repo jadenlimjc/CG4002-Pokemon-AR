@@ -57,6 +57,22 @@ public class MockInputController : MonoBehaviour
                     Debug.Log("[MockInput] RESET to Idle");
                     GameStateManager.Instance.ResetToIdle();
                     break;
+                case KeyCode.T:
+                    Debug.Log("[MockInput] SET_TUTORIAL triggered");
+                    GestureEvents.RaiseGestureReceived(GestureAction.SET_TUTORIAL, mockConfidence);
+                    break;
+                case KeyCode.G:
+                    Debug.Log("[MockInput] SET_GOD_MODE triggered");
+                    GestureEvents.RaiseGestureReceived(GestureAction.SET_GOD_MODE, mockConfidence);
+                    break;
+                case KeyCode.P:
+                    Debug.Log("[MockInput] SET_FULL_PLAY triggered");
+                    GestureEvents.RaiseGestureReceived(GestureAction.SET_FULL_PLAY, mockConfidence);
+                    break;
+                case KeyCode.S:
+                    Debug.Log("[MockInput] SKIP_STEP triggered");
+                    GestureEvents.RaiseGestureReceived(GestureAction.SKIP_STEP, mockConfidence);
+                    break;
             }
         }
 
@@ -74,7 +90,10 @@ public class MockInputController : MonoBehaviour
         GUILayout.Label("[3] Move 3: Brick Break");
         GUILayout.Label("[4] Move 4: Drain Punch");
         GUILayout.Label("[R] Reset to Idle");
+        GUILayout.Label("[T] Tutorial  [G] God Mode  [P] Full Play");
+        GUILayout.Label("[S] Skip Tutorial Step");
         GUILayout.Label("");
+        GUILayout.Label($"Mode: {DemoModeManager.Instance?.CurrentMode}");
         GUILayout.Label($"Network: {(NetworkManager.Instance?.IsConnected == true ? "Connected" : "Disconnected")}");
         GUILayout.EndArea();
     }

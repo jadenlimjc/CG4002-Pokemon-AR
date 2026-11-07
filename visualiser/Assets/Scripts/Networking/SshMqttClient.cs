@@ -248,6 +248,9 @@ namespace CG4002.Comms
             PublishTopicAsync($"visualiser/{phoneId}/pair/request", json,
                               MqttQualityOfServiceLevel.AtLeastOnce, cancellation);
 
+        public Task PublishAsync(string topic, string payload, CancellationToken cancellation = default) =>
+            PublishTopicAsync(topic, payload, MqttQualityOfServiceLevel.AtMostOnce, cancellation);
+
         public async Task SetPairedDeviceAsync(string modelId, CancellationToken cancellation = default)
         {
             if (!ValidPlayer(modelId)) throw new ArgumentException("Player ID must be 1 or 2.");
