@@ -1,10 +1,10 @@
-# Live gesture testing
+# Final live demo
 
 Run from the repository root on the Ultra96, using the Python environment with
 the existing FPGA/PYNQ and comms dependencies:
 
 ```sh
-python ultra96/comms/tests/gesture_demo.py
+python ultra96/comms/tests/final_demo.py
 ```
 
 Use the existing MQTT credentials (`MQTT_USER` and `MQTT_PASSWORD`, or `.env`).
@@ -16,14 +16,25 @@ telemetry. This dashboard does not change their operating mode or configuration.
 Useful options:
 
 ```sh
-python ultra96/comms/tests/gesture_demo.py --model-id board1 --require-crc
-python ultra96/comms/tests/gesture_demo.py --host 127.0.0.1 --port 1883 --confidence-threshold 0.95
+python ultra96/comms/tests/final_demo.py --model-id board1 --require-crc
+python ultra96/comms/tests/final_demo.py --host 127.0.0.1 --port 1883 --confidence-threshold 0.95
 ```
 
 `--model-id` is the board ID in its `esp32/<id>/telemetry` topic; omit it to
 discover all boards (up to 64). Tab selects the next board. Press `q` or Ctrl-C
 to stop. Use an interactive terminal; enlarge it if the footer reports hidden
-statistics. There are no haptic, config, file-transfer, or mode controls.
+rows. The selected device accepts `[1/t]` for Tutorial, `[2/g]` for God mode,
+`[3/f]` for Full Play, and `[4/s]` to skip the current tutorial step. These
+manual events use the same inference topic and gesture JSON contract as model
+output. Hardware menu flags, including index/select, continue to be relayed to
+Unity while this dashboard is running.
+
+| Keys | Published action | Displayed gameplay mode |
+| --- | --- | --- |
+| `1` or `t` | `SET_TUTORIAL` | Tutorial |
+| `2` or `g` | `SET_GOD_MODE` | God Mode |
+| `3` or `f` | `SET_FULL_PLAY` | Full Play |
+| `4` or `s` | `SKIP_STEP` | Unchanged |
 
 ## Reading the dashboard
 
@@ -44,21 +55,11 @@ statistics. There are no haptic, config, file-transfer, or mode controls.
   action. Neutral is ignored without changing either catch state.
 - After a battle action is published, every classifier result is suppressed for
   two seconds with reason `COOLDOWN`. Confirmation restarts after the cooldown.
-- Packet rate is the unique arrivals in the last second versus the expected
-  **50 Hz**; the session average counts received sample intervals. CRC,
-  malformed/retained packets, gaps, duplicate packets, backwards/reset
-  counters, silence/recovery counts, RTT, inference timing, and skipped windows
-  help distinguish recognition problems from data-flow problems. Sequence
-  gaps are observed missing slots, not proof of network loss. RTT is measured
-  by the board and needs its status/session plus RTT reports; `--` is unknown.
-- **Touch input** shows confirmed SingleHoldButton events from telemetry
-  `flags`: middle/up is bit 1, index/throw-mode toggle is bit 0, and ring/down
-  is bit 2. Index alternates that device between `CATCH_THROW` (the default)
-  and `POKEBALL_THROW` while still being relayed as a menu-select event.
-  These are one-shot events rather than continuous touch levels, so the
-  dashboard keeps each `YES` visible for 0.75 seconds and also shows cumulative
-  event counts. A packet-format warning usually means the flashed ESP32 and
-  Ultra96 checkout are from different revisions.
+- The lower panel shows the selected device's throw mode and gameplay mode,
+  manual-action shortcuts, packet rate, mean RTT, and estimated one-way latency.
+  Gameplay mode starts at Full Play. Index alternates that device between
+  `CATCH_THROW` (the default) and `POKEBALL_THROW` while still being relayed as
+  a menu-select event.
 
 The default confidence threshold is **0.60**. Per-gesture overrides can be added
 to `GESTURE_CONFIDENCE_THRESHOLDS` in `visualiser_protocol.py`; any classifier
@@ -94,10 +95,10 @@ GESTURE_CONFIDENCE_THRESHOLDS = {
    or gaps. The existing **128 samples / 15-sample hop** are unchanged:
    approximately 2.56 seconds to fill the first window and 0.3 seconds between
    available windows at 50 Hz, before scheduling/inference time.
-2. Hold middle, index, and ring separately until each SingleHoldButton action
-   confirms. The corresponding `YES` should appear for 0.75 seconds and its
-   event count should increase exactly once. The raw `latest flags` value may
-   return to `0x00` immediately; that is expected for one-shot menu input.
+2. Hold index and confirm the displayed throw mode changes exactly once per
+   confirmed hold. Use each manual-action shortcut and confirm the gameplay
+   mode changes only for successful mode publications; Skip Step keeps the
+   current gameplay mode.
 3. Perform each battle gesture, then immediately try the same and a different
    gesture. Expect `COOLDOWN` with no new send for two seconds. After it expires,
    three fresh matching predictions should publish the next battle action.

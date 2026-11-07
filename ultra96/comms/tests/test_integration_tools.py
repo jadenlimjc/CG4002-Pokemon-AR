@@ -10,7 +10,7 @@ import zlib
 import numpy as np
 
 from packet_viewer import PacketViewer, packet_line
-from gesture_demo import GestureMonitor
+from final_demo import GestureDashboard, GestureMonitor
 from processing_demo import ProcessingDemo, ResultTrace
 from process_telemetry import BODY, CRC, InferenceWindow, PacketError, decode_packet
 from main import InferenceWorker, TelemetryService
@@ -175,22 +175,93 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(service.processors['dce6f6215788'].throw_action,
                          'POKEBALL_THROW')
 
-    def test_gesture_dashboard_shows_latched_touch_events_from_flags(self):
+    def test_final_dashboard_manual_actions_update_modes_and_use_inference_topic(self):
+        processor = Mock(throw_action="CATCH_THROW")
+        processor.model_id = "board1"
+        processor.client = self.client
+        processor.topics = {
+            "ack": "esp32/board1/telemetry_ack",
+            "inference": "ultra96/board1/inference",
+        }
+        processor.inference_snapshot.return_value = {
+            "current": None,
+            "last_sent": None,
+            "state": "NEUTRAL",
+            "decision_counts": {},
+        }
+        monitor = GestureMonitor(processor)
+
+        self.assertEqual(monitor.gameplay_mode, "FULL PLAY")
+        initial_lines = monitor.lines(10.0)
+        self.assertIn(" MODES: throw CATCH_THROW | gameplay FULL PLAY", initial_lines)
+        self.assertTrue(any("[1/t] Tutorial" in line for line in initial_lines))
+        self.assertTrue(any("Packet rate:" in line for line in initial_lines))
+        self.assertTrue(any("Est. one-way:" in line for line in initial_lines))
+        self.assertTrue(monitor.publish_manual_action("SET_TUTORIAL", "TUTORIAL"))
+        topic, body = self.client.publish.call_args.args[:2]
+        self.assertEqual(topic, "ultra96/board1/inference")
+        self.assertEqual(json.loads(body), {
+            "action": "SET_TUTORIAL",
+            "gesture_id": 0,
+            "confidence": 1.0,
+            "timestamp": 0,
+        })
+        self.assertEqual(self.client.publish.call_args.kwargs,
+                         {"qos": 0, "retain": False})
+        self.assertEqual(monitor.gameplay_mode, "TUTORIAL")
+
+        self.assertTrue(monitor.publish_manual_action("SKIP_STEP"))
+        self.assertEqual(monitor.gameplay_mode, "TUTORIAL")
+
+        self.client.publish.return_value.rc = 4
+        self.assertFalse(monitor.publish_manual_action("SET_GOD_MODE", "GOD MODE"))
+        self.assertEqual(monitor.gameplay_mode, "TUTORIAL")
+        with self.assertRaisesRegex(ValueError, "Unsupported manual action"):
+            monitor.publish_manual_action("NOT_A_REAL_ACTION")
+
+    def test_final_dashboard_keys_target_selected_device(self):
+        worker = SimpleNamespace(confidence_threshold=0.75)
+        dashboard = GestureDashboard(self.client, worker)
+        first, second = Mock(), Mock()
+        dashboard.monitors = {"A": first, "B": second}
+
+        self.assertTrue(dashboard.handle_key("2"))
+        first.publish_manual_action.assert_called_once_with("SET_GOD_MODE", "GOD MODE")
+        self.assertTrue(dashboard.handle_key("\t"))
+        self.assertTrue(dashboard.handle_key("s"))
+        second.publish_manual_action.assert_called_once_with("SKIP_STEP", None)
+        self.assertFalse(dashboard.handle_key("q"))
+
+    def test_final_dashboard_still_processes_telemetry(self):
         processor = Mock()
+        processor.model_id = "board1"
         processor.client = self.client
         processor.topics = {"ack": "esp32/board1/telemetry_ack"}
         monitor = GestureMonitor(processor)
 
         monitor.on_message(message(payload(7, flags=0x02)), 10.0)
-        self.assertIn("middle YES | index no | ring no", monitor.control_lines(10.1)[0])
-        self.assertIn("middle 1 | index 0 | ring 0", monitor.control_lines(10.1)[1])
-
-        # The event bit clears on the next 50 Hz packet, but remains visible
-        # briefly so a human can observe the confirmed hold in the dashboard.
-        monitor.on_message(message(payload(8, flags=0)), 10.02)
-        self.assertIn("middle YES", monitor.control_lines(10.7)[0])
-        self.assertIn("middle no", monitor.control_lines(10.8)[0])
         processor.process_packet.assert_called()
+
+    def test_final_dashboard_relays_index_to_unity_menu_controls(self):
+        processor = Mock()
+        processor.model_id = "dce6f6215788"
+        processor.client = self.client
+        processor.topics = {"ack": "esp32/dce6f6215788/telemetry_ack"}
+        monitor = GestureMonitor(processor)
+
+        event = message(
+            payload(7, flags=0x01),
+            topic="esp32/dce6f6215788/telemetry",
+        )
+        monitor.on_message(event, 10.0)
+        topic, body = self.client.publish.call_args.args[:2]
+        self.assertEqual(topic, "ultra96/1/menu_controls")
+        self.assertEqual(json.loads(body), {"flags": 1, "sequence": 7})
+        self.assertEqual(self.client.publish.call_args.kwargs,
+                         {"qos": 0, "retain": False})
+
+        monitor.on_message(event, 10.1)
+        self.assertEqual(self.client.publish.call_count, 1)
 
     def test_marker_requires_fresh_published_match_and_tracks_each_board(self):
         trace = ResultTrace(expected="THROW", output=self.output)

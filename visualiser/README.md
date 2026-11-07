@@ -518,7 +518,7 @@ valid prediction can retry. MQTT QoS 0 acceptance does not confirm AR delivery.
 Each confirmed index hold toggles the originating device's throw action; the
 mode starts at `CATCH_THROW` whenever the Ultra96 service restarts.
 
-For live testing, `ultra96/comms/tests/gesture_demo.py` uses the same inference
+For live testing, `ultra96/comms/tests/final_demo.py` uses the same inference
 path and shows the current prediction, explicit decision reason, last sent
 gesture, and sequence state in fixed dashboard rows. See
 [`ultra96/comms/tests/README.md`](../ultra96/comms/tests/README.md) for commands
