@@ -8,29 +8,32 @@ using NianticSpatial.NSDK.AR.XRSubsystems;
 public class PokemonSpawner : MonoBehaviour
 {
     [Header("Spawn Settings")]
-    [SerializeField] private float spawnDistance = 3f;
+    [SerializeField] private float spawnDistance = 5f;
+    [SerializeField] private float minSpawnDistance = 2f;
     [SerializeField] private float spawnCooldown = 10f;
     [SerializeField] private float meshRaycastDistance = 10f;
     [SerializeField] private float minSpawnClearance = 1f;
+    [SerializeField] private int maxWildPokemon = 3;
 
     [Header("Pokemon Pools")]
     [SerializeField] private PokemonData[] grassPool;
     [SerializeField] private PokemonData[] skyPool;
     [SerializeField] private PokemonData[] defaultPool;
 
-    [Header("Runtime")]
-    [SerializeField] private GameObject currentWildPokemon;
-    [SerializeField] private PokemonData currentPokemonData;
-
+    private List<WildPokemonInstance> wildPokemon = new List<WildPokemonInstance>();
+    private WildPokemonInstance engagedPokemon;
     private float lastSpawnTime;
-    private Animator currentAnimator;
     private NsdkSceneSegmentationSubsystem _segmentationSubsystem;
-
     private string lastDetectedTerrain = "Unknown";
 
-    public PokemonData CurrentPokemonData => currentPokemonData;
-    public GameObject CurrentWildPokemon => currentWildPokemon;
+    public PokemonData CurrentPokemonData => engagedPokemon?.Data;
+    public GameObject CurrentWildPokemon => engagedPokemon?.GameObject;
     public string LastDetectedTerrain => lastDetectedTerrain;
+    public WildPokemonInstance EngagedPokemon => engagedPokemon;
+    public IReadOnlyList<WildPokemonInstance> AllWildPokemon => wildPokemon;
+
+    public delegate void PokemonSpawnedHandler(WildPokemonInstance instance);
+    public event PokemonSpawnedHandler OnPokemonSpawned;
 
     private void OnEnable()
     {
@@ -56,6 +59,10 @@ public class PokemonSpawner : MonoBehaviour
     {
         if (GameStateManager.Instance == null) return;
         if (GameStateManager.Instance.CurrentPhase != GamePhase.Idle) return;
+
+        wildPokemon.RemoveAll(w => w.GameObject == null);
+
+        if (wildPokemon.Count >= maxWildPokemon) return;
         if (Time.time - lastSpawnTime < spawnCooldown) return;
 
         TrySpawnWildPokemon();
@@ -87,12 +94,12 @@ public class PokemonSpawner : MonoBehaviour
         else
         {
 #if UNITY_EDITOR
-            Transform cam = Camera.main.transform;
-            spawnPosition = cam.position + cam.forward * spawnDistance;
-            spawnPosition.y = cam.position.y - 1f;
-            Debug.Log("[Spawner] Editor fallback spawn");
-            PokemonData pokemon = PickPokemonByTerrain(spawnPosition);
-            SpawnPokemonAt(spawnPosition, pokemon);
+            if (TryGetEditorFallbackPosition(out spawnPosition))
+            {
+                Debug.Log("[Spawner] Editor fallback spawn");
+                PokemonData pokemon = PickPokemonByTerrain(spawnPosition);
+                SpawnPokemonAt(spawnPosition, pokemon);
+            }
 #else
             Debug.Log("[Spawner] No valid position found, skipping spawn");
 #endif
@@ -103,24 +110,29 @@ public class PokemonSpawner : MonoBehaviour
     {
         position = Vector3.zero;
         int maxAttempts = 10;
+        Transform cam = Camera.main.transform;
 
         for (int i = 0; i < maxAttempts; i++)
         {
-            float screenX = Random.Range(Screen.width * 0.15f, Screen.width * 0.85f);
-            float screenY = Random.Range(Screen.height * 0.3f, Screen.height * 0.8f);
+            float angle = Random.Range(0f, 360f);
+            float distance = Random.Range(minSpawnDistance, spawnDistance);
 
-            Ray ray = Camera.main.ScreenPointToRay(new Vector3(screenX, screenY, 0));
+            Vector3 offset = new Vector3(
+                Mathf.Sin(angle * Mathf.Deg2Rad) * distance,
+                0f,
+                Mathf.Cos(angle * Mathf.Deg2Rad) * distance
+            );
+            Vector3 candidateXZ = cam.position + offset;
 
-            if (!Physics.Raycast(ray, out RaycastHit hit, meshRaycastDistance)) continue;
-
-            float dist = Vector3.Distance(Camera.main.transform.position, hit.point);
-            if (dist < 1f || dist > meshRaycastDistance) continue;
+            Vector3 rayOrigin = new Vector3(candidateXZ.x, cam.position.y + 3f, candidateXZ.z);
+            if (!Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, meshRaycastDistance)) continue;
 
             float upDot = Vector3.Dot(hit.normal, Vector3.up);
             if (upDot < 0.7f) continue;
 
-            // Check clearance: no walls nearby and flat ground around the point
             if (!HasClearance(hit.point)) continue;
+
+            if (!HasDistanceFromExisting(hit.point)) continue;
 
             position = hit.point;
             return true;
@@ -129,17 +141,43 @@ public class PokemonSpawner : MonoBehaviour
         return false;
     }
 
+#if UNITY_EDITOR
+    private bool TryGetEditorFallbackPosition(out Vector3 position)
+    {
+        position = Vector3.zero;
+        Transform cam = Camera.main.transform;
+        int maxAttempts = 10;
+
+        for (int i = 0; i < maxAttempts; i++)
+        {
+            float angle = Random.Range(0f, 360f);
+            float distance = Random.Range(minSpawnDistance, spawnDistance);
+
+            Vector3 offset = new Vector3(
+                Mathf.Sin(angle * Mathf.Deg2Rad) * distance,
+                0f,
+                Mathf.Cos(angle * Mathf.Deg2Rad) * distance
+            );
+            position = cam.position + offset;
+            position.y = cam.position.y - 1f;
+
+            if (HasDistanceFromExisting(position))
+                return true;
+        }
+
+        return false;
+    }
+#endif
+
     private bool HasClearance(Vector3 position)
     {
         Vector3[] directions = { Vector3.forward, Vector3.back, Vector3.left, Vector3.right };
 
         foreach (var dir in directions)
         {
-            // Check no walls within clearance radius
             if (Physics.Raycast(position + Vector3.up * 0.3f, dir, minSpawnClearance))
                 return false;
 
-            // Check ground exists around the point
             Vector3 checkPos = position + dir * minSpawnClearance + Vector3.up * 0.5f;
             if (!Physics.Raycast(checkPos, Vector3.down, out RaycastHit groundHit, 1.5f))
                 return false;
@@ -148,6 +186,17 @@ public class PokemonSpawner : MonoBehaviour
                 return false;
         }
 
+        return true;
+    }
+
+    private bool HasDistanceFromExisting(Vector3 position)
+    {
+        foreach (var existing in wildPokemon)
+        {
+            if (existing.GameObject == null) continue;
+            if (Vector3.Distance(existing.GameObject.transform.position, position) < minSpawnClearance)
+                return false;
+        }
         return true;
     }
 
@@ -236,49 +285,67 @@ public class PokemonSpawner : MonoBehaviour
 
     private void SpawnPokemonAt(Vector3 position, PokemonData pokemon)
     {
-        currentPokemonData = pokemon;
-
-        if (currentPokemonData.modelPrefab == null)
+        if (pokemon.modelPrefab == null)
         {
-            Debug.LogError($"[Spawner] {currentPokemonData.pokemonName} has no model prefab assigned!");
+            Debug.LogError($"[Spawner] {pokemon.pokemonName} has no model prefab assigned!");
             return;
         }
 
-        if (currentPokemonData.spawnBehavior == SpawnBehavior.Flying)
+        if (pokemon.spawnBehavior == SpawnBehavior.Flying)
         {
             position.y += 1.5f;
         }
 
-        currentWildPokemon = Instantiate(
-            currentPokemonData.modelPrefab,
+        GameObject go = Instantiate(
+            pokemon.modelPrefab,
             position,
-            currentPokemonData.modelPrefab.transform.rotation
+            pokemon.modelPrefab.transform.rotation
         );
-        currentWildPokemon.transform.localScale = Vector3.one * currentPokemonData.spawnScale;
-        Vector3 prefabAngles = currentPokemonData.modelPrefab.transform.rotation.eulerAngles;
-        currentWildPokemon.transform.rotation = Quaternion.Euler(prefabAngles.x, Random.Range(0f, 360f), prefabAngles.z);
+        go.transform.localScale = Vector3.one * pokemon.spawnScale;
+        Vector3 prefabAngles = pokemon.modelPrefab.transform.rotation.eulerAngles;
+        go.transform.rotation = Quaternion.Euler(prefabAngles.x, Random.Range(0f, 360f), prefabAngles.z);
 
-        currentAnimator = currentWildPokemon.GetComponent<Animator>();
-        if (currentAnimator != null)
+        Animator anim = go.GetComponent<Animator>();
+        if (anim != null)
         {
-            currentAnimator.SetBool("isWalking", currentPokemonData.spawnBehavior == SpawnBehavior.Ground);
-            currentAnimator.SetBool("isFlying", currentPokemonData.spawnBehavior == SpawnBehavior.Flying);
+            anim.SetBool("isWalking", pokemon.spawnBehavior == SpawnBehavior.Ground);
+            anim.SetBool("isFlying", pokemon.spawnBehavior == SpawnBehavior.Flying);
         }
 
+        var instance = new WildPokemonInstance(go, pokemon, lastDetectedTerrain);
+        wildPokemon.Add(instance);
         lastSpawnTime = Time.time;
-        GameStateManager.Instance.TransitionTo(GamePhase.Encounter);
 
-        Debug.Log($"[Spawner] Wild {currentPokemonData.pokemonName} appeared at {position}!");
+        Debug.Log($"[Spawner] Wild {pokemon.pokemonName} appeared at {position}! ({wildPokemon.Count}/{maxWildPokemon} active)");
+        OnPokemonSpawned?.Invoke(instance);
     }
 
     private void HandlePhaseChanged(GamePhase oldPhase, GamePhase newPhase)
     {
-        if (newPhase == GamePhase.Idle && currentWildPokemon != null)
+        if (newPhase == GamePhase.Idle)
         {
-            Destroy(currentWildPokemon);
-            currentWildPokemon = null;
-            currentPokemonData = null;
+            DisengagePokemon();
         }
+    }
+
+    public void EngagePokemon(WildPokemonInstance instance)
+    {
+        engagedPokemon = instance;
+    }
+
+    public void DisengagePokemon()
+    {
+        engagedPokemon = null;
+    }
+
+    public void RemoveWildPokemon(WildPokemonInstance instance)
+    {
+        if (instance == null) return;
+        wildPokemon.Remove(instance);
+        if (instance.GameObject != null)
+            Destroy(instance.GameObject);
+        if (engagedPokemon == instance)
+            engagedPokemon = null;
     }
 
     public void ForceSpawn(PokemonData pokemon = null)
@@ -287,26 +354,26 @@ public class PokemonSpawner : MonoBehaviour
             GameStateManager.Instance.CurrentPhase != GamePhase.Idle)
             return;
 
-        if (currentWildPokemon != null)
-        {
-            Destroy(currentWildPokemon);
-            currentWildPokemon = null;
-        }
-
         Transform cam = Camera.main.transform;
         Vector3 spawnPosition = cam.position + cam.forward * spawnDistance;
         spawnPosition.y = cam.position.y - 1f;
 
         PokemonData chosen = pokemon ?? PickFromPool(defaultPool);
         SpawnPokemonAt(spawnPosition, chosen);
+
+        var spawned = wildPokemon[wildPokemon.Count - 1];
+        EngagePokemon(spawned);
+        GameStateManager.Instance.TransitionTo(GamePhase.Encounter);
     }
 
     public void DespawnWild()
     {
-        if (currentWildPokemon != null)
+        for (int i = wildPokemon.Count - 1; i >= 0; i--)
         {
-            Destroy(currentWildPokemon);
-            currentWildPokemon = null;
+            if (wildPokemon[i].GameObject != null)
+                Destroy(wildPokemon[i].GameObject);
         }
+        wildPokemon.Clear();
+        engagedPokemon = null;
     }
 }

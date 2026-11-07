@@ -55,6 +55,8 @@ public class GameStateManager : MonoBehaviour
         return (from, to) switch
         {
             (GamePhase.Idle, GamePhase.Encounter) => true,
+            (GamePhase.Idle, GamePhase.CatchAttempt) => true,
+            (GamePhase.Idle, GamePhase.BattleEntry) => true,
             (GamePhase.Encounter, GamePhase.CatchAttempt) => true,
             (GamePhase.Encounter, GamePhase.BattleEntry) => true,
             (GamePhase.CatchAttempt, GamePhase.CatchResult) => true,
