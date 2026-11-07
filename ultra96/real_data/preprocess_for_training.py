@@ -8,8 +8,11 @@ Use --centre-overrides CSV to specify filename,centre_seconds instead;
 filenames are relative to --input. Training offsets still apply to that centre.
 If --input/centre_overrides.csv exists, it is loaded automatically.
 An optional timestamp_ms column is accepted and excluded from model inputs.
-Training recordings produce small centre-offset variants, while validation
-and test recordings produce exactly one window each.  Splits are made by
+Training offsets toward an edge are skipped if the centred window already
+needs padding at that edge. The centred window is always retained.
+Training gestures use earlier and centred windows; neutral training recordings
+keep symmetric centre-offset variants. Validation and test recordings produce
+exactly one window each.  Splits are made by
 recording number so variants from one recording can never leak across splits.
 The input may be the real_data root, a subject folder, or a dated session.
 Sessions may contain incomplete sets after recordings are removed. Remaining
@@ -56,8 +59,10 @@ FILENAME_PATTERN = re.compile(r"^(?P<prefix>[a-z]+)(?P<trial>\d+)\.csv$", re.I)
 # Repeat this pattern for every ten trials; assignments stay stable as data grows.
 # Split by recording number so one recording never crosses data splits.
 SPLIT_TRIALS = {"train": set(range(1, 7)), "val": {7, 8}, "test": {9, 10}}
-# Five training windows span +/-0.64 s at 100 Hz; val/test stay centred.
-TRAIN_OFFSETS = (-64, -32, 0, 32, 64)
+# Offsets use the 100 Hz source time axis and are scaled to the output rate.
+# Gestures exclude later windows; neutral keeps symmetric augmentation.
+TRAIN_OFFSETS = (-64, -32, 0)
+NEUTRAL_TRAIN_OFFSETS = (-64, -32, 0, 32, 64)
 
 
 def split_for_trial(trial):
@@ -232,10 +237,17 @@ def convert(input_dir, output_dir, centre_overrides=None,
         # Locate motion/overrides on the original time axis, then map to output samples.
         signal = resample_signal(signal, sample_rate)
         base_centre = min(len(signal) - 1, round(base_centre * sample_rate / SAMPLE_RATE_HZ))
-        # Preserve the original +/-0.64-second augmentation span at every rate.
+        # Preserve offset durations at every output rate.
+        training_offsets = NEUTRAL_TRAIN_OFFSETS if prefix == "neutral" else TRAIN_OFFSETS
         offsets = (tuple(dict.fromkeys(round(offset * sample_rate / SAMPLE_RATE_HZ)
-                                       for offset in TRAIN_OFFSETS))
+                                       for offset in training_offsets))
                    if split == "train" else (0,))
+        # Do not shift further toward an edge already padded by the base window.
+        base_start = base_centre - window_size // 2
+        base_end = base_start + window_size
+        offsets = tuple(offset for offset in offsets
+                        if not (offset < 0 and base_start < 0)
+                        and not (offset > 0 and base_end > len(signal)))
         for offset in offsets:
             records[split].append(
                 (extract_window(signal, base_centre + offset, window_size), label, trial,
