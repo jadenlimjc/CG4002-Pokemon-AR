@@ -82,6 +82,16 @@ public class MockInputController : MonoBehaviour
                     Debug.Log("[MockInput] SKIP_STEP triggered");
                     GestureEvents.RaiseGestureReceived(GestureAction.SKIP_STEP, mockConfidence);
                     break;
+                case KeyCode.Q:
+                    Debug.Log("[MockInput] Toggle PairingUI");
+                    if (PairingUI.Instance != null)
+                    {
+                        if (PairingUI.Instance.IsVisible)
+                            PairingUI.Instance.Hide();
+                        else
+                            PairingUI.Instance.Show();
+                    }
+                    break;
             }
         }
 
@@ -101,9 +111,11 @@ public class MockInputController : MonoBehaviour
         GUILayout.Label("[R] Reset to Idle");
         GUILayout.Label("[T] Tutorial  [G] God Mode  [P] Full Play");
         GUILayout.Label("[S] Skip Tutorial Step");
+        GUILayout.Label("[Q] Toggle Pairing UI");
         GUILayout.Label("");
         GUILayout.Label($"Mode: {DemoModeManager.Instance?.CurrentMode}");
         GUILayout.Label($"Network: {(NetworkManager.Instance?.IsConnected == true ? "Connected" : "Disconnected")}");
+        GUILayout.Label($"Paired: {(NetworkManager.Instance?.IsPaired == true ? "Player " + NetworkManager.Instance.PairedDeviceId : "No")}");
         GUILayout.EndArea();
     }
 }
