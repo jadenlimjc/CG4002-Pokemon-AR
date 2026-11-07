@@ -23,7 +23,7 @@ MonoBehaviour:
   spawnBehavior: 1
   spawnScale: 2
   moveSpeed: 1
-  baseCatchRate: 0.5
+  baseCatchRate: 0.6
   moves:
   - moveName: 
     moveType: 0
