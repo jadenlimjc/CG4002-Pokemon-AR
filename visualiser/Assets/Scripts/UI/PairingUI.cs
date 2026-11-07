@@ -15,14 +15,12 @@ public class PairingUI : MonoBehaviour
     [SerializeField] private TextMeshProUGUI connectionStatusText;
 
     [Header("Device 1")]
-    [SerializeField] private TextMeshProUGUI device1Label;
+    [SerializeField] private Button device1Button;
     [SerializeField] private TextMeshProUGUI device1Status;
-    [SerializeField] private Image device1Highlight;
 
     [Header("Device 2")]
-    [SerializeField] private TextMeshProUGUI device2Label;
+    [SerializeField] private Button device2Button;
     [SerializeField] private TextMeshProUGUI device2Status;
-    [SerializeField] private Image device2Highlight;
 
     [Header("Buttons")]
     [SerializeField] private Button unpairButton;
@@ -33,10 +31,7 @@ public class PairingUI : MonoBehaviour
     [Header("Colors")]
     [SerializeField] private Color onlineColor = Color.green;
     [SerializeField] private Color offlineColor = Color.gray;
-    [SerializeField] private Color selectedColor = new Color(1f, 1f, 1f, 0.3f);
-    [SerializeField] private Color unselectedColor = new Color(0f, 0f, 0f, 0f);
 
-    private int selectedIndex;
     private bool isPairing;
 
     private void Awake()
@@ -51,6 +46,10 @@ public class PairingUI : MonoBehaviour
 
     private void Start()
     {
+        if (device1Button != null)
+            device1Button.onClick.AddListener(() => PairWithDevice("1"));
+        if (device2Button != null)
+            device2Button.onClick.AddListener(() => PairWithDevice("2"));
         if (unpairButton != null)
             unpairButton.onClick.AddListener(ForgetPairing);
 
@@ -84,31 +83,7 @@ public class PairingUI : MonoBehaviour
     private void Update()
     {
         if (!pairingPanel.activeSelf) return;
-
         RefreshConnectionStatus();
-
-        if (isPairing) return;
-
-        var net = NetworkManager.Instance;
-        if (net == null) return;
-
-        if (net.TryConsumeMenuControls(out bool middle, out bool index, out bool ring))
-        {
-            int count = SelectableCount();
-
-            if (middle)
-            {
-                selectedIndex = (selectedIndex - 1 + count) % count;
-                UpdateSelectionHighlight();
-            }
-            if (ring)
-            {
-                selectedIndex = (selectedIndex + 1) % count;
-                UpdateSelectionHighlight();
-            }
-            if (index)
-                ExecuteSelection();
-        }
     }
 
     public void Show()
@@ -116,11 +91,9 @@ public class PairingUI : MonoBehaviour
         if (pairingPanel != null)
             pairingPanel.SetActive(true);
 
-        selectedIndex = 0;
         isPairing = false;
         RefreshDeviceList();
         RefreshConnectionStatus();
-        UpdateSelectionHighlight();
         UpdateUnpairButton();
         SetStatusMessage("");
     }
@@ -132,13 +105,6 @@ public class PairingUI : MonoBehaviour
     }
 
     public bool IsVisible => pairingPanel != null && pairingPanel.activeSelf;
-
-    private int SelectableCount()
-    {
-        var net = NetworkManager.Instance;
-        bool showUnpair = net != null && net.IsPaired;
-        return showUnpair ? 3 : 2;
-    }
 
     private void RefreshDeviceList()
     {
@@ -158,6 +124,11 @@ public class PairingUI : MonoBehaviour
             device2Status.text = d2Online ? "Online" : "Offline";
             device2Status.color = d2Online ? onlineColor : offlineColor;
         }
+
+        if (device1Button != null)
+            device1Button.interactable = d1Online && !isPairing;
+        if (device2Button != null)
+            device2Button.interactable = d2Online && !isPairing;
     }
 
     private void RefreshPairingState()
@@ -187,41 +158,12 @@ public class PairingUI : MonoBehaviour
         connectionStatusText.text = net.IsConnected ? "Connected" : "Disconnected";
     }
 
-    private void UpdateSelectionHighlight()
-    {
-        if (device1Highlight != null)
-            device1Highlight.color = selectedIndex == 0 ? selectedColor : unselectedColor;
-        if (device2Highlight != null)
-            device2Highlight.color = selectedIndex == 1 ? selectedColor : unselectedColor;
-
-        if (unpairButton != null)
-        {
-            var colors = unpairButton.colors;
-            colors.normalColor = selectedIndex == 2 ? selectedColor : unselectedColor;
-            unpairButton.colors = colors;
-        }
-    }
-
     private void UpdateUnpairButton()
     {
         var net = NetworkManager.Instance;
         bool showUnpair = net != null && net.IsPaired;
         if (unpairButton != null)
             unpairButton.gameObject.SetActive(showUnpair);
-
-        if (selectedIndex >= SelectableCount())
-            selectedIndex = 0;
-        UpdateSelectionHighlight();
-    }
-
-    private void ExecuteSelection()
-    {
-        switch (selectedIndex)
-        {
-            case 0: PairWithDevice("1"); break;
-            case 1: PairWithDevice("2"); break;
-            case 2: ForgetPairing(); break;
-        }
     }
 
     private async void PairWithDevice(string deviceId)
@@ -237,6 +179,7 @@ public class PairingUI : MonoBehaviour
 
         isPairing = true;
         SetStatusMessage("Pairing...");
+        RefreshDeviceList();
 
         try
         {
@@ -261,6 +204,7 @@ public class PairingUI : MonoBehaviour
         finally
         {
             isPairing = false;
+            RefreshDeviceList();
         }
     }
 
