@@ -459,16 +459,18 @@ The control topics are:
 | `ultra96/<player_id>/inference` | Ultra96-translated gesture stream |
 | `ultra96/<player_id>/menu_controls` | Ultra96-translated menu-control event |
 
-The ESP32 hardware runtime maps the confirmed middle hold to up, the confirmed
-ring hold to down, and the confirmed index hold to select. These one-shot inputs
-use `flags` bit 0 for index, bit 1 for middle, and bit 2 for ring in the next
-normal telemetry packet. Ultra96 extracts the bitmask and emits the small
+The ESP32 hardware runtime maps the confirmed middle hold to up and the
+confirmed ring hold to down. The confirmed index hold toggles that device's
+Ultra96 throw mode between `CATCH_THROW` (the default) and `POKEBALL_THROW`,
+and remains the menu-select input forwarded to Unity. These one-shot inputs use
+`flags` bit 0 for index, bit 1 for middle, and bit 2 for ring in the next normal
+telemetry packet. Ultra96 extracts the bitmask and emits the small
 player-labelled `menu_controls` event; the ESP32 makes no additional MQTT
 publication. Unity exposes the result as pending input through
-`MiddlePressPending`, `RingPressPending`, and
-`IndexPressPending`. `TryConsumeMenuControls(...)` reads and clears the
-pending input without depending on Unity script execution order. This networking
-layer does not add or wire any menu UI.
+`MiddlePressPending`, `RingPressPending`, and `IndexPressPending`.
+`TryConsumeMenuControls(...)` reads and clears pending input without depending
+on Unity script execution order. This networking layer does not add or wire any
+menu UI.
 
 The runtime lease file is `ultra96/comms/pairing_leases.json` and is intentionally
 ignored by Git. A lease expires only after five minutes without a successful
@@ -499,7 +501,7 @@ Payload format:
 | `SWITCH_POKEMON` | Back left pocket reach | `BATTLE_ACTION` | 2 |
 | `USE_ITEM` | Front left pocket reach | `BATTLE_ACTION` | 3 |
 | `AIM` | Throwing arm raised to shoulder | `ARM_PULLBACK` | 0 |
-| `THROW` | Throw from Aim position | `CATCH_THROW` | 0 |
+| `THROW` | Throw from Aim position | `CATCH_THROW` or `POKEBALL_THROW`, selected by index | 0 |
 | `STOP_AIMING` | Arm returns to neutral | `CANCEL` | 0 |
 | `NEUTRAL` | Relaxed arm down | No action* | — |
 
@@ -513,7 +515,8 @@ Stop Aim while already neutral is ignored and does not clear that repeat filter.
 All transitions, including Neutral/reset, require confidence at or above 90%
 by default. A rejected MQTT publish leaves the sequence unchanged so a later
 valid prediction can retry. MQTT QoS 0 acceptance does not confirm AR delivery.
-Touch does not change Throw into battle entry in this gesture set.
+Each confirmed index hold toggles the originating device's throw action; the
+mode starts at `CATCH_THROW` whenever the Ultra96 service restarts.
 
 For live testing, `ultra96/comms/tests/gesture_demo.py` uses the same inference
 path and shows the current prediction, explicit decision reason, last sent
@@ -530,7 +533,7 @@ unchanged.
 |--------|-----------|---------|
 | `ARM_PULLBACK` | 0 | Arm draws back (show reticle) |
 | `CATCH_THROW` | 0 | Overhead throw release (fire pokeball) |
-| `POKEBALL_THROW` | 0 | UI/debug battle entry (not in classifier set) |
+| `POKEBALL_THROW` | 0 | Throw classifier output while pokeball mode is selected |
 | `BATTLE_MOVE` | 1–4 | Punch / Swipe / Uppercut / Guard |
 | `BATTLE_ACTION` | 1–4 | Run / Switch / Item / Catch |
 | `CANCEL` | 0 | Cancel action |

@@ -379,6 +379,8 @@ public class NetworkManager : MonoBehaviour
             if (payload == null || payload.sequence < 0 || payload.sequence > uint.MaxValue ||
                 payload.flags < 1 || payload.flags > 7)
                 throw new FormatException("Invalid menu-control payload.");
+            // Ultra96 also uses this index pulse to toggle CATCH_THROW/POKEBALL_THROW;
+            // it remains forwarded so Unity can still treat index as menu select.
             IndexPressPending |= (payload.flags & 0x01) != 0;
             MiddlePressPending |= (payload.flags & 0x02) != 0;
             RingPressPending |= (payload.flags & 0x04) != 0;

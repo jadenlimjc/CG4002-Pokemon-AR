@@ -22,6 +22,7 @@ from process_telemetry import (BODY, CRC,
                                InferenceWindow, TelemetryBuffer, model_input)
 from processing_demo import ProbeProcessor, ResultTrace
 from test_integration_tools import message, payload
+from visualiser_protocol import create_gesture_payload
 
 
 class FakeAccelerator:
@@ -53,6 +54,16 @@ class ModelTests(unittest.TestCase):
                          "ultra96/1/inference")
         self.assertEqual(device_topics("cc386a2b1838")["inference"],
                          "ultra96/2/inference")
+
+    def test_throw_payload_supports_both_selected_actions(self):
+        default = create_gesture_payload('THROW', 0.9, timestamp_ms=1)
+        selected = create_gesture_payload(
+            'THROW', 0.9, timestamp_ms=1, throw_action='POKEBALL_THROW')
+        self.assertEqual(default['action'], 'CATCH_THROW')
+        self.assertEqual(selected['action'], 'POKEBALL_THROW')
+        with self.assertRaisesRegex(ValueError, 'Unsupported throw action'):
+            create_gesture_payload(
+                'THROW', 0.9, timestamp_ms=1, throw_action='INVALID')
 
     def test_normalization_shape_touch_exclusion_and_immutable_input(self):
         window = live_window()
@@ -189,6 +200,24 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual(result['status'], 'LOW_CONFIDENCE')
         self.assertTrue(self.processor.gesture_sequence.aiming)
         self.client.publish.assert_not_called()
+
+    def test_throw_action_uses_per_device_mode(self):
+        self.processor.toggle_throw_mode()
+        self.assertEqual(self.processor.throw_action, 'POKEBALL_THROW')
+
+        for label in (1, 3):
+            self.accelerator.label = label
+            for _ in range(self.processor.confirmation_steps):
+                result = self.processor.run_inference(live_window())
+
+        event = json.loads(self.client.publish.call_args.args[1])
+        self.assertEqual(result['status'], 'PUBLISHED')
+        self.assertEqual(result['throw_action'], 'POKEBALL_THROW')
+        self.assertEqual(event['action'], 'POKEBALL_THROW')
+        self.assertEqual(event['throw_action'], 'POKEBALL_THROW')
+
+        other = TelemetryProcessor(self.client, 'B', self.worker)
+        self.assertEqual(other.throw_action, 'CATCH_THROW')
 
     def test_transient_wrong_label_is_not_published(self):
         results = []
