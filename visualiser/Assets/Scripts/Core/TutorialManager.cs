@@ -45,13 +45,14 @@ public class TutorialManager : MonoBehaviour
         new TutorialStep {
             name = "Catch Throw",
             instruction = "Throw to catch the Pokemon!",
-            expectedGesture = GestureAction.CATCH_THROW,
-            forceSpawnAfter = true
+            expectedGesture = GestureAction.NONE,
+            autoAdvanceOnPhase = true,
+            triggerPhase = GamePhase.Idle
         },
         new TutorialStep {
             name = "Battle Entry",
-            instruction = "A new Pokemon appeared! Press the button on your index finger to toggle to your own Pokemon, then aim and throw your Pokemon to battle!",
-            expectedGesture = GestureAction.POKEBALL_THROW,
+            instruction = "A new Pokemon appeared! Press the button on your index finger, then aim and throw your Pokemon to battle!",
+            expectedGesture = GestureAction.NONE,
             forceSpawnBefore = true,
             autoAdvanceOnPhase = true,
             triggerPhase = GamePhase.BattleActive
