@@ -4,6 +4,8 @@ using TMPro;
 
 public class EncounterNotification : MonoBehaviour
 {
+    public static EncounterNotification Instance { get; private set; }
+
     [Header("UI References")]
     [SerializeField] private GameObject notificationPanel;
     [SerializeField] private TextMeshProUGUI pokemonNameText;
@@ -20,6 +22,13 @@ public class EncounterNotification : MonoBehaviour
 
     private void Awake()
     {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+        Instance = this;
+
         canvasGroup = notificationPanel?.GetComponent<CanvasGroup>();
         if (canvasGroup == null && notificationPanel != null)
             canvasGroup = notificationPanel.AddComponent<CanvasGroup>();
@@ -32,6 +41,9 @@ public class EncounterNotification : MonoBehaviour
         PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
         if (spawner != null)
             spawner.OnPokemonSpawned += HandlePokemonSpawned;
+
+        if (CatchManager.Instance != null)
+            CatchManager.Instance.OnCatchResult += HandleCatchResult;
     }
 
     private void Start()
@@ -42,6 +54,12 @@ public class EncounterNotification : MonoBehaviour
             spawner.OnPokemonSpawned -= HandlePokemonSpawned;
             spawner.OnPokemonSpawned += HandlePokemonSpawned;
         }
+
+        if (CatchManager.Instance != null)
+        {
+            CatchManager.Instance.OnCatchResult -= HandleCatchResult;
+            CatchManager.Instance.OnCatchResult += HandleCatchResult;
+        }
     }
 
     private void OnDisable()
@@ -49,6 +67,9 @@ public class EncounterNotification : MonoBehaviour
         PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
         if (spawner != null)
             spawner.OnPokemonSpawned -= HandlePokemonSpawned;
+
+        if (CatchManager.Instance != null)
+            CatchManager.Instance.OnCatchResult -= HandleCatchResult;
     }
 
     private void HandlePokemonSpawned(WildPokemonInstance instance)
@@ -56,6 +77,25 @@ public class EncounterNotification : MonoBehaviour
         string name = instance?.Data?.pokemonName ?? "???";
         string terrain = instance?.SpawnTerrain ?? "Unknown";
         ShowNotification(name, terrain);
+    }
+
+    private void HandleCatchResult(bool success, string pokemonName)
+    {
+        if (success)
+            ShowCaughtNotification(pokemonName);
+    }
+
+    public void ShowCaughtNotification(string pokemonName)
+    {
+        if (pokemonNameText != null)
+            pokemonNameText.text = $"Gotcha! {pokemonName} was caught!";
+
+        if (terrainTypeText != null)
+            terrainTypeText.text = "";
+
+        if (activeAnimation != null)
+            StopCoroutine(activeAnimation);
+        activeAnimation = StartCoroutine(AnimateNotification());
     }
 
     private void ShowNotification(string pokemonName, string terrain)
