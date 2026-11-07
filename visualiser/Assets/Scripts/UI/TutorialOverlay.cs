@@ -1,29 +1,21 @@
 using System.Collections;
 using UnityEngine;
-using UnityEngine.UI;
 using TMPro;
 
 public class TutorialOverlay : MonoBehaviour
 {
-    [Header("Settings")]
-    [SerializeField] private int stepFontSize = 16;
-    [SerializeField] private int instructionFontSize = 22;
-    [SerializeField] private int labelFontSize = 12;
+    [Header("Tutorial Panel")]
+    [SerializeField] private GameObject tutorialPanel;
+    [SerializeField] private TextMeshProUGUI stepText;
+    [SerializeField] private TextMeshProUGUI instructionText;
+    [SerializeField] private TextMeshProUGUI feedbackText;
 
-    private GameObject overlayPanel;
-    private TextMeshProUGUI stepText;
-    private TextMeshProUGUI instructionText;
-    private TextMeshProUGUI feedbackText;
+    [Header("Command Labels")]
+    [SerializeField] private GameObject godModeLabel;
+    [SerializeField] private GameObject fullPlayLabel;
+    [SerializeField] private GameObject skipStepLabel;
+
     private Coroutine feedbackCoroutine;
-
-    private void Start()
-    {
-        Canvas canvas = GetComponentInParent<Canvas>();
-        if (canvas == null) return;
-
-        BuildUI();
-        overlayPanel.SetActive(false);
-    }
 
     private void OnEnable()
     {
@@ -34,6 +26,24 @@ public class TutorialOverlay : MonoBehaviour
         }
         if (DemoModeManager.Instance != null)
             DemoModeManager.Instance.OnDemoModeChanged += HandleModeChanged;
+    }
+
+    private void Start()
+    {
+        if (TutorialManager.Instance != null)
+        {
+            TutorialManager.Instance.OnStepChanged -= HandleStepChanged;
+            TutorialManager.Instance.OnStepChanged += HandleStepChanged;
+            TutorialManager.Instance.OnTutorialFeedback -= HandleFeedback;
+            TutorialManager.Instance.OnTutorialFeedback += HandleFeedback;
+        }
+        if (DemoModeManager.Instance != null)
+        {
+            DemoModeManager.Instance.OnDemoModeChanged -= HandleModeChanged;
+            DemoModeManager.Instance.OnDemoModeChanged += HandleModeChanged;
+        }
+
+        Hide();
     }
 
     private void OnDisable()
@@ -78,7 +88,7 @@ public class TutorialOverlay : MonoBehaviour
         feedbackText = CreateLabel(overlayPanel.transform, "FeedbackText",
             new Vector2(0.35f, 0.7f), new Vector2(0.7f, 1f),
             Vector2.zero, new Vector2(0f, -5f),
-            stepFontSize, new Color(0.4f, 1f, 0.4f), TextAlignmentOptions.Top);
+            stepFontSize, new Color(0.4f, 1f, 0.4f), TextAlignmentOptions.TopCenter);
 
         // Command labels row (bottom of overlay)
         float labelY0 = 0f;
@@ -150,12 +160,13 @@ public class TutorialOverlay : MonoBehaviour
 
     private void HandleStepChanged(int stepIndex, TutorialManager.TutorialStep step)
     {
-        if (overlayPanel == null) return;
-
-        overlayPanel.SetActive(true);
-        stepText.text = $"Step {stepIndex + 1} of {TutorialManager.Instance.TotalSteps}";
-        instructionText.text = step.instruction;
-        feedbackText.text = "";
+        Show();
+        if (stepText != null)
+            stepText.text = $"Step {stepIndex + 1} of {TutorialManager.Instance.TotalSteps}";
+        if (instructionText != null)
+            instructionText.text = step.instruction;
+        if (feedbackText != null)
+            feedbackText.text = "";
     }
 
     private void HandleFeedback(string message)
@@ -171,26 +182,49 @@ public class TutorialOverlay : MonoBehaviour
 
     private IEnumerator FadeFeedback()
     {
-        feedbackText.color = new Color(0.4f, 1f, 0.4f, 1f);
+        if (feedbackText != null)
+            feedbackText.color = new Color(feedbackText.color.r, feedbackText.color.g, feedbackText.color.b, 1f);
+
         yield return new WaitForSeconds(2f);
 
         float elapsed = 0f;
         float fadeDuration = 0.5f;
+        Color original = feedbackText != null ? feedbackText.color : Color.white;
+
         while (elapsed < fadeDuration)
         {
             elapsed += Time.deltaTime;
             float alpha = 1f - (elapsed / fadeDuration);
-            feedbackText.color = new Color(0.4f, 1f, 0.4f, alpha);
+            if (feedbackText != null)
+                feedbackText.color = new Color(original.r, original.g, original.b, alpha);
             yield return null;
         }
-        feedbackText.text = "";
+
+        if (feedbackText != null)
+            feedbackText.text = "";
     }
 
     private void HandleModeChanged(DemoMode oldMode, DemoMode newMode)
     {
-        if (overlayPanel == null) return;
+        if (newMode == DemoMode.Tutorial)
+            Show();
+        else
+            Hide();
+    }
 
-        if (newMode != DemoMode.Tutorial)
-            overlayPanel.SetActive(false);
+    private void Show()
+    {
+        if (tutorialPanel != null) tutorialPanel.SetActive(true);
+        if (godModeLabel != null) godModeLabel.SetActive(true);
+        if (fullPlayLabel != null) fullPlayLabel.SetActive(true);
+        if (skipStepLabel != null) skipStepLabel.SetActive(true);
+    }
+
+    private void Hide()
+    {
+        if (tutorialPanel != null) tutorialPanel.SetActive(false);
+        if (godModeLabel != null) godModeLabel.SetActive(false);
+        if (fullPlayLabel != null) fullPlayLabel.SetActive(false);
+        if (skipStepLabel != null) skipStepLabel.SetActive(false);
     }
 }
