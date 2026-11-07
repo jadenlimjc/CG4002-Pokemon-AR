@@ -78,7 +78,7 @@ public class TutorialOverlay : MonoBehaviour
         feedbackText = CreateLabel(overlayPanel.transform, "FeedbackText",
             new Vector2(0.35f, 0.7f), new Vector2(0.7f, 1f),
             Vector2.zero, new Vector2(0f, -5f),
-            stepFontSize, new Color(0.4f, 1f, 0.4f), TextAlignmentOptions.TopCenter);
+            stepFontSize, new Color(0.4f, 1f, 0.4f), TextAlignmentOptions.Top);
 
         // Command labels row (bottom of overlay)
         float labelY0 = 0f;
