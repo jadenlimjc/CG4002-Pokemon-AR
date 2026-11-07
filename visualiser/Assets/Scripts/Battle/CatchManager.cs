@@ -245,7 +245,9 @@ public class CatchManager : MonoBehaviour
         activePokeball.transform.position = targetPos;
 
         // Calculate catch success via jiggle sequence
-        float catchRate = spawner.CurrentPokemonData.baseCatchRate;
+        float catchRate = (DemoModeManager.Instance != null && DemoModeManager.Instance.IsGodMode)
+            ? 1f
+            : spawner.CurrentPokemonData.baseCatchRate;
         bool caught = false;
 
         for (int i = 0; i < maxJiggles; i++)

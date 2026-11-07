@@ -281,6 +281,26 @@ public class PokemonSpawner : MonoBehaviour
         }
     }
 
+    public void ForceSpawn(PokemonData pokemon = null)
+    {
+        if (GameStateManager.Instance != null &&
+            GameStateManager.Instance.CurrentPhase != GamePhase.Idle)
+            return;
+
+        if (currentWildPokemon != null)
+        {
+            Destroy(currentWildPokemon);
+            currentWildPokemon = null;
+        }
+
+        Transform cam = Camera.main.transform;
+        Vector3 spawnPosition = cam.position + cam.forward * spawnDistance;
+        spawnPosition.y = cam.position.y - 1f;
+
+        PokemonData chosen = pokemon ?? PickFromPool(defaultPool);
+        SpawnPokemonAt(spawnPosition, chosen);
+    }
+
     public void DespawnWild()
     {
         if (currentWildPokemon != null)

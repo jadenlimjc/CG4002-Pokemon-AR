@@ -15,7 +15,11 @@ public enum GestureAction
     BATTLE_SWITCH,      // Switch active pokemon
     BATTLE_ITEM,        // Use an item
     BATTLE_CATCH,       // Initiate catch sequence mid-battle
-    CANCEL              // Cancel current action / hand drops without throw
+    CANCEL,             // Cancel current action / hand drops without throw
+    SET_TUTORIAL,       // Switch to Tutorial mode (sent from comms manager)
+    SET_GOD_MODE,       // Switch to God mode (sent from comms manager)
+    SET_FULL_PLAY,      // Switch to Full Play mode (sent from comms manager)
+    SKIP_STEP           // Skip current tutorial step (sent from comms manager)
 }
 
 [Serializable]
@@ -50,6 +54,10 @@ public class GesturePayload
                 _ => GestureAction.NONE
             },
             "CANCEL" => GestureAction.CANCEL,
+            "SET_TUTORIAL" => GestureAction.SET_TUTORIAL,
+            "SET_GOD_MODE" => GestureAction.SET_GOD_MODE,
+            "SET_FULL_PLAY" => GestureAction.SET_FULL_PLAY,
+            "SKIP_STEP" => GestureAction.SKIP_STEP,
             _ => GestureAction.NONE
         };
     }
