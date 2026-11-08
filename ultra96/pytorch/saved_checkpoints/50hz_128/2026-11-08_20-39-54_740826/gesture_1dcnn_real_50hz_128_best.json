@@ -1,0 +1,52 @@
+{
+  "sample_rate_hz": 50,
+  "window_size": 128,
+  "model_config": {
+    "in_channels": 6,
+    "num_classes": 11,
+    "channels": [
+      32,
+      64,
+      128
+    ],
+    "kernel_sizes": [
+      7,
+      5,
+      3
+    ],
+    "hidden_features": 64,
+    "dropout": 0.22214197961920232
+  },
+  "class_names": [
+    "Neutral",
+    "Aim",
+    "Stop Aim",
+    "Throw",
+    "Punch",
+    "Downward Swipe",
+    "Guard",
+    "Flee / U-turn",
+    "Switch Pokemon / Back-pocket reach",
+    "Use Item / Front-pocket reach",
+    "Uppercut"
+  ],
+  "params": {
+    "lr": 0.0011709413361488715,
+    "weight_decay": 0.00016330261109656093,
+    "dropout": 0.22214197961920232
+  },
+  "augmentation": {
+    "kind": "imu",
+    "probability": 0.5,
+    "rotation_degrees": 10.0,
+    "warp_strength": 0.1,
+    "magnitude_fraction": 0.1,
+    "seed": 43
+  },
+  "metrics": {
+    "seed": 42,
+    "epoch": 26,
+    "balanced_accuracy": 98.17136526107788,
+    "val_loss": 0.07127438717146607
+  }
+}
