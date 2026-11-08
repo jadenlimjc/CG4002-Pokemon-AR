@@ -48,6 +48,16 @@ def live_window():
     return InferenceWindow(features, 127, 2540, now, now)
 
 
+def inference_publish_calls(client):
+    return [call for call in client.publish.call_args_list
+            if call.args[0].endswith('/inference')]
+
+
+def feedback_publish_calls(client):
+    return [call for call in client.publish.call_args_list
+            if call.args[0].endswith('/haptic/cmd')]
+
+
 class ModelTests(unittest.TestCase):
     def test_production_hardware_ids_use_phone_facing_player_topics(self):
         self.assertEqual(device_topics("dce6f6215788")["inference"],
@@ -172,7 +182,7 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual([r['status'] for r in results],
                          ['PUBLISHED', 'SUPPRESSED', 'PUBLISHED', 'SUPPRESSED',
                           'SUPPRESSED', 'PUBLISHED', 'PUBLISHED'])
-        events = [json.loads(call.args[1]) for call in self.client.publish.call_args_list]
+        events = [json.loads(call.args[1]) for call in inference_publish_calls(self.client)]
         self.assertEqual([event['action'] for event in events],
                          ['ARM_PULLBACK', 'CATCH_THROW', 'CANCEL', 'BATTLE_MOVE'])
         self.assertEqual(events[-1]['gesture_id'], 1)
@@ -188,7 +198,9 @@ class GameplayTests(unittest.TestCase):
         for _ in range(2):
             self.assertEqual(other.run_inference(live_window())['status'], 'CONFIRMING')
         self.assertEqual(other.run_inference(live_window())['status'], 'PUBLISHED')
-        self.assertEqual(self.client.publish.call_args.args[0], 'ultra96/B/inference')
+        self.assertEqual(inference_publish_calls(self.client)[-1].args[0],
+                         'ultra96/B/inference')
+        self.assertEqual(len(feedback_publish_calls(self.client)), len(events) + 1)
 
     def test_low_confidence_does_not_change_sequence_or_publish(self):
         self.accelerator.label = 1
@@ -210,7 +222,7 @@ class GameplayTests(unittest.TestCase):
             for _ in range(self.processor.confirmation_steps):
                 result = self.processor.run_inference(live_window())
 
-        event = json.loads(self.client.publish.call_args.args[1])
+        event = json.loads(inference_publish_calls(self.client)[-1].args[1])
         self.assertEqual(result['status'], 'PUBLISHED')
         self.assertEqual(result['throw_action'], 'POKEBALL_THROW')
         self.assertEqual(event['action'], 'POKEBALL_THROW')
@@ -227,8 +239,9 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual([r['status'] for r in results],
                          ['CONFIRMING', 'CONFIRMING', 'CONFIRMING', 'PUBLISHED', 'SUPPRESSED'])
         self.assertEqual([r['confirmation_count'] for r in results], [1, 1, 2, 3, 3])
-        self.client.publish.assert_called_once()
-        event = json.loads(self.client.publish.call_args.args[1])
+        self.assertEqual(len(inference_publish_calls(self.client)), 1)
+        self.assertEqual(len(feedback_publish_calls(self.client)), 1)
+        event = json.loads(inference_publish_calls(self.client)[0].args[1])
         self.assertEqual(event['predicted_action'], 'PUNCH')
 
     def test_low_confidence_restarts_confirmation(self):
@@ -256,7 +269,8 @@ class GameplayTests(unittest.TestCase):
             result = self.processor.run_inference(live_window())
         self.assertEqual(result['reason'], 'NEUTRAL')
         self.assertEqual(self.processor.gesture_sequence.state, 'NEUTRAL')
-        self.client.publish.assert_called_once()
+        self.assertEqual(len(inference_publish_calls(self.client)), 1)
+        self.assertEqual(len(feedback_publish_calls(self.client)), 1)
 
     def test_return_motion_is_blocked_until_cooldown_expires(self):
         def predict(label, count):
@@ -271,7 +285,8 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual(returning['confirmation_count'], 0)
         self.processor.cooldown_until = 0
         self.assertEqual(predict(5, 3)[-1]['status'], 'PUBLISHED')
-        self.assertEqual(self.client.publish.call_count, 2)
+        self.assertEqual(len(inference_publish_calls(self.client)), 2)
+        self.assertEqual(len(feedback_publish_calls(self.client)), 2)
 
     def test_softmax_stability_and_invalid_fpga_outputs(self):
         self.accelerator.predict_logits_timed = lambda _: (
@@ -290,6 +305,19 @@ class GameplayTests(unittest.TestCase):
         for _ in range(3):
             result = self.processor.run_inference(live_window())
         self.assertEqual(result['status'], 'PUBLISH_FAILED')
+        self.assertEqual(len(feedback_publish_calls(self.client)), 0)
+
+    def test_successful_gesture_publish_emits_board_feedback(self):
+        processor = TelemetryProcessor(
+            self.client, 'A', self.worker, confirmation_steps=1, cooldown_seconds=0)
+        result = processor.run_inference(live_window())
+
+        self.assertEqual(result['status'], 'PUBLISHED')
+        self.assertEqual([call.args[0] for call in self.client.publish.call_args_list], [
+            'ultra96/A/inference', 'esp32/A/haptic/cmd'])
+        feedback = feedback_publish_calls(self.client)[0]
+        self.assertEqual(feedback.args[1], 'gesture')
+        self.assertEqual(feedback.kwargs, {'qos': 0, 'retain': False})
 
 
 class SchedulingTests(unittest.TestCase):
@@ -390,7 +418,10 @@ class SchedulingTests(unittest.TestCase):
         self.assertNotEqual(owner, get_ident())
         self.assertTrue(all(thread == owner for thread, _ in calls))
         self.assertEqual(lifecycle, [('open', owner), ('close', owner)])
-        self.assertEqual(client.publish.call_count, 2)  # Independent per-board sequence state.
+        # Each accepted result publishes the gesture and one board-specific
+        # feedback command; sequence state remains independent per board.
+        self.assertEqual(len(inference_publish_calls(client)), 2)
+        self.assertEqual(len(feedback_publish_calls(client)), 2)
         self.assertEqual(trace.marked_devices, {'A', 'B'})
         lines = [call.args[0] for call in trace.output.call_args_list]
         self.assertEqual(sum(line.startswith('RESULT ') for line in lines), 3)

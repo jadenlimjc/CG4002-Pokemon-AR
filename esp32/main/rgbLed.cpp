@@ -35,6 +35,6 @@ void RgbLed::red()   {
   setColor(255, 0, 0); 
 }
 
-void RgbLed::blue()  { 
-  setColor(0, 0, 255); 
+void RgbLed::blue(uint8_t brightness)  {
+  setColor(0, 0, brightness);
 }

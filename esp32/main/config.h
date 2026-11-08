@@ -28,12 +28,15 @@ const unsigned long START_HOLD_TIME_MS  = 5000;  // index: hold to start/stop
 const unsigned long SELECT_HOLD_TIME_MS = 500;   // index: hold to select (Battle only)
 const unsigned long TOGGLE_HOLD_TIME_MS = 600;   // middle/ring: single hold
 const unsigned long MOTOR_RUN_TIME_MS   = 500;
+const unsigned long CONNECTION_LED_BLINK_MS = 500;
+const unsigned long GESTURE_BUZZER_DURATION_MS = 2000;
 
 // =====================================================
 // PWM configuration
 // =====================================================
 #define LED_PWM_FREQUENCY  5000
 #define LED_PWM_RESOLUTION 8
+#define CONNECTION_LED_BLUE_BRIGHTNESS 64 // 25% of the 8-bit PWM range
 #define BUZZER_PWM_FREQUENCY  1500
 #define BUZZER_PWM_RESOLUTION 8
 

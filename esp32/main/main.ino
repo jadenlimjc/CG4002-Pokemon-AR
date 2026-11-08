@@ -29,11 +29,12 @@ constexpr uint16_t SENSOR_PERIOD_MS = 1000 / SENSOR_SAMPLE_RATE_HZ;
 constexpr TickType_t SENSOR_PERIOD_TICKS = pdMS_TO_TICKS(SENSOR_PERIOD_MS);
 static_assert(SENSOR_PERIOD_TICKS > 0 && configTICK_RATE_HZ % SENSOR_SAMPLE_RATE_HZ == 0,
               "Sensor cadence must be representable by FreeRTOS ticks");
-std::atomic<bool> hapticRequested{false};
+std::atomic<bool> gestureSoundRequested{false};
+std::atomic<bool> networkConnected{false};
 
 // Endpoints of the renamed main_oop sketch; SensorSampleTask owns all hardware.
 void setupHardware();
-void updateHardware(bool telemetryEnabled, bool haptic);
+void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected);
 bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
                          uint8_t touchFlags, bool streamStart, bool changeGated);
 
@@ -347,7 +348,9 @@ void SensorSampleTask(void* pvParameters) {
     TickType_t lastWake = xTaskGetTickCount();
     for (;;) {
         vTaskDelayUntil(&lastWake, SENSOR_PERIOD_TICKS);
-        updateHardware(demoMode.load() == AUTO, hapticRequested.exchange(false));
+        updateHardware(demoMode.load() == AUTO,
+                       gestureSoundRequested.exchange(false),
+                       networkConnected.load());
         // Startup/end melodies and MPU initialization can block. Resume from
         // now rather than generating a burst of stale catch-up samples.
         if (xTaskGetTickCount() - lastWake >= SENSOR_PERIOD_TICKS) {
@@ -431,6 +434,7 @@ void NetworkTask(void* pvParameters) {
         // ----------------------------------
 
         if (WiFi.status() != WL_CONNECTED) {
+            networkConnected.store(false);
             Serial.println("[NetworkTask] Wi-Fi disconnected.");
             connectWiFi();
         }
@@ -440,10 +444,12 @@ void NetworkTask(void* pvParameters) {
         // ----------------------------------
 
         if (WiFi.status() == WL_CONNECTED && !client.connected()) {
+            networkConnected.store(false);
             connectMQTT();
         }
 
         client.loop();
+        networkConnected.store(WiFi.status() == WL_CONNECTED && client.connected());
         telemetryRtt.tick();
 
         // ----------------------------------
@@ -636,6 +642,7 @@ void connectMQTT() {
 
         if (client.connect(mqtt_client_id, MQTT_USER, MQTT_PASSWORD, topic_status, lwt_qos, lwt_retain, lwt_payload)) {
             Serial.println("[NetworkTask] Connected to MQTT broker successfully!");
+            networkConnected.store(true);
 
             client.setCallback(mqttCallback);
 
@@ -781,7 +788,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
             Serial.printf("[DEMO] Mode confirmed: %s\n", modeNames[selected]);
         }
     } else if (strcmp(topic, topic_haptic) == 0 && demoMode.load() == AUTO) {
-        hapticRequested.store(true); // Hardware task calls the existing buzzer object.
+        // The Ultra96 posts here after successfully publishing a gesture.
+        // Keep the MQTT callback non-blocking; SensorSampleTask owns the buzzer.
+        gestureSoundRequested.store(true);
     }
     // In manual modes the Ultra96 subscribes to Haptic commands as Send triggers.
 }

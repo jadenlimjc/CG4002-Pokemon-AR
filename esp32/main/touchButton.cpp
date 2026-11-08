@@ -22,6 +22,7 @@ void TouchButton::update() {
 
     if (touchedNow && !touchedState_) {
       touchedState_ = true;
+      freshTouch_ = true;
       startMillis_ = now;
       onFreshTouch();
     } else if (!touchedNow && touchedState_) {
@@ -32,6 +33,11 @@ void TouchButton::update() {
 }
 
 bool TouchButton::isTouched() const { return touchedState_; }
+bool TouchButton::consumeFreshTouch() {
+  const bool wasFresh = freshTouch_;
+  freshTouch_ = false;
+  return wasFresh;
+}
 unsigned long TouchButton::heldForMs() const { 
   return millis() - startMillis_; 
 }
@@ -42,6 +48,7 @@ unsigned long TouchButton::startMillis() const {
 
 void TouchButton::resetTouchState() {
   touchedState_ = false;
+  freshTouch_ = false;
   isrFlag_ = false;
 }
 

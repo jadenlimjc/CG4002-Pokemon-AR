@@ -23,6 +23,8 @@ class TouchButton {
     void update();
 
     bool isTouched() const;
+    // Returns true once for each new touch edge.
+    bool consumeFreshTouch();
     unsigned long heldForMs() const;
     unsigned long startMillis() const;
 
@@ -37,6 +39,7 @@ class TouchButton {
     int threshold_;
     volatile bool isrFlag_ = false;
     bool touchedState_ = false;
+    bool freshTouch_ = false;
     unsigned long startMillis_ = 0;
 };
 
