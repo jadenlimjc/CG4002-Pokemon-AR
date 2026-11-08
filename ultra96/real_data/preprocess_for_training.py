@@ -183,7 +183,8 @@ def load_centre_overrides(path):
 
 
 def convert(input_dir, output_dir, centre_overrides=None,
-            sample_rate=DEFAULT_SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
+            sample_rate=DEFAULT_SAMPLE_RATE_HZ, window_size=WINDOW_SIZE,
+            held_out_subject=None, subject_splits=None):
     if type(sample_rate) is not int or not 0 < sample_rate <= SAMPLE_RATE_HZ or window_size < 4:
         raise ValueError("sample_rate must be an integer from 1 to 100 and window_size must be at least 4")
     if not input_dir.is_dir():
@@ -204,6 +205,18 @@ def convert(input_dir, output_dir, centre_overrides=None,
     )
     if not paths:
         raise RuntimeError(f"no CSV recordings found in {input_dir}")
+    if held_out_subject is not None or subject_splits is not None:
+        # LOSO requires the root/subject/session/recording.csv hierarchy.
+        if any(len(path.relative_to(input_dir).parts) != 3 for path in paths):
+            raise ValueError("LOSO input must contain subject/session/recording.csv paths")
+        subjects = {path.relative_to(input_dir).parts[0] for path in paths}
+        if held_out_subject is not None and (held_out_subject not in subjects or len(subjects) < 2):
+            raise ValueError(f"Invalid held-out subject {held_out_subject!r}; found {sorted(subjects)}")
+        if subject_splits is not None:
+            if held_out_subject is not None:
+                raise ValueError("subject_splits and held_out_subject are mutually exclusive")
+            if set(subject_splits) != subjects or not set(subject_splits.values()) <= set(SPLIT_TRIALS):
+                raise ValueError("subject_splits must assign every subject to train, val, or test")
     unknown = overrides.keys() - {path.relative_to(input_dir).as_posix() for path in paths}
     if unknown:
         raise ValueError(f"Override filenames not found under --input: {sorted(unknown)}")
@@ -224,6 +237,13 @@ def convert(input_dir, output_dir, centre_overrides=None,
             raise ValueError(f"duplicate gesture/trial in {session}: {key}")
         seen.add(key)
         split = split_for_trial(trial)
+        if subject_splits is not None:
+            split = subject_splits[session.parent.name]
+        if held_out_subject is not None:
+            # All trials from the unseen person are test-only. For everyone
+            # else, retain trials 7-8 for validation and use the rest to train.
+            split = ("test" if session.parent.name == held_out_subject
+                     else "val" if split == "val" else "train")
         label = PREFIX_TO_LABEL[prefix]
         signal = load_csv(path)
         # Neutral uses the recording centre; gestures use the motion peak.
@@ -262,7 +282,8 @@ def convert(input_dir, output_dir, centre_overrides=None,
 
     # Fail before writing any files, rather than leaving partially updated
     # splits or allowing downstream training/evaluation on an empty dataset.
-    empty_splits = [split for split, items in records.items() if not items]
+    required = set(subject_splits.values()) if subject_splits is not None else set(SPLIT_TRIALS)
+    empty_splits = [split for split in required if not records[split]]
     if empty_splits:
         raise RuntimeError(
             f"No recordings remain for splits: {empty_splits}. "
@@ -270,6 +291,8 @@ def convert(input_dir, output_dir, centre_overrides=None,
             "train 1-6, val 7-8, test 9-10 (repeating for 11-20, etc.)."
         )
     for split, items in records.items():
+        if not items:
+            continue
         present = {item[1] for item in items}
         missing_classes = [name for label, name in enumerate(CLASS_NAMES)
                            if label not in present]
@@ -280,6 +303,8 @@ def convert(input_dir, output_dir, centre_overrides=None,
           f"({window_size / sample_rate:.2f} s)")
     output_dir.mkdir(parents=True, exist_ok=True)
     for split, split_records in records.items():
+        if not split_records:
+            continue
         windows, labels, trials, filenames, offsets, subjects, sessions, centres = zip(*split_records)
         x = np.stack(windows).astype(np.float32)
         y = np.asarray(labels, dtype=np.int64)

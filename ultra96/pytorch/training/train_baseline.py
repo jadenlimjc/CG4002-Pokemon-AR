@@ -14,6 +14,7 @@ from pathlib import Path
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from ultra96.pytorch.training.model import Gesture1DCNN # Import the model from its dedicated file
+from ultra96.pytorch.training.augmentation import make_training_augmentation
 
 SAMPLE_RATE_HZ = 50
 WINDOW_SIZE = 128
@@ -159,7 +160,8 @@ class RealTimeGesturePredictor:
 # =====================================================================
 def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
                  output_dir=None, evaluate=False, eval_data=None,
-                 sample_rate=SAMPLE_RATE_HZ, window_size=WINDOW_SIZE):
+                 sample_rate=SAMPLE_RATE_HZ, window_size=WINDOW_SIZE,
+                 training_params=None, augmentation=None):
     validate_input_settings(sample_rate, window_size)
     label = run_label(sample_rate, window_size)
     if num_epochs < 1:
@@ -168,6 +170,8 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
         raise ValueError("eval_data requires evaluate=True")
     # Set seed for deterministic results
     set_seed(42)
+    augmenter = make_training_augmentation(augmentation) if augmentation is not None else None
+    augmentation_config = augmenter.config if augmenter else None
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Run configuration: {label}")
@@ -214,6 +218,8 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
     params = REAL_TRAINING_PARAMS if dataset == "real" else {
         "lr": 1e-3, "weight_decay": 1e-4, "dropout": 0.3,
     }
+    if training_params is not None:
+        params = {**params, **training_params}
     model = Gesture1DCNN(in_channels=6, num_classes=num_classes).to(device)
     model.classifier[0].p = params["dropout"]
     print("Training settings:", params)
@@ -240,6 +246,8 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
         model.train()
         total_loss, correct, total = 0.0, 0, 0
         for inputs, targets in train_loader:
+            if augmenter is not None:
+                inputs = augmenter(inputs)
             inputs, targets = inputs.to(device), targets.to(device)
 
             # Forward -> measure error -> backpropagate -> update model weights.
@@ -315,6 +323,7 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
         "sample_rate_hz": sample_rate, "window_size": window_size,
         "model_config": {**model.config, "dropout": params["dropout"]},
         "class_names": train_dataset.class_names, "params": params,
+        "augmentation": augmentation_config,
         "metrics": {"seed": 42, "epoch": best_epoch,
                     "balanced_accuracy": best_val_balanced_acc, "val_loss": best_val_loss},
     }, indent=2) + "\n")
@@ -322,6 +331,7 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
                 "sample_rate_hz": sample_rate, "window_size": window_size,
                 "data_dir": str(Path(data_dir).resolve()), "epochs": num_epochs,
                 "params": params, "checkpoint": best_model_path.name,
+                "augmentation": augmentation_config,
                 "loss_plot": plot_path.name, "best_epoch": best_epoch,
                 "best_val_balanced_accuracy": best_val_balanced_acc,
                 "train_losses": train_losses, "val_losses": val_losses,
@@ -343,6 +353,11 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
 def parse_args():
     parser = argparse.ArgumentParser(description="Train the gesture 1D CNN")
     parser.add_argument("--epochs", type=int, default=30)
+    aug = parser.add_mutually_exclusive_group()
+    aug.add_argument("--augment", action="store_true",
+                        help="apply small amplitude, noise and speed changes to training batches only")
+    aug.add_argument("--augmentation", choices=("basic", "imu"),
+                     help="training-only preset: basic or shared 3D rotation, smooth time warp and magnitude")
     parser.add_argument("--dataset", choices=DATASET_CONFIGS, default="real")
     parser.add_argument("--data-dir", default=None,
                         help="override the selected dataset processed directory (real default: real_data/processed_50hz_128)")
@@ -372,4 +387,6 @@ if __name__ == "__main__":
     args = parse_args()
     run_pipeline(args.epochs, args.dataset, args.data_dir, args.checkpoint,
                  args.output_dir, args.evaluate, args.eval_data,
-                 args.sample_rate, args.window_size)
+                 args.sample_rate, args.window_size,
+                 augmentation={"kind": args.augmentation or "basic"}
+                 if args.augment or args.augmentation else None)
