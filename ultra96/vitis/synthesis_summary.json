@@ -1,0 +1,47 @@
+{
+  "target_part": "xczu3eg-sbva484-1-i",
+  "target_clock_ns": "10.00",
+  "estimated_clock_ns": 7.292,
+  "resources": {
+    "BRAM_18K": 130,
+    "DSP": 33,
+    "FF": 5830,
+    "LUT": 22022,
+    "URAM": 0
+  },
+  "latency_estimates": {
+    "unit": "clock cycles",
+    "Best-caseLatency": "37887",
+    "Average-caseLatency": "188052",
+    "Worst-caseLatency": "368364",
+    "Best-caseRealTimeLatency": "0.379 ms",
+    "Average-caseRealTimeLatency": "1.881 ms",
+    "Worst-caseRealTimeLatency": "3.684 ms",
+    "Interval-min": "32768",
+    "Interval-max": "368346",
+    "PerformancePragma": "-"
+  },
+  "source_sha256": {
+    "gesture_cnn.cpp": "54e019de649649276d8218471f7f532ee2817133218c736b393f9a6d8b03e9f1",
+    "gesture_cnn.h": "21f3457db1e45e539b810bd53b3026052b123595511e1a9f11ac677d879169b2",
+    "weights.h": "43df6ee2bdc5f72c3dc2e5cca8e234ea189eebfe7d41aa96aaa92678ed5e6d28"
+  },
+  "ip_export": "ultra96/vitis/build/gesture_cnn/solution1/impl/export.zip",
+  "ip_export_sha256": "f6e216c7303115687c37e6762c795c89eb76a4f31acaaea8a48991e1ccf9c847",
+  "c_simulation": "passed",
+  "rtl_cosimulation": "passed; explicit AXI keep/strobe/last checks",
+  "vivado_bitstream": "passed synthesis, place/route and setup/hold timing; installed in fpga/deployment",
+  "routed_setup_slack_ns": 2.017,
+  "routed_hold_slack_ns": 0.01,
+  "vivado_timing_report": "ultra96/vitis/build/vivado/timing_summary.rpt",
+  "board_test_performed": false,
+  "board_bundle": "ultra96/vitis/build/board_bundle",
+  "deployment_artifacts": {
+    "gesture_cnn.bit": "7dabab42fe0bdd8e64d5c02cb6a5bd765d7df877fd537d490e749da7a8ff0a8b",
+    "gesture_cnn.hwh": "6db9934e2e0fc98ccbadcfeb87ac5f9e7b33503827e2947e29073052c162ae35",
+    "golden_input.dat": "6acc7380459526b3707019350ad83cdb565ab03e3c99c1e85f98ba61ac608b8f",
+    "golden_output.dat": "99b08fef84bff243e7243a0ec773a91de5cdc3d06039ed4078c82cba21ddf93c",
+    "model_manifest.json": "a792bc597e64e1125caa189c1651f5c0c7882b65d1733103c93ab004498665b6",
+    "real_gestures_test.npz": "dafe192ac97395241dab678bcd8c026418efef89fae3363a19469f0eebd9e809"
+  }
+}

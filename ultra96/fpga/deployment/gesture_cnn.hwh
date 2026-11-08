@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
-<EDKSYSTEM EDWVERSION="1.2" TIMESTAMP="Mon Nov  9 00:33:47 2026" VIVADOVERSION="2025.1">
+<EDKSYSTEM EDWVERSION="1.2" TIMESTAMP="Mon Nov  9 01:16:12 2026" VIVADOVERSION="2025.1">
 
-  <SYSTEMINFO ARCH="zynquplus" BOARD="avnet.com:ultra96v2:part0:1.2" DEVICE="xczu3eg" NAME="design_1" PACKAGE="sbva484" SPEEDGRADE="-1"/>
+  <SYSTEMINFO ARCH="zynquplus" DEVICE="xczu3eg" NAME="design_1" PACKAGE="sbva484" SPEEDGRADE="-1"/>
 
   <EXTERNALPORTS/>
 
@@ -1493,7 +1493,7 @@
             <CONNECTION INSTANCE="axi_dma_0" PORT="s_axi_lite_wvalid"/>
           </CONNECTIONS>
         </PORT>
-        <PORT DIR="O" LEFT="3" NAME="M01_AXI_araddr" RIGHT="0" SIGIS="undef" SIGNAME="axi_smc_M01_AXI_araddr">
+        <PORT DIR="O" LEFT="4" NAME="M01_AXI_araddr" RIGHT="0" SIGIS="undef" SIGNAME="axi_smc_M01_AXI_araddr">
           <CONNECTIONS>
             <CONNECTION INSTANCE="g_cnn" PORT="s_axi_control_ARADDR"/>
           </CONNECTIONS>
@@ -1508,7 +1508,7 @@
             <CONNECTION INSTANCE="g_cnn" PORT="s_axi_control_ARVALID"/>
           </CONNECTIONS>
         </PORT>
-        <PORT DIR="O" LEFT="3" NAME="M01_AXI_awaddr" RIGHT="0" SIGIS="undef" SIGNAME="axi_smc_M01_AXI_awaddr">
+        <PORT DIR="O" LEFT="4" NAME="M01_AXI_awaddr" RIGHT="0" SIGIS="undef" SIGNAME="axi_smc_M01_AXI_awaddr">
           <CONNECTIONS>
             <CONNECTION INSTANCE="g_cnn" PORT="s_axi_control_AWADDR"/>
           </CONNECTIONS>
@@ -1911,7 +1911,7 @@
           </PORTMAPS>
         </BUSINTERFACE>
         <BUSINTERFACE BUSNAME="axi_smc_M01_AXI" DATAWIDTH="32" NAME="M01_AXI" TYPE="MASTER" VLNV="xilinx.com:interface:aximm:1.0">
-          <PARAMETER NAME="ADDR_WIDTH" VALUE="4"/>
+          <PARAMETER NAME="ADDR_WIDTH" VALUE="5"/>
           <PARAMETER NAME="ARUSER_WIDTH" VALUE="0"/>
           <PARAMETER NAME="AWUSER_WIDTH" VALUE="0"/>
           <PARAMETER NAME="BUSER_WIDTH" VALUE="0"/>
@@ -2596,7 +2596,7 @@
         </BUSINTERFACE>
       </BUSINTERFACES>
     </MODULE>
-    <MODULE COREREVISION="2114865503" FULLNAME="/g_cnn" HWVERSION="1.0" INSTANCE="g_cnn" IPTYPE="PERIPHERAL" IS_ENABLE="1" MODCLASS="PERIPHERAL" MODTYPE="gesture_cnn_top" VLNV="xilinx.com:hls:gesture_cnn_top:1.0">
+    <MODULE COREREVISION="2114865555" FULLNAME="/g_cnn" HWVERSION="2.0" INSTANCE="g_cnn" IPTYPE="PERIPHERAL" IS_ENABLE="1" MODCLASS="PERIPHERAL" MODTYPE="gesture_cnn_top" VLNV="xilinx.com:hls:gesture_cnn_top:2.0">
       <DOCUMENTS/>
       <ADDRESSBLOCKS>
         <ADDRESSBLOCK ACCESS="read-write" INTERFACE="s_axi_control" NAME="Reg" RANGE="65536" USAGE="register">
@@ -2811,17 +2811,67 @@
                 </FIELD>
               </FIELDS>
             </REGISTER>
+            <REGISTER NAME="model_id">
+              <PROPERTY NAME="DESCRIPTION" VALUE="Data signal of model_id"/>
+              <PROPERTY NAME="ADDRESS_OFFSET" VALUE="16"/>
+              <PROPERTY NAME="SIZE" VALUE="32"/>
+              <PROPERTY NAME="ACCESS" VALUE="read-only"/>
+              <PROPERTY NAME="IS_ENABLED" VALUE="true"/>
+              <PROPERTY NAME="RESET_VALUE" VALUE="0"/>
+              <FIELDS>
+                <FIELD NAME="model_id">
+                  <PROPERTY NAME="DESCRIPTION" VALUE="Bit 31 to 0 of model_id"/>
+                  <PROPERTY NAME="ADDRESS_OFFSET" VALUE="0"/>
+                  <PROPERTY NAME="ACCESS" VALUE="read-only"/>
+                  <PROPERTY NAME="MODIFIED_READ_VALUES" VALUE=""/>
+                  <PROPERTY NAME="WRITE_CONSTRAINT" VALUE="0"/>
+                  <PROPERTY NAME="READ_ACTION" VALUE="modify"/>
+                  <PROPERTY NAME="BIT_OFFSET" VALUE="0"/>
+                  <PROPERTY NAME="BIT_WIDTH" VALUE="32"/>
+                </FIELD>
+              </FIELDS>
+            </REGISTER>
+            <REGISTER NAME="model_id_ctrl">
+              <PROPERTY NAME="DESCRIPTION" VALUE="Control signal of model_id"/>
+              <PROPERTY NAME="ADDRESS_OFFSET" VALUE="20"/>
+              <PROPERTY NAME="SIZE" VALUE="32"/>
+              <PROPERTY NAME="ACCESS" VALUE="read-only"/>
+              <PROPERTY NAME="IS_ENABLED" VALUE="true"/>
+              <PROPERTY NAME="RESET_VALUE" VALUE="0"/>
+              <FIELDS>
+                <FIELD NAME="model_id_ap_vld">
+                  <PROPERTY NAME="DESCRIPTION" VALUE="Control signal model_id_ap_vld"/>
+                  <PROPERTY NAME="ADDRESS_OFFSET" VALUE="0"/>
+                  <PROPERTY NAME="ACCESS" VALUE="read-only"/>
+                  <PROPERTY NAME="MODIFIED_READ_VALUES" VALUE=""/>
+                  <PROPERTY NAME="WRITE_CONSTRAINT" VALUE="0"/>
+                  <PROPERTY NAME="READ_ACTION" VALUE="modify"/>
+                  <PROPERTY NAME="BIT_OFFSET" VALUE="0"/>
+                  <PROPERTY NAME="BIT_WIDTH" VALUE="1"/>
+                </FIELD>
+                <FIELD NAME="RESERVED">
+                  <PROPERTY NAME="DESCRIPTION" VALUE="Reserved.  0s on read."/>
+                  <PROPERTY NAME="ADDRESS_OFFSET" VALUE="1"/>
+                  <PROPERTY NAME="ACCESS" VALUE="read-only"/>
+                  <PROPERTY NAME="MODIFIED_READ_VALUES" VALUE=""/>
+                  <PROPERTY NAME="WRITE_CONSTRAINT" VALUE="0"/>
+                  <PROPERTY NAME="READ_ACTION" VALUE="modify"/>
+                  <PROPERTY NAME="BIT_OFFSET" VALUE="1"/>
+                  <PROPERTY NAME="BIT_WIDTH" VALUE="31"/>
+                </FIELD>
+              </FIELDS>
+            </REGISTER>
           </REGISTERS>
         </ADDRESSBLOCK>
       </ADDRESSBLOCKS>
       <PARAMETERS>
-        <PARAMETER NAME="C_S_AXI_CONTROL_ADDR_WIDTH" VALUE="4"/>
+        <PARAMETER NAME="C_S_AXI_CONTROL_ADDR_WIDTH" VALUE="5"/>
         <PARAMETER NAME="C_S_AXI_CONTROL_DATA_WIDTH" VALUE="32"/>
-        <PARAMETER NAME="Component_Name" VALUE="design_1_gesture_cnn_top_0_0"/>
-        <PARAMETER NAME="II" VALUE="8192 ~ 275220"/>
+        <PARAMETER NAME="Component_Name" VALUE="design_1_g_cnn_0"/>
+        <PARAMETER NAME="II" VALUE="32768 ~ 368346"/>
         <PARAMETER NAME="clk_period" VALUE="10"/>
         <PARAMETER NAME="combinational" VALUE="0"/>
-        <PARAMETER NAME="latency" VALUE="13310"/>
+        <PARAMETER NAME="latency" VALUE="37887"/>
         <PARAMETER NAME="machine" VALUE="64"/>
         <PARAMETER NAME="EDK_IPTYPE" VALUE="PERIPHERAL"/>
         <PARAMETER NAME="C_S_AXI_CONTROL_BASEADDR" VALUE="0xA0010000"/>
@@ -2889,7 +2939,7 @@
             <CONNECTION INSTANCE="axi_dma_0" PORT="s_axis_s2mm_tvalid"/>
           </CONNECTIONS>
         </PORT>
-        <PORT DIR="I" LEFT="3" NAME="s_axi_control_ARADDR" RIGHT="0" SIGIS="undef" SIGNAME="axi_smc_M01_AXI_araddr">
+        <PORT DIR="I" LEFT="4" NAME="s_axi_control_ARADDR" RIGHT="0" SIGIS="undef" SIGNAME="axi_smc_M01_AXI_araddr">
           <CONNECTIONS>
             <CONNECTION INSTANCE="axi_smc" PORT="M01_AXI_araddr"/>
           </CONNECTIONS>
@@ -2904,7 +2954,7 @@
             <CONNECTION INSTANCE="axi_smc" PORT="M01_AXI_arvalid"/>
           </CONNECTIONS>
         </PORT>
-        <PORT DIR="I" LEFT="3" NAME="s_axi_control_AWADDR" RIGHT="0" SIGIS="undef" SIGNAME="axi_smc_M01_AXI_awaddr">
+        <PORT DIR="I" LEFT="4" NAME="s_axi_control_AWADDR" RIGHT="0" SIGIS="undef" SIGNAME="axi_smc_M01_AXI_awaddr">
           <CONNECTIONS>
             <CONNECTION INSTANCE="axi_smc" PORT="M01_AXI_awaddr"/>
           </CONNECTIONS>
@@ -2977,7 +3027,7 @@
       </PORTS>
       <BUSINTERFACES>
         <BUSINTERFACE BUSNAME="axi_smc_M01_AXI" DATAWIDTH="32" NAME="s_axi_control" TYPE="SLAVE" VLNV="xilinx.com:interface:aximm:1.0">
-          <PARAMETER NAME="ADDR_WIDTH" VALUE="4"/>
+          <PARAMETER NAME="ADDR_WIDTH" VALUE="5"/>
           <PARAMETER NAME="ARUSER_WIDTH" VALUE="0"/>
           <PARAMETER NAME="AWUSER_WIDTH" VALUE="0"/>
           <PARAMETER NAME="BUSER_WIDTH" VALUE="0"/>

@@ -12,20 +12,27 @@ import numpy as np
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 if __package__:
-    from ..deployment.cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, IN_LENGTH, SAMPLE_RATE_HZ
+    from ..deployment.cnn_pynq_ultra96 import (
+        GestureCNNAccelerator, NUM_CLASSES, IN_LENGTH, SAMPLE_RATE_HZ, OVERLAY_PATH as DRIVER_OVERLAY_PATH,
+    )
     from .evaluation_data import NPZIMUDataSource, resolve_data_path
 else:
     # A board bundle can contain all three scripts in the same directory.
     if (SCRIPT_DIR / "cnn_pynq_ultra96.py").is_file():
-        from cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, IN_LENGTH, SAMPLE_RATE_HZ
+        from cnn_pynq_ultra96 import (
+            GestureCNNAccelerator, NUM_CLASSES, IN_LENGTH, SAMPLE_RATE_HZ, OVERLAY_PATH as DRIVER_OVERLAY_PATH,
+        )
     else:
         # Also support the repository's sibling deployment/utility layout.
         sys.path.insert(0, str(SCRIPT_DIR.parent))
-        from deployment.cnn_pynq_ultra96 import GestureCNNAccelerator, NUM_CLASSES, IN_LENGTH, SAMPLE_RATE_HZ
+        from deployment.cnn_pynq_ultra96 import (
+            GestureCNNAccelerator, NUM_CLASSES, IN_LENGTH, SAMPLE_RATE_HZ, OVERLAY_PATH as DRIVER_OVERLAY_PATH,
+        )
     from evaluation_data import NPZIMUDataSource, resolve_data_path
 
 
-OVERLAY_PATH = str(SCRIPT_DIR / "gesture_cnn.bit")
+OVERLAY_PATH = (str(SCRIPT_DIR / "gesture_cnn.bit")
+                if (SCRIPT_DIR / "gesture_cnn.bit").is_file() else DRIVER_OVERLAY_PATH)
 
 
 def evaluate(accelerator, data_source, warmup=10, show_predictions=False):
@@ -171,12 +178,14 @@ def parse_args():
     args = parser.parse_args()
     if not 1 <= args.sample_rate <= 100:
         parser.error("--sample-rate must be from 1 to 100")
-    if args.window_size < 4 or args.window_size % 4:
-        parser.error("--window-size must be at least 4 and divisible by 4")
+    if not 16 <= args.window_size < 65536 or args.window_size % 4:
+        parser.error("--window-size must be 16..65532 and divisible by 4 for the temporal CNN")
     tag = f"{args.sample_rate}hz_{args.window_size}"
     if args.data is None:
         local = SCRIPT_DIR / f"real_gestures_{tag}_test.npz"
-        args.data = str(local if local.is_file() else SCRIPT_DIR / "real_gestures_test.npz")
+        candidates = (local, SCRIPT_DIR / "real_gestures_test.npz",
+                      Path(DRIVER_OVERLAY_PATH).parent / "real_gestures_test.npz")
+        args.data = str(next((path for path in candidates if path.is_file()), candidates[1]))
     if args.overlay != OVERLAY_PATH:
         overlay = Path(args.overlay).expanduser()
         if not overlay.is_absolute() and overlay.parent == Path("."):
@@ -220,6 +229,7 @@ def main():
                                    args.show_predictions)
         report_performance(timings, accelerator.configured_clock_mhz(),
                            args.performance_csv, args.sample_rate, args.window_size)
+        model_id = accelerator.model_id
     accuracy = 100.0 * np.trace(matrix) / matrix.sum()
     mode = "Negative-Control FPGA" if args.shuffle_labels else "FPGA"
     balanced = 100.0 * np.mean(np.diag(matrix) / matrix.sum(axis=1).clip(min=1))
@@ -228,6 +238,7 @@ def main():
     print(matrix)
     save_confusion_matrix(matrix, args.output, source.class_names, f"{mode} | {label}")
     metadata = {"sample_rate_hz": args.sample_rate, "window_size": args.window_size,
+                "architecture": "temporal", "model_id": model_id,
                 "dataset": str(Path(args.data).resolve()), "overlay": str(Path(args.overlay).resolve()),
                 "accuracy": accuracy, "balanced_accuracy": balanced,
                 "correct": int(np.trace(matrix)), "total": int(matrix.sum()),

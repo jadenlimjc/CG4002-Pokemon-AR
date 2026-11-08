@@ -1,6 +1,10 @@
 #include "gesture_cnn.h"
 #include "weights.h"
 
+static_assert(sizeof(conv3_weight) / sizeof(conv3_weight[0]) == 128 * 64 * CONV3_KERNEL,
+              "Conv3 weights are stale: export the temporal checkpoint");
+static_assert(sizeof(fc1_weight) / sizeof(fc1_weight[0]) == 64 * FC1_INPUT_SIZE,
+              "FC1 weights are stale: export the temporal checkpoint");
 static_assert(sizeof(fc2_weight) / sizeof(fc2_weight[0]) == 64 * NUM_CLASSES,
               "Classifier weights are stale: retrain and export all eleven classes");
 static_assert(sizeof(fc2_bias) / sizeof(fc2_bias[0]) == NUM_CLASSES,
@@ -29,9 +33,13 @@ static void read_input(
 
 static void write_output(
     const result_t logits[NUM_CLASSES],
-    hls::stream<axis_t>& out_stream
+    hls::stream<axis_t>& out_stream,
+    unsigned int& model_id
 ) {
     #pragma HLS INLINE off
+    // Keep scalar assignment inside a task so the top-level DATAFLOW region
+    // consists only of declarations and function calls.
+    model_id = MODEL_ID;
     for (int i = 0; i < NUM_CLASSES; ++i) {
         #pragma HLS PIPELINE II=1
         axis_t pkt;
@@ -39,6 +47,7 @@ static void write_output(
         u.f = logits[i].to_float();
         pkt.data = u.i;
         pkt.keep = -1;
+        pkt.strb = -1;
         pkt.last = (i == NUM_CLASSES - 1) ? 1 : 0;
         out_stream.write(pkt);
     }
@@ -49,7 +58,7 @@ static void conv1_process(
     hls::stream<data_t>& output
 ) {
     #pragma HLS INLINE off
-    conv_bn_relu<IN_CHANNELS, 32, IN_LENGTH, 7, 3>(
+    conv_bn_relu<IN_CHANNELS, 32, IN_LENGTH, CONV1_KERNEL, CONV1_PAD, CONV1_DILATION>(
         input, output, conv1_weight, conv1_bias,
         bn1_scale, bn1_shift
     );
@@ -60,7 +69,7 @@ static void conv2_process(
     hls::stream<data_t>& output
 ) {
     #pragma HLS INLINE off
-    conv_bn_relu<32, 64, BLOCK1_LENGTH, 5, 2>(
+    conv_bn_relu<32, 64, BLOCK1_LENGTH, CONV2_KERNEL, CONV2_PAD, CONV2_DILATION>(
         input, output, conv2_weight, conv2_bias,
         bn2_scale, bn2_shift
     );
@@ -71,18 +80,18 @@ static void conv3_process(
     hls::stream<data_t>& output
 ) {
     #pragma HLS INLINE off
-    conv_bn_relu<64, 128, BLOCK2_LENGTH, 3, 1>(
+    conv_bn_relu<64, 128, BLOCK2_LENGTH, CONV3_KERNEL, CONV3_PAD, CONV3_DILATION>(
         input, output, conv3_weight, conv3_bias,
         bn3_scale, bn3_shift
     );
 }
 
 static void fc1_process(
-    const data_t input[128],
+    const data_t input[FC1_INPUT_SIZE],
     data_t output[64]
 ) {
     #pragma HLS INLINE off
-    linear_layer<128, 64, data_t>(
+    linear_layer<FC1_INPUT_SIZE, 64, data_t>(
         input, output, fc1_weight, fc1_bias, true
     );
 }
@@ -100,11 +109,13 @@ static void fc2_process(
 // =================================================================================
 // TOP-LEVEL SYNTHESIZABLE KERNEL
 // =================================================================================
-void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_stream) {
+void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_stream,
+                     unsigned int& model_id) {
     // AXI streams carry data; AXI-Lite exposes ap_start and ap_done.
     #pragma HLS INTERFACE axis port=in_stream
     #pragma HLS INTERFACE axis port=out_stream
     #pragma HLS INTERFACE s_axilite port=return bundle=control
+    #pragma HLS INTERFACE s_axilite port=model_id bundle=control offset=0x10
     // DATAFLOW lets independent streaming stages overlap in time.
     #pragma HLS DATAFLOW
 
@@ -117,7 +128,7 @@ void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_st
     hls::stream<data_t> s_b3_conv("s_b3_conv");
 
     // Buffers for flattened/vector data
-    data_t pooled_vec[128];
+    data_t pooled_vec[FC1_INPUT_SIZE];
     data_t fc1_out[64];
     result_t final_logits[NUM_CLASSES];
 
@@ -135,18 +146,18 @@ void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_st
     conv1_process(s_in, s_b1_conv);
     max_pool2<32, IN_LENGTH, BLOCK1_LENGTH>(s_b1_conv, s_b1_pool);
 
-    // 3. Block 2: Conv1D (32->64, k=5, pad=2) -> MaxPool(2)
+    // 3. Block 2: Conv1D (32->64, k=5, dilation=2, pad=4) -> MaxPool(2)
     conv2_process(s_b1_pool, s_b2_conv);
     max_pool2<64, BLOCK1_LENGTH, BLOCK2_LENGTH>(s_b2_conv, s_b2_pool);
 
-    // 4. Block 3: Conv1D (64->128, k=3, pad=1) -> AdaptiveAvgPool
+    // 4. Block 3: Conv1D (64->128, k=7, dilation=4, pad=12) -> four time bins
     conv3_process(s_b2_pool, s_b3_conv);
-    adaptive_avg_pool<128, BLOCK2_LENGTH>(s_b3_conv, pooled_vec);
+    adaptive_avg_pool<128, BLOCK2_LENGTH, TEMPORAL_BINS>(s_b3_conv, pooled_vec);
 
-    // 5. Classifier: FC1 (128 -> 64) -> ReLU -> FC2 (64 -> NUM_CLASSES)
+    // 5. Classifier: FC1 (512 -> 64) -> ReLU -> FC2 (64 -> NUM_CLASSES)
     fc1_process(pooled_vec, fc1_out);
     fc2_process(fc1_out, final_logits);
 
     // 6. Convert and send the logits over AXI DMA.
-    write_output(final_logits, out_stream);
+    write_output(final_logits, out_stream, model_id);
 }

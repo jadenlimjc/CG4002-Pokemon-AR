@@ -56,12 +56,16 @@ def model_cost(config):
         inputs, outputs = channels[i:i + 2]
         parameters += outputs * (inputs * kernel + 3)  # Conv bias + BN gamma/beta
         macs += length * outputs * inputs * kernel
-    features, hidden, classes = channels[-1], config["hidden_features"], config["num_classes"]
+    features = channels[-1] * config.get("temporal_bins", 1)
+    hidden, classes = config["hidden_features"], config["num_classes"]
     parameters += (features + 1) * hidden + (hidden + 1) * classes
     macs += features * hidden + hidden * classes
     return {"parameters": parameters, "estimated_macs": macs,
-            "requires_hls_changes": (config["channels"] != [32, 64, 128] or
-                                     config["kernel_sizes"] != [7, 5, 3] or hidden != 64)}
+            "requires_hls_changes": (config["in_channels"] != 6 or classes != 11 or
+                                     config["channels"] != [32, 64, 128] or
+                                     config["kernel_sizes"] != [7, 5, 7] or hidden != 64 or
+                                     config.get("dilations", [1, 1, 1]) != [1, 2, 4] or
+                                     config.get("temporal_bins", 1) != 4)}
 
 
 def fit(params, seed, train, val, epochs, device, trial=None, checkpoint=None):

@@ -1,0 +1,45 @@
+{
+  "architecture": "temporal",
+  "model_config": {
+    "in_channels": 6,
+    "num_classes": 11,
+    "channels": [
+      32,
+      64,
+      128
+    ],
+    "kernel_sizes": [
+      7,
+      5,
+      7
+    ],
+    "hidden_features": 64,
+    "dropout": 0.22214197961920232,
+    "dilations": [
+      1,
+      2,
+      4
+    ],
+    "temporal_bins": 4
+  },
+  "model_id": 1409318923,
+  "model_id_register": 16,
+  "sample_rate_hz": 50,
+  "window_size": 128,
+  "class_names": [
+    "Neutral",
+    "Aim",
+    "Stop Aim",
+    "Throw",
+    "Punch",
+    "Downward Swipe",
+    "Guard",
+    "Flee / U-turn",
+    "Switch Pokemon / Back-pocket reach",
+    "Use Item / Front-pocket reach",
+    "Uppercut"
+  ],
+  "checkpoint": "C:\\Users\\Admin\\Desktop\\NUS\\CG4002\\CG4002-not-palworld\\ultra96\\pytorch\\saved_checkpoints\\50hz_128\\2026-11-09_00-23-31_578104\\gesture_1dcnn_real_50hz_128_best.pth",
+  "checkpoint_sha256": "48ac71f5a4e92b7313e5e7d285affc432a1a5a7e9f18468a8e071e2f5d8bd180",
+  "weights_sha256": "43df6ee2bdc5f72c3dc2e5cca8e234ea189eebfe7d41aa96aaa92678ed5e6d28"
+}

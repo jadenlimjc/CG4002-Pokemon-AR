@@ -26,7 +26,7 @@ void gesture_cnn_ref(
     data_t b2_conv[64][BLOCK1_LENGTH];
     data_t b2_pool[64][BLOCK2_LENGTH];
     data_t b3_conv[128][BLOCK2_LENGTH];
-    data_t pooled_vec[128];
+    data_t pooled_vec[FC1_INPUT_SIZE];
     data_t fc1_out[64];
 
     // --- Block 1 ---
@@ -46,10 +46,10 @@ void gesture_cnn_ref(
         for (int l = 0; l < IN_LENGTH; ++l) {
             accum_t acc = accum_t(conv1_bias[oc]);
             for (int ic = 0; ic < 6; ++ic) {
-                for (int k = 0; k < 7; ++k) {
-                    int in_idx = l + k - 3;
+                for (int k = 0; k < CONV1_KERNEL; ++k) {
+                    int in_idx = l + k * CONV1_DILATION - CONV1_PAD;
                     if (in_idx >= 0 && in_idx < IN_LENGTH) {
-                        acc += in_buf[ic][in_idx] * conv1_weight[oc*6*7 + ic*7 + k];
+                        acc += in_buf[ic][in_idx] * conv1_weight[(oc*6 + ic)*CONV1_KERNEL + k];
                     }
                 }
             }
@@ -76,10 +76,10 @@ void gesture_cnn_ref(
         for (int l = 0; l < BLOCK1_LENGTH; ++l) {
             accum_t acc = accum_t(conv2_bias[oc]);
             for (int ic = 0; ic < 32; ++ic) {
-                for (int k = 0; k < 5; ++k) {
-                    int in_idx = l + k - 2;
+                for (int k = 0; k < CONV2_KERNEL; ++k) {
+                    int in_idx = l + k * CONV2_DILATION - CONV2_PAD;
                     if (in_idx >= 0 && in_idx < BLOCK1_LENGTH) {
-                        acc += b1_pool[ic][in_idx] * conv2_weight[oc*32*5 + ic*5 + k];
+                        acc += b1_pool[ic][in_idx] * conv2_weight[(oc*32 + ic)*CONV2_KERNEL + k];
                     }
                 }
             }
@@ -106,10 +106,10 @@ void gesture_cnn_ref(
         for (int l = 0; l < BLOCK2_LENGTH; ++l) {
             accum_t acc = accum_t(conv3_bias[oc]);
             for (int ic = 0; ic < 64; ++ic) {
-                for (int k = 0; k < 3; ++k) {
-                    int in_idx = l + k - 1;
+                for (int k = 0; k < CONV3_KERNEL; ++k) {
+                    int in_idx = l + k * CONV3_DILATION - CONV3_PAD;
                     if (in_idx >= 0 && in_idx < BLOCK2_LENGTH) {
-                        acc += b2_pool[ic][in_idx] * conv3_weight[oc*64*3 + ic*3 + k];
+                        acc += b2_pool[ic][in_idx] * conv3_weight[(oc*64 + ic)*CONV3_KERNEL + k];
                     }
                 }
             }
@@ -118,15 +118,19 @@ void gesture_cnn_ref(
         }
     }
     for (int c = 0; c < 128; ++c) {
-        accum_t sum = accum_t(0);
-        for (int l = 0; l < BLOCK2_LENGTH; ++l) sum += accum_t(b3_conv[c][l]);
-        pooled_vec[c] = data_t(sum / accum_t(BLOCK2_LENGTH));
+        for (int b = 0; b < TEMPORAL_BINS; ++b) {
+            const int start = b * BLOCK2_LENGTH / TEMPORAL_BINS;
+            const int end = ((b + 1) * BLOCK2_LENGTH + TEMPORAL_BINS - 1) / TEMPORAL_BINS;
+            accum_t sum = accum_t(0);
+            for (int l = start; l < end; ++l) sum += accum_t(b3_conv[c][l]);
+            pooled_vec[c * TEMPORAL_BINS + b] = data_t(sum / accum_t(end - start));
+        }
     }
 
     // --- Classifier ---
     for (int o = 0; o < 64; ++o) {
         accum_t acc = accum_t(fc1_bias[o]);
-        for (int i = 0; i < 128; ++i) acc += pooled_vec[i] * fc1_weight[o*128 + i];
+        for (int i = 0; i < FC1_INPUT_SIZE; ++i) acc += pooled_vec[i] * fc1_weight[o*FC1_INPUT_SIZE + i];
         fc1_out[o] = (acc > 0) ? data_t(acc) : data_t(0);
     }
     for (int o = 0; o < NUM_CLASSES; ++o) {
@@ -152,9 +156,9 @@ bool test_quantization_boundaries() {
 
     // Worst-case dot product must remain exact and allow later cancellation.
     accum_t sum = 0;
-    for (int i = 0; i < 192; ++i) sum += data_t(-32) * data_t(-32);
-    ok &= sum.to_double() == 196608.0;
-    for (int i = 0; i < 192; ++i) sum -= data_t(-32) * data_t(-32);
+    for (int i = 0; i < FC1_INPUT_SIZE; ++i) sum += data_t(-32) * data_t(-32);
+    ok &= sum.to_double() == FC1_INPUT_SIZE * 1024.0;
+    for (int i = 0; i < FC1_INPUT_SIZE; ++i) sum -= data_t(-32) * data_t(-32);
     ok &= sum.to_double() == 0.0;
     ok &= result_t(1000000).to_double() == 2048.0 - 1.0 / 4096.0;
     ok &= result_t(-1000000).to_double() == -2048.0;
@@ -190,17 +194,84 @@ bool test_quantization_boundaries() {
 }
 
 
-int main() {
+// Independent direct-index reference catches tap spacing, padding and stream order.
+template<int K, int D, int L>
+bool test_dilated_convolution() {
+    const int PAD = D * (K - 1) / 2;
+    data_t input[2][L];
+    data_t weight[2 * 2 * K];
+    const data_t bias[2] = {data_t(0.125), data_t(-0.25)};
+    const accum_t scale[2] = {accum_t(1), accum_t(0.5)};
+    const accum_t shift[2] = {accum_t(0.25), accum_t(-0.125)};
+    for (int i = 0; i < 4 * K; ++i) weight[i] = data_t((i % 7 - 3) * 0.125);
+    hls::stream<data_t> in, out;
+    for (int l = 0; l < L; ++l) {
+        for (int c = 0; c < 2; ++c) {
+            input[c][l] = data_t(((l * 3 + c * 7) % 17 - 8) * 0.125);
+            in.write(input[c][l]);
+        }
+    }
+    conv_bn_relu<2, 2, L, K, PAD, D>(in, out, weight, bias, scale, shift);
+    for (int l = 0; l < L; ++l) {
+        for (int oc = 0; oc < 2; ++oc) {
+            accum_t acc = accum_t(bias[oc]);
+            for (int ic = 0; ic < 2; ++ic) {
+                for (int k = 0; k < K; ++k) {
+                    const int t = l + k * D - PAD;
+                    if (t >= 0 && t < L) acc += input[ic][t] * weight[(oc * 2 + ic) * K + k];
+                }
+            }
+            const auto value = acc * scale[oc] + shift[oc];
+            const data_t expected = value > 0 ? data_t(value) : data_t(0);
+            if (out.empty() || out.read() != expected) return false;
+        }
+    }
+    return in.empty() && out.empty();
+}
+
+template<int L, int BINS>
+bool test_ordered_pooling() {
+    hls::stream<data_t> in;
+    data_t pooled[2 * BINS];
+    for (int t = 0; t < L; ++t)
+        for (int c = 0; c < 2; ++c) in.write(data_t((c * L + t) * 0.25));
+    adaptive_avg_pool<2, L, BINS>(in, pooled);
+    for (int c = 0; c < 2; ++c) {
+        for (int b = 0; b < BINS; ++b) {
+            const int start = b * L / BINS;
+            const int end = ((b + 1) * L + BINS - 1) / BINS;
+            accum_t sum = 0;
+            for (int t = start; t < end; ++t) sum += data_t((c * L + t) * 0.25);
+            if (pooled[c * BINS + b] != data_t(sum / accum_t(end - start))) return false;
+        }
+    }
+    return in.empty();
+}
+
+bool test_temporal_layers() {
+    const bool ok = test_dilated_convolution<7, 1, 16>()
+        && test_dilated_convolution<5, 2, 16>()
+        && test_dilated_convolution<7, 4, 32>()
+        && test_dilated_convolution<7, 4, 8>() // Padding span exceeds input length.
+        && test_ordered_pooling<32, 4>()
+        && test_ordered_pooling<10, 4>() // Uneven, overlapping adaptive bins.
+        && test_ordered_pooling<4, 4>();
+    if (!ok) std::cerr << "Temporal layer tests failed" << std::endl;
+    return ok;
+}
+
+int main(int argc, char** argv) {
     std::cout << "Configuration: " << EXPORTED_SAMPLE_RATE_HZ << " Hz | "
               << IN_LENGTH << "-sample window ("
               << double(IN_LENGTH) / EXPORTED_SAMPLE_RATE_HZ << " s) | "
               << TOTAL_INPUT_SIZE << " input floats" << std::endl;
     if (!test_quantization_boundaries()) return 1;
+    if (!test_temporal_layers()) return 1;
     hls::stream<axis_t> in_stream("in_stream");
     hls::stream<axis_t> out_stream("out_stream");
 
     // Load golden input
-    std::ifstream in_file("golden_input.dat");
+    std::ifstream in_file(argc > 1 ? argv[1] : "golden_input.dat");
     if (!in_file.is_open()) {
         std::cerr << "Error: Cannot open golden_input.dat" << std::endl;
         return 1;
@@ -239,6 +310,7 @@ int main() {
             u.f = in_buf_quantized[c][l].to_float();
             packet.data = u.i;
             packet.keep = -1;
+            packet.strb = -1;
             packet.last = (stream_idx == TOTAL_INPUT_SIZE - 1) ? 1 : 0;
             in_stream.write(packet);
         }
@@ -250,16 +322,28 @@ int main() {
     gesture_cnn_ref(in_buf_quantized, ref_logits);
 
     // Run Kernel
-    gesture_cnn_top(in_stream, out_stream);
+    unsigned int model_id = 0;
+    gesture_cnn_top(in_stream, out_stream, model_id);
+    if (model_id != MODEL_ID) {
+        std::cerr << "Incorrect hardware model identity" << std::endl;
+        return 1;
+    }
 
     // Compare HLS kernel output with the generated fixed-point reference
     bool match = true;
+    std::ofstream logit_file;
+    if (argc > 2) {
+        logit_file.open(argv[2]);
+        if (!logit_file) return 1;
+        logit_file.precision(12);
+    }
     for (int i = 0; i < NUM_CLASSES; ++i) {
         axis_t out_packet = out_stream.read();
         union { unsigned int i; float f; } u;
         u.i = out_packet.data.to_uint();
         result_t hw_val = result_t(u.f); // Convert hardware float output back to fixed-point
         result_t ref_val = ref_logits[i];
+        if (logit_file) logit_file << hw_val.to_double() << '\n';
 
         // Calculate the difference. For ap_fixed, it's best to convert to a
         // common floating-point type for comparison.
@@ -269,7 +353,7 @@ int main() {
         const float tolerance = 0.0f; // Exact: 24-bit result fits IEEE-754 float
 
         std::cout << "Class " << i << " | Hardware: " << hw_val << " | C++ Ref: " << ref_val << std::endl;
-        if (out_packet.last != (i == NUM_CLASSES - 1) || out_packet.keep != 15) {
+        if (out_packet.last != (i == NUM_CLASSES - 1) || out_packet.keep != 15 || out_packet.strb != 15) {
             std::cerr << "Invalid AXI output framing at class " << i << std::endl;
             match = false;
         }

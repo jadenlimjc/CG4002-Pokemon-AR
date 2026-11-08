@@ -10,7 +10,7 @@
 // Round to nearest, ties to even, and saturate at every narrowing boundary.
 // data_t: [-32, 32 - 2^-12]; result_t: [-2048, 2048 - 2^-12].
 // A data_t product has 24 fractional bits. Preserve all of them in MACs.
-// With at most 192 products, |sum| <= 192 * 32 * 32 + 32 = 196640;
+// With at most 512 products, |sum| <= 512 * 32 * 32 + 32 = 524320;
 // 28 integer bits (including sign) also leave headroom for BN coefficients.
 // Keep operand multipliers at 18 bits rather than multiplying widened MACs.
 using data_t = ap_fixed<18, 6, AP_RND_CONV, AP_SAT>;
@@ -48,7 +48,25 @@ constexpr int TOTAL_INPUT_SIZE = IN_CHANNELS * IN_LENGTH; // 768 floats for the 
 // Labels 0-9 retain their original order; Uppercut is label 10.
 constexpr int NUM_CLASSES = 11;
 
-void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_stream);
+// Must match the temporal PyTorch preset and the exported checkpoint metadata.
+constexpr int CONV1_KERNEL = 7;
+constexpr int CONV2_KERNEL = 5;
+constexpr int CONV3_KERNEL = 7;
+constexpr int CONV1_DILATION = 1;
+constexpr int CONV2_DILATION = 2;
+constexpr int CONV3_DILATION = 4;
+constexpr int CONV1_PAD = CONV1_DILATION * (CONV1_KERNEL / 2);
+constexpr int CONV2_PAD = CONV2_DILATION * (CONV2_KERNEL / 2);
+constexpr int CONV3_PAD = CONV3_DILATION * (CONV3_KERNEL / 2);
+constexpr int TEMPORAL_BINS = 4;
+constexpr int FC1_INPUT_SIZE = 128 * TEMPORAL_BINS;
+static_assert(BLOCK2_LENGTH >= TEMPORAL_BINS, "Need at least one position per temporal bin");
+// Temporal architecture v1, window length, class count. Exposed at AXI-Lite 0x10.
+static_assert(IN_LENGTH < 65536, "Window length must fit the hardware identity register");
+constexpr unsigned int MODEL_ID = 0x54000000u | (IN_LENGTH << 8) | NUM_CLASSES;
+
+void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_stream,
+                     unsigned int& model_id);
 
 // =================================================================================
 // LAYER IMPLEMENTATIONS (TEMPLATES)
@@ -56,7 +74,7 @@ void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_st
 // =================================================================================
 
 // 1D Convolution with Padding + BatchNorm + ReLU
-template<int IN_CH, int OUT_CH, int IN_LEN, int K_SIZE, int PAD>
+template<int IN_CH, int OUT_CH, int IN_LEN, int K_SIZE, int PAD, int DILATION = 1>
 void conv_bn_relu(
     hls::stream<data_t>& in_stream,
     hls::stream<data_t>& out_stream,
@@ -65,8 +83,12 @@ void conv_bn_relu(
     const accum_t (&bn_scale)[OUT_CH],
     const accum_t (&bn_shift)[OUT_CH]
 ) {
-    // Line buffer to implement a sliding window of size K_SIZE
-    data_t line_buf[IN_CH][K_SIZE];
+    static_assert(DILATION > 0 && K_SIZE > 0 && K_SIZE % 2 == 1,
+                  "Convolution requires a positive dilation and odd kernel");
+    static_assert(2 * PAD == DILATION * (K_SIZE - 1), "Expected same-length padding");
+    // Store intervening timesteps as well as the K_SIZE dilated taps.
+    constexpr int SPAN = (K_SIZE - 1) * DILATION + 1;
+    data_t line_buf[IN_CH][SPAN];
     // Supply every tap in a convolution window in parallel. The flattened
     // weights are laid out [..., K_SIZE], so cyclic banks map one tap to each
     // bank and match the fully-unrolled kernel loop below.
@@ -76,7 +98,7 @@ void conv_bn_relu(
     // The stream is time-major: all channels for timestep 0, then timestep 1,
     // and so on.  Seed the line buffer with zeros for the left padding.
     for (int ic = 0; ic < IN_CH; ++ic) {
-        for (int k = 0; k < K_SIZE; ++k) {
+        for (int k = 0; k < SPAN; ++k) {
             line_buf[ic][k] = data_t(0);
         }
     }
@@ -87,14 +109,15 @@ void conv_bn_relu(
     for (int l = 0; l < IN_LEN + PAD; ++l) {
         // 1. Shift the line buffer
         for (int ic = 0; ic < IN_CH; ++ic) {
-            for (int k = 0; k < K_SIZE - 1; ++k) {
+            for (int k = 0; k < SPAN - 1; ++k) {
+                #pragma HLS UNROLL
                 line_buf[ic][k] = line_buf[ic][k + 1];
             }
         }
 
         // 2. Read a complete timestep, or insert explicit right padding.
         for (int ic = 0; ic < IN_CH; ++ic) {
-            line_buf[ic][K_SIZE - 1] =
+            line_buf[ic][SPAN - 1] =
                 (l < IN_LEN) ? in_stream.read() : data_t(0);
         }
 
@@ -116,7 +139,7 @@ void conv_bn_relu(
                     for (int k = 0; k < K_SIZE; ++k) {
                         #pragma HLS UNROLL
                         int w_idx = (oc * IN_CH * K_SIZE) + (ic * K_SIZE) + k;
-                        tap_acc[k] += line_buf[ic][k] * weight[w_idx];
+                        tap_acc[k] += line_buf[ic][k * DILATION] * weight[w_idx];
                     }
                 }
 
@@ -162,28 +185,39 @@ constexpr int pool_guard_bits(int n) {
     return n <= 1 ? 0 : 1 + pool_guard_bits((n + 1) / 2);
 }
 
-// Global average pooling reduces each channel to one feature.
-template<int CH, int IN_LEN>
-void adaptive_avg_pool(hls::stream<data_t>& in_stream, data_t out_vec[CH]) {
-    static_assert(CH > 0 && IN_LEN > 0, "Pooling dimensions must be positive");
+// Match PyTorch AdaptiveAvgPool1d, including overlapping bins for uneven lengths.
+// Flatten as [channel][bin], exactly like torch.flatten([B, C, bins], 1).
+template<int CH, int IN_LEN, int BINS = 1>
+void adaptive_avg_pool(hls::stream<data_t>& in_stream, data_t out_vec[CH * BINS]) {
+    static_assert(CH > 0 && BINS > 0 && IN_LEN >= BINS, "Invalid pooling dimensions");
     // Preserve the input's fractional bits and add ceil(log2(IN_LEN))
     // integer guard bits. The width adapts to BLOCK2_LENGTH (32 by default).
     // No rounding or saturation is needed during summation: even IN_LEN
     // copies of either data_t endpoint fit. Saturate only the final output.
     constexpr int GUARD = pool_guard_bits(IN_LEN);
     using pool_sum_t = ap_fixed<data_t::width + GUARD, data_t::iwidth + GUARD>;
-    pool_sum_t sums[CH];
+    pool_sum_t sums[CH][BINS];
+    #pragma HLS ARRAY_PARTITION variable=sums complete dim=2
     #pragma HLS BIND_STORAGE variable=sums type=ram_t2p impl=bram
 
     for (int c = 0; c < CH; ++c) {
-        sums[c] = pool_sum_t(0);
+        for (int b = 0; b < BINS; ++b) {
+            #pragma HLS UNROLL
+            sums[c][b] = pool_sum_t(0);
+        }
     }
 
     // Consume the same time-major layout produced by conv_bn_relu.
     for (int l = 0; l < IN_LEN; ++l) {
         for (int c = 0; c < CH; ++c) {
             #pragma HLS PIPELINE II=1
-            sums[c] += pool_sum_t(in_stream.read());
+            data_t value = in_stream.read();
+            for (int b = 0; b < BINS; ++b) {
+                #pragma HLS UNROLL
+                const int start = b * IN_LEN / BINS;
+                const int end = ((b + 1) * IN_LEN + BINS - 1) / BINS;
+                if (l >= start && l < end) sums[c][b] += pool_sum_t(value);
+            }
         }
     }
 
@@ -191,7 +225,11 @@ void adaptive_avg_pool(hls::stream<data_t>& in_stream, data_t out_vec[CH]) {
         // Widen before division to match the reference quotient precision.
         // Dividing pool_sum_t directly can discard fractional average bits
         // before data_t gets a chance to round them.
-        out_vec[c] = data_t(accum_t(sums[c]) / accum_t(IN_LEN));
+        for (int b = 0; b < BINS; ++b) {
+            const int start = b * IN_LEN / BINS;
+            const int end = ((b + 1) * IN_LEN + BINS - 1) / BINS;
+            out_vec[c * BINS + b] = data_t(accum_t(sums[c][b]) / accum_t(end - start));
+        }
     }
 }
 
