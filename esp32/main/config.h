@@ -5,8 +5,8 @@
 // Pin assignments
 // =====================================================
 #define RED_PIN   D4
-#define GREEN_PIN D5
-#define BLUE_PIN  D6
+#define GREEN_PIN D6
+#define BLUE_PIN  D5
 
 #define HALL_ANALOG_PIN  A2
 #define HALL_DIGITAL_PIN D2
