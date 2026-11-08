@@ -13,7 +13,7 @@ from pathlib import Path
 # Support both direct script execution and python -m from the repository root.
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from ultra96.pytorch.training.model import Gesture1DCNN # Import the model from its dedicated file
+from ultra96.pytorch.training.model import Gesture1DCNN, MODEL_PRESETS
 from ultra96.pytorch.training.augmentation import make_training_augmentation
 
 SAMPLE_RATE_HZ = 50
@@ -41,8 +41,8 @@ DATASET_CONFIGS = {
     "utd": (UTD_DATA_DIR, "utd_mhad"),
 }
 
-# Selected trial 42 from optuna_architecture_wide, retaining the original CNN.
-# UTD training keeps its original defaults below.
+# Hyperparameters from trial 42 of optuna_architecture_wide (legacy CNN).
+# The temporal preset has not been retuned. UTD keeps its original defaults.
 REAL_TRAINING_PARAMS = {
     "lr": 0.0011709413361488715,
     "weight_decay": 0.00016330261109656093,
@@ -161,8 +161,13 @@ class RealTimeGesturePredictor:
 def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
                  output_dir=None, evaluate=False, eval_data=None,
                  sample_rate=SAMPLE_RATE_HZ, window_size=WINDOW_SIZE,
-                 training_params=None, augmentation=None):
+                 training_params=None, augmentation=None, architecture=None):
     validate_input_settings(sample_rate, window_size)
+    architecture = "temporal" if architecture is None else architecture
+    if architecture not in MODEL_PRESETS:
+        raise ValueError(f"Unknown architecture: {architecture}")
+    if window_size // 4 < MODEL_PRESETS[architecture].get("temporal_bins", 1):
+        raise ValueError("Window must have at least 4 * temporal_bins samples")
     label = run_label(sample_rate, window_size)
     if num_epochs < 1:
         raise ValueError("epochs must be positive")
@@ -220,8 +225,10 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
     }
     if training_params is not None:
         params = {**params, **training_params}
-    model = Gesture1DCNN(in_channels=6, num_classes=num_classes).to(device)
-    model.classifier[0].p = params["dropout"]
+    model = Gesture1DCNN(in_channels=6, num_classes=num_classes,
+                         dropout=params["dropout"], **MODEL_PRESETS[architecture]).to(device)
+    print("Model settings:", model.config)
+    print("Convolutional context:", model.receptive_field_samples, "samples")
     print("Training settings:", params)
     # Inverse-frequency weights give each gesture equal importance in the loss.
     counts = torch.bincount(train_dataset.labels, minlength=num_classes).float()
@@ -328,6 +335,7 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
                     "balanced_accuracy": best_val_balanced_acc, "val_loss": best_val_loss},
     }, indent=2) + "\n")
     metadata = {"started_at": started_at.isoformat(), "dataset": dataset,
+                "architecture": architecture, "model_config": model.config,
                 "sample_rate_hz": sample_rate, "window_size": window_size,
                 "data_dir": str(Path(data_dir).resolve()), "epochs": num_epochs,
                 "params": params, "checkpoint": best_model_path.name,
@@ -359,6 +367,9 @@ def parse_args():
     aug.add_argument("--augmentation", choices=("basic", "imu"),
                      help="training-only preset: basic or shared 3D rotation, smooth time warp and magnitude")
     parser.add_argument("--dataset", choices=DATASET_CONFIGS, default="real")
+    parser.add_argument("--architecture", choices=MODEL_PRESETS, default="temporal",
+                        help="model architecture: temporal uses kernel sizes (7, 5, 7) with dilations (1, 2, 4); "
+                             "legacy uses kernel sizes (7, 5, 3) with dilation 1 (default: temporal)")
     parser.add_argument("--data-dir", default=None,
                         help="override the selected dataset processed directory (real default: real_data/processed_50hz_128)")
     parser.add_argument("--checkpoint", default=None,
@@ -388,5 +399,6 @@ if __name__ == "__main__":
     run_pipeline(args.epochs, args.dataset, args.data_dir, args.checkpoint,
                  args.output_dir, args.evaluate, args.eval_data,
                  args.sample_rate, args.window_size,
+                 architecture=args.architecture,
                  augmentation={"kind": args.augmentation or "basic"}
                  if args.augment or args.augmentation else None)

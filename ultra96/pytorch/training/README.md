@@ -1,4 +1,41 @@
+# Temporal CNN training
+
+Training defaults to the `temporal` architecture for either dataset. Select
+`--architecture temporal` or `--architecture legacy` independently of `--dataset`.
+The temporal preset uses kernel sizes `(7, 5, 7)`,
+dilations `(1, 2, 4)`, and four ordered average-pooling bins. Each final
+convolutional feature covers up to 122 input samples (2.44 seconds at 50 Hz),
+compared with 26 samples (0.52 seconds) in the original CNN. The classifier
+receives 512 features, retaining coarse early/late position information.
+This is a hypothesis to validate, not a guarantee of higher accuracy.
+
+From the repository root, train a fresh checkpoint using the existing AI environment:
+
+```powershell
+.\ultra96\.venv\Scripts\python.exe -m ultra96.pytorch.training.train_baseline --architecture temporal --epochs 30 --augmentation imu
+```
+
+Repeat with `--architecture legacy` for a controlled comparison using the same
+data, augmentation, and training settings. Compare validation results before
+evaluating the selected model on a fresh holdout. Add `--evaluate` only when
+ready to evaluate the best saved epoch on the test split.
+
+The training pipeline saves all architecture options in checkpoint JSON.
+Evaluation and error inspection reconstruct either architecture from that JSON.
+Existing checkpoints remain loadable: the `Gesture1DCNN` constructor retains
+legacy defaults when metadata lacks the new options. Existing Optuna and nested
+regularization architecture searches retain their legacy search space; they do
+not search the temporal preset.
+
+The temporal FPGA/HLS implementation and exporter now match this architecture.
+Re-export the trained weights and rebuild the HLS IP and Vivado bitstream before
+deploying it. See [FPGA export, verification and deployment](../../fpga/README.md).
+
 # Unseen-player evaluation
+
+LOSO now defaults to the temporal architecture too. Pass `--architecture legacy`
+to reproduce the original architecture; historical runs used legacy. Architecture
+selection is recorded in `protocol.json` for new runs.
 
 From the repository root, using the Python environment with the AI dependencies:
 

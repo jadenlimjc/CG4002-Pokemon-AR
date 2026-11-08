@@ -13,6 +13,7 @@ import os
 import re
 import io
 import sys
+import hashlib
 from pathlib import Path
 
 if not __package__:
@@ -67,7 +68,11 @@ def validate_hls_input(window_size):
     """Check the same header used by synthesis and the BN compilation helper."""
     text = HLS_HEADER.read_text()
     text = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.S)
-    for name, expected in (("IN_CHANNELS", 6), ("IN_LENGTH", window_size), ("NUM_CLASSES", 11)):
+    expected_constants = {"IN_CHANNELS": 6, "IN_LENGTH": window_size, "NUM_CLASSES": 11,
+                          "CONV1_KERNEL": 7, "CONV2_KERNEL": 5, "CONV3_KERNEL": 7,
+                          "CONV1_DILATION": 1, "CONV2_DILATION": 2, "CONV3_DILATION": 4,
+                          "TEMPORAL_BINS": 4}
+    for name, expected in expected_constants.items():
         match = re.search(r"constexpr\s+int\s+" + name + r"\s*=\s*(\d+)\s*;", text)
         if match is None or int(match.group(1)) != expected:
             raise ValueError(f"Set {name} = {expected} in {HLS_HEADER} before exporting; "
@@ -151,12 +156,18 @@ def export_weights_and_vectors(
         if metadata.get(key) != expected:
             raise ValueError(f"Checkpoint {key} does not match test dataset ({expected})")
     config = metadata["model_config"]
+    # Missing temporal options mean legacy metadata, which must not be exported
+    # to the temporal kernel even when tensor shapes happen to match.
+    config = {"dilations": [1, 1, 1], "temporal_bins": 1, **config}
     expected_architecture = {"in_channels": 6, "num_classes": 11, "channels": [32, 64, 128],
-                             "kernel_sizes": [7, 5, 3], "hidden_features": 64}
+                             "kernel_sizes": [7, 5, 7], "hidden_features": 64,
+                             "dilations": [1, 2, 4], "temporal_bins": 4}
     for key, expected in expected_architecture.items():
         if config.get(key) != expected:
             raise ValueError(f"Current HLS requires {key}={expected}; checkpoint has {config.get(key)}")
     validate_hls_input(window_size)
+    if window_size < 16 or window_size >= 65536:
+        raise ValueError("Temporal HLS requires a window from 16 to 65532 samples")
     label = f"{sample_rate} Hz | {window_size}-sample window ({window_size / sample_rate:.2f} s)"
     print(f"Export configuration: {label}")
     model = Gesture1DCNN(**config)
@@ -185,6 +196,10 @@ def export_weights_and_vectors(
     header.write(f'constexpr int EXPORTED_SAMPLE_RATE_HZ = {sample_rate};\n')
     header.write(f'constexpr int EXPORTED_WINDOW_SIZE = {window_size};\n')
     header.write('static_assert(IN_LENGTH == EXPORTED_WINDOW_SIZE, "Weights/window size mismatch; re-export");\n\n')
+    for name, value in (("CONV1_KERNEL", 7), ("CONV2_KERNEL", 5), ("CONV3_KERNEL", 7),
+                        ("CONV1_DILATION", 1), ("CONV2_DILATION", 2), ("CONV3_DILATION", 4),
+                        ("TEMPORAL_BINS", 4), ("FC1_INPUT_SIZE", 512)):
+        header.write(f'static_assert({name} == {value}, "Weights/{name} mismatch; re-export");\n')
     for torch_name, c_name in NAME_MAP.items():
         param = state_dict[torch_name]
         values = param.detach().numpy().flatten()
@@ -194,15 +209,29 @@ def export_weights_and_vectors(
     header.write(bn_coefficients)
     header.write('static_assert(sizeof(fc2_weight) / sizeof(fc2_weight[0]) == '
                  '64 * NUM_CLASSES, "Re-export weights for the HLS class count");\n')
+    header.write('static_assert(sizeof(conv3_weight) / sizeof(conv3_weight[0]) == '
+                 '128 * 64 * CONV3_KERNEL, "Re-export temporal Conv3 weights");\n')
+    header.write('static_assert(sizeof(fc1_weight) / sizeof(fc1_weight[0]) == '
+                 '64 * FC1_INPUT_SIZE, "Re-export temporal FC1 weights");\n')
     header.write('static_assert(sizeof(fc2_bias) / sizeof(fc2_bias[0]) == '
                  'NUM_CLASSES, "Re-export weights for the HLS class count");\n\n')
     header.write('#endif // WEIGHTS_H\n')
 
     output_dir = Path(output_dir or DEFAULT_OUTPUT_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / 'weights.h').write_text(header.getvalue())
-    np.savetxt(output_dir / 'golden_input.dat', golden_input.numpy().flatten(), fmt='%.8f')
-    np.savetxt(output_dir / 'golden_output.dat', golden_output.numpy().flatten(), fmt='%.8f')
+    (output_dir / 'weights.h').write_text(header.getvalue(), newline='\n')
+    for filename, values in (("golden_input.dat", golden_input.numpy()),
+                             ("golden_output.dat", golden_output.numpy())):
+        with (output_dir / filename).open('w', newline='\n') as handle:
+            np.savetxt(handle, values.flatten(), fmt='%.8f')
+    manifest = {"architecture": "temporal", "model_config": model.config,
+                "model_id": 0x54000000 | (window_size << 8) | len(class_names),
+                "model_id_register": 0x10, "sample_rate_hz": sample_rate,
+                "window_size": window_size, "class_names": class_names,
+                "checkpoint": str(model_path.resolve()),
+                "checkpoint_sha256": hashlib.sha256(model_path.read_bytes()).hexdigest(),
+                "weights_sha256": hashlib.sha256((output_dir / 'weights.h').read_bytes()).hexdigest()}
+    (output_dir / 'model_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', newline='\n')
     print(f"Exported {label} to {output_dir.resolve()}")
 
 

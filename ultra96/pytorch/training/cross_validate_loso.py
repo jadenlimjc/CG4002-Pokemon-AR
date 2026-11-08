@@ -185,6 +185,7 @@ def run(args):
         "seed": 42, "params": params, "training_settings": args.training_settings,
         "prepare_only": args.prepare_only,
         "augmentation": augmentation,
+        "architecture": args.architecture,
         "validation": "trials 7-8 in each block of ten from non-test subjects",
         "selection": "best validation balanced accuracy, then validation loss",
         "status": "preparing" if args.prepare_only else "running",
@@ -206,7 +207,7 @@ def run(args):
         trained_dir = run_pipeline(
             num_epochs=args.epochs, data_dir=str(data_dir), output_dir=fold_dir / "training",
             sample_rate=args.sample_rate, window_size=args.window_size,
-            training_params=params, augmentation=augmentation,
+            training_params=params, augmentation=augmentation, architecture=args.architecture,
         )
         training = json.loads((trained_dir / "run.json").read_text())
         checkpoint = trained_dir / training["checkpoint"]
@@ -233,6 +234,8 @@ def parse_args():
     parser.add_argument("--output", type=Path, default=ULTRA96_DIR / "pytorch" / "loso_runs")
     parser.add_argument("--centre-overrides", type=Path)
     parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--architecture", choices=("temporal", "legacy"), default="temporal",
+                        help="temporal context model (default) or original CNN for comparison")
     parser.add_argument("--sample-rate", type=int, default=50)
     parser.add_argument("--window-size", type=int, default=128)
     parser.add_argument("--threads", type=int, default=4, help="CPU torch threads (default: 4)")
