@@ -68,6 +68,7 @@ void checkSimulatedModelResponse();
 void runSensorCycle();
 void initHardware();
 void shutdownHardware();
+void updateConnectionLed(bool connected);
 
 // =====================================================
 // setup / loop
@@ -93,38 +94,37 @@ void setupHardware() {
 
 }
 
-void updateHardware(bool telemetryEnabled, bool haptic) {
+void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
   if (!telemetryEnabled) telemetryStreamStart = true;
-  static bool hapticPlaying = false;
-  static unsigned long hapticStartedAt = 0;
+  static bool gestureSoundPlaying = false;
+  static unsigned long gestureSoundStartedAt = 0;
   const bool wasStarted = programStarted;
   handleIndexHoldToggle();
+  if (indexButton.consumeFreshTouch()) indexMotorTrigger = true;
+  middleButton.update();
+  ringButton.update();
+  if (middleButton.consumeFreshTouch()) middleMotorTrigger = true;
+  if (ringButton.consumeFreshTouch()) ringMotorTrigger = true;
   if (programStarted != wasStarted || !telemetryEnabled) {
-    if (hapticPlaying) buzzer.off();
-    hapticPlaying = false;
+    if (gestureSoundPlaying) buzzer.off();
+    gestureSoundPlaying = false;
   }
-  if (haptic && telemetryEnabled && programStarted) {
+  if (gestureSound && telemetryEnabled && programStarted) {
     buzzer.on(BUZZER_PWM_FREQUENCY);
-    hapticStartedAt = millis();
-    hapticPlaying = true;
+    gestureSoundStartedAt = millis();
+    gestureSoundPlaying = true;
   }
-  if (hapticPlaying && millis() - hapticStartedAt >= 200) {
+  if (gestureSoundPlaying &&
+      millis() - gestureSoundStartedAt >= GESTURE_BUZZER_DURATION_MS) {
     buzzer.off();
-    hapticPlaying = false;
+    gestureSoundPlaying = false;
   }
 
   if (programStarted) {
-    middleButton.update();
-    ringButton.update();
-
     checkSelectGesture();
     routeGestures();
     checkSimulatedModelResponse();
     // checkHallStatusChange();
-
-    motor.checkTrigger(middleMotorTrigger, middleMotorRunning, middleMotorStart, "Middle finger");
-    motor.checkTrigger(ringMotorTrigger,   ringMotorRunning,   ringMotorStart,   "Ring finger");
-    motor.checkTrigger(indexMotorTrigger,  indexMotorRunning,  indexMotorStart,  "Index finger");
 
     if (telemetryEnabled) runSensorCycle();
 
@@ -135,6 +135,22 @@ void updateHardware(bool telemetryEnabled, bool haptic) {
   } else {
     middleButton.resetTouchState();
     ringButton.resetTouchState();
+  }
+
+  motor.checkTrigger(middleMotorTrigger, middleMotorRunning, middleMotorStart, "Middle finger");
+  motor.checkTrigger(ringMotorTrigger,   ringMotorRunning,   ringMotorStart,  "Ring finger");
+  motor.checkTrigger(indexMotorTrigger,  indexMotorRunning,  indexMotorStart,  "Index finger");
+  updateConnectionLed(connected);
+}
+
+// MQTT is the usable end-to-end connection: blink while it is being established
+// or recovered, then hold a dim blue once it is available.
+void updateConnectionLed(bool connected) {
+  const bool blinkOn = (millis() / CONNECTION_LED_BLINK_MS) % 2 == 0;
+  if (connected || blinkOn) {
+    led.blue(CONNECTION_LED_BLUE_BRIGHTNESS);
+  } else {
+    led.off();
   }
 }
 
@@ -174,10 +190,7 @@ void checkSelectGesture() {
       indexButton.heldForMs() < START_HOLD_TIME_MS) {
 
     indexSelectFiredTouch = true;
-    bool indexSelectTouched = app.handleIndexAction();
-    if (indexSelectTouched) {
-      indexMotorTrigger = true;
-    }
+    app.handleIndexAction();
     isSelectPressed = true;
   }
 }
@@ -187,14 +200,12 @@ void checkSelectGesture() {
 // -------------------------------------------------
 void routeGestures() {
   if (middleButton.checkHoldConfirmed()) {
-    middleMotorTrigger = true;
     isUpPressed = true;
     app.cycleState();
     app.printAll();
   }
 
   if (ringButton.checkHoldConfirmed()) {
-    ringMotorTrigger = true;
     isDownPressed = true;
     app.cycleRing();
     app.printAll();
@@ -260,19 +271,6 @@ void runSensorCycle() {
     motion.markTransmitted();
     telemetryStreamStart = false;
   }
-
-
-  bool aboveThreshold = (a.acceleration.z > ACCEL_THRESHOLD);
-  if (aboveThreshold) {
-    // buzzer.on(BUZZER_PWM_FREQUENCY);
-    led.green();
-    // Serial.println("STATUS: TRIGGERED - Buzzer ON, LED GREEN");
-  } else {
-    // buzzer.off();
-    led.red();
-    // Serial.println("STATUS: NORMAL - Buzzer OFF, LED RED");
-  }
-
 }
 // -------------------------------------------------
 // Hardware init / shutdown, called on index 5s toggle

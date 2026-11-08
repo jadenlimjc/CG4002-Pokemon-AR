@@ -393,6 +393,11 @@ class TelemetryProcessor:
                 sent = {"predicted_action": predicted_action, "action": event["action"],
                         "gesture_id": event["gesture_id"], "confidence": confidence,
                         "timestamp_ms": timestamp_ms}
+                feedback = self.client.publish(
+                    self.topics["haptic"], "gesture", qos=0, retain=False)
+                if feedback.rc != 0:
+                    logging.warning("[%s] Gesture feedback publish failed: %s",
+                                    self.model_id, feedback.rc)
                 detail += " MQTT accepted the send (QoS 0; delivery unconfirmed)."
             else:
                 reason = "PUBLISH_FAILED"

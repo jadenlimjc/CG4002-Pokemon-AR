@@ -23,7 +23,7 @@ class RgbLed {
     void off();
     void green();
     void red();
-    void blue();
+    void blue(uint8_t brightness = 255);
 
 
 };
