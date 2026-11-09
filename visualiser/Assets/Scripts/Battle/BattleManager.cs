@@ -521,10 +521,20 @@ public class BattleManager : MonoBehaviour
     {
         isPlayerTurn = false;
 
-        yield return StartCoroutine(ShowMessage($"Wild {wildPokemonData.pokemonName} attacked!"));
+        MoveData wildMove = PickWildMove();
+
+        if (wildMove != null)
+            yield return StartCoroutine(ShowMessage($"Wild {wildPokemonData.pokemonName} used {wildMove.moveName}!"));
+        else
+            yield return StartCoroutine(ShowMessage($"Wild {wildPokemonData.pokemonName} attacked!"));
 
         if (wildAnimator != null)
-            wildAnimator.SetTrigger("isAttacking");
+        {
+            string trigger = wildMove != null && !string.IsNullOrEmpty(wildMove.animationTrigger)
+                ? wildMove.animationTrigger
+                : "isAttacking";
+            wildAnimator.SetTrigger(trigger);
+        }
 
         yield return StartCoroutine(WaitForAnimation(wildAnimator));
 
@@ -536,18 +546,29 @@ public class BattleManager : MonoBehaviour
             yield break;
         }
 
-        int wildDamage = CalculateDamage(50, wildPokemonData.attack, playerPokemon.defense);
-        if (DemoModeManager.Instance != null && DemoModeManager.Instance.IsTutorial)
-            wildDamage = 0;
-        playerHP = Mathf.Max(0, playerHP - wildDamage);
-        if (DemoModeManager.Instance != null && DemoModeManager.Instance.IsGodMode)
-            playerHP = Mathf.Max(1, playerHP);
-        OnHPChanged?.Invoke(playerHP, wildHP);
-        SaveHPToParty();
+        int movePower = wildMove != null ? wildMove.power : 50;
+        int moveAccuracy = wildMove != null ? wildMove.accuracy : 100;
 
-        Handheld.Vibrate();
+        bool hits = Random.Range(0, 100) < moveAccuracy;
+        if (hits)
+        {
+            int wildDamage = CalculateDamage(movePower, wildPokemonData.attack, playerPokemon.defense);
+            if (DemoModeManager.Instance != null && DemoModeManager.Instance.IsTutorial)
+                wildDamage = 0;
+            playerHP = Mathf.Max(0, playerHP - wildDamage);
+            if (DemoModeManager.Instance != null && DemoModeManager.Instance.IsGodMode)
+                playerHP = Mathf.Max(1, playerHP);
+            OnHPChanged?.Invoke(playerHP, wildHP);
+            SaveHPToParty();
 
-        yield return StartCoroutine(ShowMessage($"Dealt {wildDamage} damage!"));
+            Handheld.Vibrate();
+
+            yield return StartCoroutine(ShowMessage($"Dealt {wildDamage} damage!"));
+        }
+        else
+        {
+            yield return StartCoroutine(ShowMessage("The attack missed!"));
+        }
 
         if (playerHP <= 0)
         {
@@ -568,6 +589,20 @@ public class BattleManager : MonoBehaviour
 
         isPlayerTurn = true;
         OnBattleMessage?.Invoke("Your turn! Perform a move gesture!");
+    }
+
+    private MoveData PickWildMove()
+    {
+        if (wildPokemonData?.moves == null || wildPokemonData.moves.Length == 0)
+            return null;
+
+        MoveData[] usable = System.Array.FindAll(wildPokemonData.moves,
+            m => m != null && !string.IsNullOrEmpty(m.moveName) && !m.isProtect);
+
+        if (usable.Length == 0)
+            return null;
+
+        return usable[Random.Range(0, usable.Length)];
     }
 
     private IEnumerator ExecuteRun()
