@@ -9,12 +9,12 @@ public class BattleHUD : MonoBehaviour
     [SerializeField] private GameObject battleHUDPanel;
 
     [Header("Player HP")]
-    [SerializeField] private Slider playerHPBar;
+    [SerializeField] private RectTransform playerHPFillRect;
     [SerializeField] private TextMeshProUGUI playerHPText;
     [SerializeField] private TextMeshProUGUI playerNameText;
 
     [Header("Wild Pokemon HP")]
-    [SerializeField] private Slider wildHPBar;
+    [SerializeField] private RectTransform wildHPFillRect;
     [SerializeField] private TextMeshProUGUI wildHPText;
     [SerializeField] private TextMeshProUGUI wildNameText;
 
@@ -39,8 +39,8 @@ public class BattleHUD : MonoBehaviour
     [SerializeField] private GameObject reticleObject;
 
     [Header("HP Bar Colors")]
-    [SerializeField] private Image playerHPFill;
-    [SerializeField] private Image wildHPFill;
+    [SerializeField] private Image playerHPFillImage;
+    [SerializeField] private Image wildHPFillImage;
 
     [Header("Feedback")]
     [SerializeField] private float flashDuration = 0.2f;
@@ -52,15 +52,15 @@ public class BattleHUD : MonoBehaviour
 
     private void Start()
     {
-        if (playerHPFill == null && playerHPBar != null)
-            playerHPFill = playerHPBar.fillRect?.GetComponent<Image>();
-        if (wildHPFill == null && wildHPBar != null)
-            wildHPFill = wildHPBar.fillRect?.GetComponent<Image>();
+        if (playerHPFillImage == null && playerHPFillRect != null)
+            playerHPFillImage = playerHPFillRect.GetComponent<Image>();
+        if (wildHPFillImage == null && wildHPFillRect != null)
+            wildHPFillImage = wildHPFillRect.GetComponent<Image>();
 
-        if (playerHPFill != null)
-            playerHPFill.color = Color.green;
-        if (wildHPFill != null)
-            wildHPFill.color = Color.red;
+        if (playerHPFillImage != null)
+            playerHPFillImage.color = Color.green;
+        if (wildHPFillImage != null)
+            wildHPFillImage.color = Color.red;
 
         SubscribeEvents();
     }
@@ -176,13 +176,16 @@ public class BattleHUD : MonoBehaviour
         if (playerNameText != null)
             playerNameText.text = battle.PlayerPokemon?.pokemonName ?? "???";
 
-        if (playerHPBar != null)
-            playerHPBar.value = (float)playerHP / battle.PlayerMaxHP;
+        float playerRatio = Mathf.Clamp01((float)playerHP / battle.PlayerMaxHP);
+        float wildRatio = Mathf.Clamp01((float)wildHP / battle.WildMaxHP);
+
+        if (playerHPFillRect != null)
+            playerHPFillRect.localScale = new Vector3(playerRatio, 1f, 1f);
         if (playerHPText != null)
             playerHPText.text = $"{playerHP}/{battle.PlayerMaxHP}";
 
-        if (wildHPBar != null)
-            wildHPBar.value = (float)wildHP / battle.WildMaxHP;
+        if (wildHPFillRect != null)
+            wildHPFillRect.localScale = new Vector3(wildRatio, 1f, 1f);
         if (wildHPText != null)
             wildHPText.text = $"{wildHP}/{battle.WildMaxHP}";
 
