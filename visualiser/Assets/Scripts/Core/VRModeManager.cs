@@ -70,9 +70,17 @@ public class VRModeManager : MonoBehaviour
 #endif
     }
 
+    private int vrFrameCount;
+
     private void LateUpdate()
     {
         if (!IsVRMode || mainCamera == null || rightEyeCamera == null) return;
+
+        if (mainCamera.targetTexture != leftRT)
+        {
+            Debug.Log($"[VR] mainCamera.targetTexture was reset! Re-assigning. Current={mainCamera.targetTexture}");
+            mainCamera.targetTexture = leftRT;
+        }
 
         rightEyeCamera.nearClipPlane = mainCamera.nearClipPlane;
         rightEyeCamera.farClipPlane = mainCamera.farClipPlane;
@@ -86,6 +94,10 @@ public class VRModeManager : MonoBehaviour
         Matrix4x4 rightProj = rightEyeCamera.projectionMatrix;
         rightProj[0, 2] -= projectionOffset;
         rightEyeCamera.projectionMatrix = rightProj;
+
+        vrFrameCount++;
+        if (vrFrameCount <= 5)
+            Debug.Log($"[VR] Frame {vrFrameCount}: mainCam.targetTex={mainCamera.targetTexture == leftRT}, rightCam.targetTex={rightEyeCamera.targetTexture == rightRT}, mainCam.rect={mainCamera.rect}");
     }
 
     private IEnumerator EnableVRDelayed()
@@ -181,6 +193,7 @@ public class VRModeManager : MonoBehaviour
         rightRT = new RenderTexture(w, h, 24);
         leftRT.Create();
         rightRT.Create();
+        Debug.Log($"[VR] RenderTextures created: {w}x{h}, leftRT.IsCreated={leftRT.IsCreated()}, rightRT.IsCreated={rightRT.IsCreated()}");
     }
 
     private void ReleaseRenderTextures()
@@ -262,6 +275,9 @@ public class VRModeManager : MonoBehaviour
         rightRect.anchorMax = new Vector2(1f, 1f);
         rightRect.offsetMin = Vector2.zero;
         rightRect.offsetMax = Vector2.zero;
+
+        Debug.Log($"[VR] Canvas created: sortingOrder={canvas.sortingOrder}, leftTex={leftImage.texture != null}, rightTex={rightImage.texture != null}");
+        Debug.Log($"[VR] mainCamera.targetTexture={mainCamera.targetTexture != null}, rightEye.targetTexture={rightEyeCamera?.targetTexture != null}");
     }
 
     private void SetARMeshLayer(int layer)
