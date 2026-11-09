@@ -15,7 +15,7 @@ public class VRModeManager : MonoBehaviour
     [SerializeField] private float projectionOffset = 0.02f;
 
     [Header("Editor Testing")]
-    [SerializeField] private KeyCode vrToggleKey = KeyCode.V;
+    [SerializeField] private KeyCode vrToggleKey = KeyCode.O;
 
     private const int AR_MESH_LAYER = 25;
 

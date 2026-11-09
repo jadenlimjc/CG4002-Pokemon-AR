@@ -162,11 +162,11 @@ public class PartyMenuUI : MonoBehaviour
 
     private void PollKeyboard()
     {
-        if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S))
+        if (Input.GetKeyDown(KeyCode.DownArrow))
             CycleSelection();
         if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.E))
             ConfirmSelection();
-        if ((Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.Q)) && !isForcedSwitch)
+        if (Input.GetKeyDown(KeyCode.Escape) && !isForcedSwitch)
             Hide();
     }
 
