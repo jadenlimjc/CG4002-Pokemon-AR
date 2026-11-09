@@ -214,7 +214,7 @@ class GameplayTests(unittest.TestCase):
         self.client.publish.assert_not_called()
 
     def test_throw_action_uses_per_device_mode(self):
-        self.processor.toggle_throw_mode()
+        self.assertTrue(self.processor.update_throw_mode(True, 1.0))
         self.assertEqual(self.processor.throw_action, 'POKEBALL_THROW')
 
         for label in (1, 3):

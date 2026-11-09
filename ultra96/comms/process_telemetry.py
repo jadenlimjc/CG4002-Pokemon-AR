@@ -34,7 +34,7 @@ def model_input(features):
 BODY = struct.Struct("<II6fB")
 CRC = struct.Struct("<I")
 MENU_CONTROL_MASK = 0x07
-INDEX_CONTROL_FLAG = 0x01
+THROW_MODE_FLAG = 0x08
 
 
 class PacketError(ValueError):

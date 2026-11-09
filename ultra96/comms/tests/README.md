@@ -57,9 +57,9 @@ Unity while this dashboard is running.
   two seconds with reason `COOLDOWN`. Confirmation restarts after the cooldown.
 - The lower panel shows the selected device's throw mode and gameplay mode,
   manual-action shortcuts, packet rate, mean RTT, and estimated one-way latency.
-  Gameplay mode starts at Full Play. Index alternates that device between
-  `CATCH_THROW` (the default) and `POKEBALL_THROW` while still being relayed as
-  a menu-select event.
+  Gameplay mode starts at Full Play. The ESP-owned index state alternates that
+  device between `CATCH_THROW` (the default) and `POKEBALL_THROW`, is carried in
+  telemetry bit 3, and is still relayed separately as a menu-select event.
 
 The default confidence threshold is **0.60**. Per-gesture overrides can be added
 to `GESTURE_CONFIDENCE_THRESHOLDS` in `visualiser_protocol.py`; any classifier
@@ -95,8 +95,10 @@ GESTURE_CONFIDENCE_THRESHOLDS = {
    or gaps. The existing **128 samples / 15-sample hop** are unchanged:
    approximately 2.56 seconds to fill the first window and 0.3 seconds between
    available windows at 50 Hz, before scheduling/inference time.
-2. Hold index and confirm the displayed throw mode changes exactly once per
-   confirmed hold. Use each manual-action shortcut and confirm the gameplay
+2. Tap index and confirm the displayed throw mode and connected LED change once
+   per touch (green catch, red battle); two taps at least 250 ms apart should
+   both register. A 500 ms hold should still send one menu-select event. Use
+   each manual-action shortcut and confirm the gameplay
    mode changes only for successful mode publications; Skip Step keeps the
    current gameplay mode.
 3. Perform each battle gesture, then immediately try the same and a different

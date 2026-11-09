@@ -21,7 +21,7 @@ import paho.mqtt.client as mqtt
 import numpy as np
 
 from process_telemetry import (
-    INDEX_CONTROL_FLAG, MENU_CONTROL_MASK, PacketError, TelemetryBuffer,
+    MENU_CONTROL_MASK, THROW_MODE_FLAG, PacketError, TelemetryBuffer,
     decode_packet, model_input,
 )
 from pairing import (
@@ -47,6 +47,7 @@ HEALTH_COUNTERS = ("boot_id", "report_index", "queue_drops", "enqueue_failures",
                    "publish_failures", "disconnected_discards", "published_samples",
                    "queue_depth", "max_publish_age_ms")
 DEFAULT_GESTURE_COOLDOWN_SECONDS = 2.0
+THROW_MODE_DEBOUNCE_SECONDS = 0.2
 COOLDOWN_GAMEPLAY_ACTIONS = frozenset(("BATTLE_MOVE", "BATTLE_ACTION"))
 
 
@@ -239,8 +240,7 @@ class TelemetryProcessor:
         )
         self.throw_mode_lock = Lock()
         self._throw_action = CATCH_THROW_ACTION
-        self.index_control_active = False
-        self.last_throw_mode_sequence = None
+        self.last_throw_mode_change_at = None
         self.result_lock = Lock()
         self.latest_result = None
         self.last_sent = None
@@ -256,15 +256,19 @@ class TelemetryProcessor:
         with self.throw_mode_lock:
             return self._throw_action
 
-    def toggle_throw_mode(self):
-        """Toggle this device's throw output and return the newly selected action."""
+    def update_throw_mode(self, battle_mode, observed_at):
+        """Accept ESP-owned mode changes with a short receiver-side guard."""
+        requested = POKEBALL_THROW_ACTION if battle_mode else CATCH_THROW_ACTION
         with self.throw_mode_lock:
-            self._throw_action = (
-                POKEBALL_THROW_ACTION
-                if self._throw_action == CATCH_THROW_ACTION
-                else CATCH_THROW_ACTION
-            )
-            return self._throw_action
+            if requested == self._throw_action:
+                return False
+            if (self.last_throw_mode_change_at is not None
+                    and observed_at - self.last_throw_mode_change_at
+                    < THROW_MODE_DEBOUNCE_SECONDS):
+                return False
+            self._throw_action = requested
+            self.last_throw_mode_change_at = observed_at
+            return True
 
     def process_packet(self, payload: bytes, received_at=None):
         # Paho supplies the entire MQTT message, even if TCP fragmented it.
@@ -273,14 +277,11 @@ class TelemetryProcessor:
             packet = decode_packet(payload)
         except PacketError:
             return
-        index_control_active = bool(int(packet.features[-1]) & INDEX_CONTROL_FLAG)
-        if (index_control_active and not self.index_control_active
-                and self.last_throw_mode_sequence != packet.sequence):
-            self.last_throw_mode_sequence = packet.sequence
-            throw_action = self.toggle_throw_mode()
-            logging.info("[%s] Index control selected %s mode",
-                         self.model_id, throw_action)
-        self.index_control_active = index_control_active
+        observed_at = time.monotonic() if received_at is None else received_at
+        battle_mode = bool(int(packet.features[-1]) & THROW_MODE_FLAG)
+        if self.update_throw_mode(battle_mode, observed_at):
+            logging.info("[%s] ESP selected %s mode",
+                         self.model_id, self.throw_action)
         self.buffer.add_packet(payload, received_at=received_at)
         while True:
             try:
