@@ -299,7 +299,7 @@ public class TutorialManager : MonoBehaviour
         {
             PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
             if (spawner != null)
-                spawner.ForceSpawn();
+                spawner.ForceSpawn(tutorialPokemon);
         }
     }
 
