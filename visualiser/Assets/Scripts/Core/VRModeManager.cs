@@ -1,6 +1,5 @@
 using System.Collections;
 using UnityEngine;
-using UnityEngine.UI;
 using UnityEngine.XR.ARFoundation;
 
 public class VRModeManager : MonoBehaviour
@@ -18,9 +17,10 @@ public class VRModeManager : MonoBehaviour
     [Header("Editor Testing")]
     [SerializeField] private KeyCode vrToggleKey = KeyCode.O;
 
-    [Header("Zoom Compensation")]
-    [Tooltip("UV rect scale for each eye. 1.0 = no change, < 1.0 zooms out. Adjust if VRG Pro lenses still magnify too much.")]
-    [SerializeField] private float zoomCompensation = 1.0f;
+    [Header("Lens Compensation")]
+    [Tooltip("Scales down each eye's viewport to counteract VRG Pro lens magnification. 1.0 = full half-screen, 0.7 = 70% with black borders.")]
+    [Range(0.5f, 1.0f)]
+    [SerializeField] private float lensScaleFactor = 0.8f;
 
     private const int AR_MESH_LAYER = 25;
 
@@ -35,10 +35,6 @@ public class VRModeManager : MonoBehaviour
     private Vector3 originalLocalPosition;
     private ScreenOrientation originalOrientation;
     private Coroutine meshLayerCoroutine;
-
-    private RenderTexture leftRT;
-    private RenderTexture rightRT;
-    private GameObject vrCanvasObject;
 
     private void Awake()
     {
@@ -70,35 +66,42 @@ public class VRModeManager : MonoBehaviour
 #endif
     }
 
-    private int vrFrameCount;
-
     private void LateUpdate()
     {
         if (!IsVRMode || mainCamera == null || rightEyeCamera == null) return;
-
-        if (mainCamera.targetTexture != leftRT)
-        {
-            Debug.Log($"[VR] mainCamera.targetTexture was reset! Re-assigning. Current={mainCamera.targetTexture}");
-            mainCamera.targetTexture = leftRT;
-        }
 
         rightEyeCamera.fieldOfView = mainCamera.fieldOfView;
         rightEyeCamera.nearClipPlane = mainCamera.nearClipPlane;
         rightEyeCamera.farClipPlane = mainCamera.farClipPlane;
 
+        ApplyViewportInset();
+
         mainCamera.ResetProjectionMatrix();
         Matrix4x4 leftProj = mainCamera.projectionMatrix;
+        leftProj[0, 0] *= lensScaleFactor;
+        leftProj[1, 1] *= lensScaleFactor;
         leftProj[0, 2] += projectionOffset;
         mainCamera.projectionMatrix = leftProj;
 
         rightEyeCamera.ResetProjectionMatrix();
         Matrix4x4 rightProj = rightEyeCamera.projectionMatrix;
+        rightProj[0, 0] *= lensScaleFactor;
+        rightProj[1, 1] *= lensScaleFactor;
         rightProj[0, 2] -= projectionOffset;
         rightEyeCamera.projectionMatrix = rightProj;
+    }
 
-        vrFrameCount++;
-        if (vrFrameCount <= 5)
-            Debug.Log($"[VR] Frame {vrFrameCount}: mainCam.targetTex={mainCamera.targetTexture == leftRT}, rightCam.targetTex={rightEyeCamera.targetTexture == rightRT}, mainCam.rect={mainCamera.rect}");
+    private void ApplyViewportInset()
+    {
+        float eyeWidth = 0.5f * lensScaleFactor;
+        float eyeHeight = lensScaleFactor;
+        float yOffset = (1f - eyeHeight) / 2f;
+
+        float leftXOffset = (0.5f - eyeWidth) / 2f;
+        mainCamera.rect = new Rect(leftXOffset, yOffset, eyeWidth, eyeHeight);
+
+        float rightXOffset = 0.5f + (0.5f - eyeWidth) / 2f;
+        rightEyeCamera.rect = new Rect(rightXOffset, yOffset, eyeWidth, eyeHeight);
     }
 
     private IEnumerator EnableVRDelayed()
@@ -130,18 +133,13 @@ public class VRModeManager : MonoBehaviour
         Screen.orientation = ScreenOrientation.LandscapeLeft;
         Screen.sleepTimeout = SleepTimeout.NeverSleep;
 
-        CreateRenderTextures();
         CreateRightEyeCamera();
-        CreateVRCanvas();
-
-        mainCamera.rect = new Rect(0f, 0f, 1f, 1f);
-        mainCamera.targetTexture = leftRT;
 
         SetARMeshLayer(AR_MESH_LAYER);
         meshLayerCoroutine = StartCoroutine(PeriodicMeshLayerUpdate());
 
         OnVRModeChanged?.Invoke(true);
-        Debug.Log("[VR] VR mode enabled (render-to-texture)");
+        Debug.Log($"[VR] VR mode enabled - lensScaleFactor={lensScaleFactor}");
     }
 
     private void DisableVR()
@@ -158,7 +156,6 @@ public class VRModeManager : MonoBehaviour
 
         if (mainCamera != null)
         {
-            mainCamera.targetTexture = null;
             mainCamera.rect = new Rect(0f, 0f, 1f, 1f);
             mainCamera.transform.localPosition = originalLocalPosition;
             mainCamera.ResetProjectionMatrix();
@@ -171,46 +168,11 @@ public class VRModeManager : MonoBehaviour
             rightEyeCamera = null;
         }
 
-        if (vrCanvasObject != null)
-        {
-            Destroy(vrCanvasObject);
-            vrCanvasObject = null;
-        }
-
-        ReleaseRenderTextures();
-
         Screen.orientation = originalOrientation;
         Screen.sleepTimeout = SleepTimeout.SystemSetting;
 
         OnVRModeChanged?.Invoke(false);
         Debug.Log("[VR] VR mode disabled");
-    }
-
-    private void CreateRenderTextures()
-    {
-        int w = Screen.width / 2;
-        int h = Screen.height;
-        leftRT = new RenderTexture(w, h, 24);
-        rightRT = new RenderTexture(w, h, 24);
-        leftRT.Create();
-        rightRT.Create();
-        Debug.Log($"[VR] RenderTextures created: {w}x{h}, leftRT.IsCreated={leftRT.IsCreated()}, rightRT.IsCreated={rightRT.IsCreated()}");
-    }
-
-    private void ReleaseRenderTextures()
-    {
-        if (leftRT != null)
-        {
-            leftRT.Release();
-            Destroy(leftRT);
-            leftRT = null;
-        }
-        if (rightRT != null)
-        {
-            rightRT.Release();
-            Destroy(rightRT);
-            rightRT = null;
-        }
     }
 
     private void CreateRightEyeCamera()
@@ -222,8 +184,6 @@ public class VRModeManager : MonoBehaviour
         rightEyeCamera.CopyFrom(mainCamera);
         rightEyeCamera.ResetWorldToCameraMatrix();
         rightEyeCamera.ResetProjectionMatrix();
-        rightEyeCamera.rect = new Rect(0f, 0f, 1f, 1f);
-        rightEyeCamera.targetTexture = rightRT;
         rightEyeCamera.tag = "Untagged";
         rightEyeCamera.depth = mainCamera.depth + 1;
         rightEyeCamera.cullingMask = mainCamera.cullingMask & ~(1 << AR_MESH_LAYER);
@@ -243,52 +203,6 @@ public class VRModeManager : MonoBehaviour
 
         rightEyeObject.transform.localPosition = new Vector3(ipd, 0f, 0f);
         rightEyeObject.transform.localRotation = Quaternion.identity;
-    }
-
-    private void CreateVRCanvas()
-    {
-        vrCanvasObject = new GameObject("VRDisplayCanvas");
-        var canvas = vrCanvasObject.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 999;
-
-        float uvScale = zoomCompensation;
-        float uvOff = (1f - uvScale) / 2f;
-
-        var bgObj = new GameObject("DebugBG");
-        bgObj.transform.SetParent(vrCanvasObject.transform, false);
-        var bgImage = bgObj.AddComponent<RawImage>();
-        bgImage.color = Color.magenta;
-        var bgRect = bgObj.GetComponent<RectTransform>();
-        bgRect.anchorMin = Vector2.zero;
-        bgRect.anchorMax = Vector2.one;
-        bgRect.offsetMin = Vector2.zero;
-        bgRect.offsetMax = Vector2.zero;
-
-        var leftObj = new GameObject("LeftEye");
-        leftObj.transform.SetParent(vrCanvasObject.transform, false);
-        var leftImage = leftObj.AddComponent<RawImage>();
-        leftImage.texture = leftRT;
-        leftImage.uvRect = new Rect(uvOff, uvOff, uvScale, uvScale);
-        var leftRect = leftObj.GetComponent<RectTransform>();
-        leftRect.anchorMin = new Vector2(0f, 0f);
-        leftRect.anchorMax = new Vector2(0.5f, 1f);
-        leftRect.offsetMin = Vector2.zero;
-        leftRect.offsetMax = Vector2.zero;
-
-        var rightObj = new GameObject("RightEye");
-        rightObj.transform.SetParent(vrCanvasObject.transform, false);
-        var rightImage = rightObj.AddComponent<RawImage>();
-        rightImage.texture = rightRT;
-        rightImage.uvRect = new Rect(uvOff, uvOff, uvScale, uvScale);
-        var rightRect = rightObj.GetComponent<RectTransform>();
-        rightRect.anchorMin = new Vector2(0.5f, 0f);
-        rightRect.anchorMax = new Vector2(1f, 1f);
-        rightRect.offsetMin = Vector2.zero;
-        rightRect.offsetMax = Vector2.zero;
-
-        Debug.Log($"[VR] Canvas created: sortingOrder={canvas.sortingOrder}, leftTex={leftImage.texture != null}, rightTex={rightImage.texture != null}");
-        Debug.Log($"[VR] mainCamera.targetTexture={mainCamera.targetTexture != null}, rightEye.targetTexture={rightEyeCamera?.targetTexture != null}");
     }
 
     private void SetARMeshLayer(int layer)
