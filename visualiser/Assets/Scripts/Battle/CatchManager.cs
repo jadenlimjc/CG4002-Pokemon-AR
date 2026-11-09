@@ -110,7 +110,7 @@ public class CatchManager : MonoBehaviour
 
     private void OpenPartyMenuForLeadSelect()
     {
-        if (PlayerParty.Instance == null || PlayerParty.Instance.Count <= 1) return;
+        if (PlayerParty.Instance == null) return;
         if (PartyMenuUI.Instance == null) return;
 
         PartyMenuUI.Instance.OnPokemonSelected += HandleLeadSelect;
