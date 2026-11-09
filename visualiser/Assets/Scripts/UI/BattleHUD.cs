@@ -22,7 +22,6 @@ public class BattleHUD : MonoBehaviour
     [SerializeField] private GameObject movePanel;
     [SerializeField] private GameObject[] moveTiles = new GameObject[4];
     [SerializeField] private TextMeshProUGUI[] moveTileTexts = new TextMeshProUGUI[4];
-    [SerializeField] private Image[] moveTileImages = new Image[4];
 
     [Header("Action Display Tiles")]
     [SerializeField] private GameObject actionPanel;
@@ -39,6 +38,10 @@ public class BattleHUD : MonoBehaviour
     [Header("Reticle")]
     [SerializeField] private GameObject reticleObject;
 
+    [Header("HP Bar Colors")]
+    [SerializeField] private Image playerHPFill;
+    [SerializeField] private Image wildHPFill;
+
     [Header("Feedback")]
     [SerializeField] private float flashDuration = 0.2f;
 
@@ -49,6 +52,16 @@ public class BattleHUD : MonoBehaviour
 
     private void Start()
     {
+        if (playerHPFill == null && playerHPBar != null)
+            playerHPFill = playerHPBar.fillRect?.GetComponent<Image>();
+        if (wildHPFill == null && wildHPBar != null)
+            wildHPFill = wildHPBar.fillRect?.GetComponent<Image>();
+
+        if (playerHPFill != null)
+            playerHPFill.color = Color.green;
+        if (wildHPFill != null)
+            wildHPFill.color = Color.red;
+
         SubscribeEvents();
     }
 
@@ -141,8 +154,6 @@ public class BattleHUD : MonoBehaviour
                     moveTiles[i].SetActive(true);
                     if (moveTileTexts[i] != null)
                         moveTileTexts[i].text = moves[i].moveName;
-                    if (moveTileImages[i] != null)
-                        moveTileImages[i].color = GetTypeColor(moves[i].moveType);
                 }
                 else if (moveTiles[i] != null)
                 {
@@ -189,8 +200,6 @@ public class BattleHUD : MonoBehaviour
                 moveTiles[i].SetActive(true);
                 if (moveTileTexts[i] != null)
                     moveTileTexts[i].text = moves[i].moveName;
-                if (moveTileImages[i] != null)
-                    moveTileImages[i].color = GetTypeColor(moves[i].moveType);
             }
             else if (moveTiles[i] != null)
             {
@@ -269,38 +278,30 @@ public class BattleHUD : MonoBehaviour
 
     private IEnumerator FlashTile(GameObject tile)
     {
-        Image img = tile.GetComponent<Image>();
-        if (img == null) yield break;
+        RectTransform rt = tile.GetComponent<RectTransform>();
+        if (rt == null) yield break;
 
-        Color original = img.color;
-        img.color = Color.Lerp(original, Color.white, 0.6f);
-        yield return new WaitForSeconds(flashDuration);
-        img.color = original;
-    }
+        Vector3 originalScale = rt.localScale;
+        Vector3 targetScale = originalScale * 1.3f;
 
-    public static Color GetTypeColor(PokemonType type)
-    {
-        return type switch
+        float half = flashDuration / 2f;
+        float elapsed = 0f;
+
+        while (elapsed < half)
         {
-            PokemonType.Normal   => new Color(0.66f, 0.65f, 0.48f),
-            PokemonType.Fire     => new Color(0.93f, 0.51f, 0.19f),
-            PokemonType.Water    => new Color(0.39f, 0.56f, 0.94f),
-            PokemonType.Grass    => new Color(0.47f, 0.78f, 0.30f),
-            PokemonType.Electric => new Color(0.97f, 0.82f, 0.17f),
-            PokemonType.Ice      => new Color(0.59f, 0.85f, 0.84f),
-            PokemonType.Fighting => new Color(0.76f, 0.18f, 0.16f),
-            PokemonType.Poison   => new Color(0.63f, 0.24f, 0.63f),
-            PokemonType.Ground   => new Color(0.88f, 0.75f, 0.40f),
-            PokemonType.Flying   => new Color(0.66f, 0.56f, 0.95f),
-            PokemonType.Psychic  => new Color(0.98f, 0.33f, 0.53f),
-            PokemonType.Bug      => new Color(0.65f, 0.73f, 0.10f),
-            PokemonType.Rock     => new Color(0.71f, 0.63f, 0.21f),
-            PokemonType.Ghost    => new Color(0.44f, 0.34f, 0.59f),
-            PokemonType.Dragon   => new Color(0.44f, 0.21f, 0.99f),
-            PokemonType.Dark     => new Color(0.44f, 0.34f, 0.27f),
-            PokemonType.Steel    => new Color(0.72f, 0.72f, 0.81f),
-            PokemonType.Fairy    => new Color(0.84f, 0.52f, 0.68f),
-            _                    => new Color(0.50f, 0.50f, 0.50f),
-        };
+            elapsed += Time.deltaTime;
+            rt.localScale = Vector3.Lerp(originalScale, targetScale, elapsed / half);
+            yield return null;
+        }
+
+        elapsed = 0f;
+        while (elapsed < half)
+        {
+            elapsed += Time.deltaTime;
+            rt.localScale = Vector3.Lerp(targetScale, originalScale, elapsed / half);
+            yield return null;
+        }
+
+        rt.localScale = originalScale;
     }
 }
