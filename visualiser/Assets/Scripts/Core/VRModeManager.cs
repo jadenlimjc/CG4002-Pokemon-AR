@@ -37,6 +37,7 @@ public class VRModeManager : MonoBehaviour
     private Vector3 originalLocalPosition;
     private ScreenOrientation originalOrientation;
     private Coroutine meshLayerCoroutine;
+    private ARCameraBackground arBackground;
 
     private void Awake()
     {
@@ -52,7 +53,10 @@ public class VRModeManager : MonoBehaviour
     {
         mainCamera = Camera.main;
         if (mainCamera != null)
+        {
             originalLocalPosition = mainCamera.transform.localPosition;
+            arBackground = mainCamera.GetComponent<ARCameraBackground>();
+        }
 
         originalOrientation = Screen.orientation;
 
@@ -75,31 +79,31 @@ public class VRModeManager : MonoBehaviour
         rightEyeCamera.nearClipPlane = mainCamera.nearClipPlane;
         rightEyeCamera.farClipPlane = mainCamera.farClipPlane;
 
-        //Left Eye Projection & FOV Compensation
+        mainCamera.ResetProjectionMatrix();
         Matrix4x4 leftProj = mainCamera.projectionMatrix;
-        
-        if (IsVRMode)
-        {
-            // Scale projection matrix diagonals to widen/narrow the FOV (counteracting mobile hardware overrides)
-            leftProj[0, 0] /= fovMultiplier; // Horizontal FOV scale
-            leftProj[1, 1] /= fovMultiplier; // Vertical FOV scale
-        }
-
+        leftProj[0, 0] /= fovMultiplier;
+        leftProj[1, 1] /= fovMultiplier;
         leftProj[0, 2] += projectionOffset;
         mainCamera.projectionMatrix = leftProj;
 
-        // Right Eye Projection
         rightEyeCamera.ResetProjectionMatrix();
         Matrix4x4 rightProj = rightEyeCamera.projectionMatrix;
-        
-        if (IsVRMode)
-        {
-            rightProj[0, 0] /= fovMultiplier;
-            rightProj[1, 1] /= fovMultiplier;
-        }
-
+        rightProj[0, 0] /= fovMultiplier;
+        rightProj[1, 1] /= fovMultiplier;
         rightProj[0, 2] -= projectionOffset;
         rightEyeCamera.projectionMatrix = rightProj;
+
+        ScaleARBackground();
+    }
+
+    private void ScaleARBackground()
+    {
+        if (arBackground == null || arBackground.material == null) return;
+
+        float uvScale = fovMultiplier;
+        float uvOffset = (1f - uvScale) * 0.5f;
+        arBackground.material.SetTextureScale("_MainTex", new Vector2(uvScale, uvScale));
+        arBackground.material.SetTextureOffset("_MainTex", new Vector2(uvOffset, uvOffset));
     }
 
     private IEnumerator EnableVRDelayed()
