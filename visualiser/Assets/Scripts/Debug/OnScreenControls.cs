@@ -46,7 +46,7 @@ public class OnScreenControls : MonoBehaviour
 
         CreateButton("Battle Throw", leftX, y + (buttonHeight + spacing) * 2, () =>
         {
-            GestureEvents.RaiseGestureReceived(GestureAction.POKEBALL_THROW, mockConfidence);
+            GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_THROW, mockConfidence);
         });
 
         CreateButton("Cancel", leftX, y + (buttonHeight + spacing) * 3, () =>
@@ -91,9 +91,9 @@ public class OnScreenControls : MonoBehaviour
             GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_RUN, mockConfidence);
         });
 
-        CreateButton("Switch", farRightX, y + (buttonHeight + spacing), () =>
+        CreateButton("Party", farRightX, y + (buttonHeight + spacing), () =>
         {
-            GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_SWITCH, mockConfidence);
+            GestureEvents.RaiseGestureReceived(GestureAction.PARTY_POKEMON, mockConfidence);
         });
 
         CreateButton("Item", farRightX, y + (buttonHeight + spacing) * 2, () =>
@@ -142,6 +142,25 @@ public class OnScreenControls : MonoBehaviour
         {
             if (ModeSelectUI.Instance != null)
                 ModeSelectUI.Instance.Show();
+        });
+
+        float y2 = y + buttonHeight + spacing;
+        CreateButton("Next", -buttonWidth / 2f - spacing, y2, () =>
+        {
+            if (NetworkManager.Instance != null)
+                NetworkManager.Instance.InjectMenuControl(index: true);
+        });
+
+        CreateButton("Select", buttonWidth / 2f + spacing, y2, () =>
+        {
+            if (NetworkManager.Instance != null)
+                NetworkManager.Instance.InjectMenuControl(middle: true);
+        });
+
+        CreateButton("Back", buttonWidth * 1.5f + spacing * 2, y2, () =>
+        {
+            if (NetworkManager.Instance != null)
+                NetworkManager.Instance.InjectMenuControl(ring: true);
         });
     }
 

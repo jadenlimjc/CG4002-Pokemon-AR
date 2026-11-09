@@ -85,10 +85,10 @@ public class EncounterNotification : MonoBehaviour
             ShowCaughtNotification(pokemonName);
     }
 
-    public void ShowCaughtNotification(string pokemonName)
+    public void ShowCaughtNotification(string catchText)
     {
         if (pokemonNameText != null)
-            pokemonNameText.text = $"Gotcha! {pokemonName} was caught!";
+            pokemonNameText.text = $"Gotcha! {catchText}";
 
         if (terrainTypeText != null)
             terrainTypeText.text = "";
