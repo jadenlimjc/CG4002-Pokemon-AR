@@ -452,7 +452,7 @@ The control topics are:
 | Topic | Purpose |
 |---|---|
 | `esp32/<physical_id>/status` | ESP32 retained online record and broker-generated offline LWT |
-| `esp32/<physical_id>/telemetry` | IMU packet; menu input piggybacks in the low three `flags` bits |
+| `esp32/<physical_id>/telemetry` | IMU packet; menu input uses `flags` bits 0-2 and throw mode uses bit 3 |
 | `visualiser/<phone_id>/pair/request` | QoS 1 `acquire`, `renew`, or `release` request |
 | `visualiser/<phone_id>/pair/result` | QoS 1 result correlated by `request_id` |
 | `ultra96/<player_id>/status` | Ultra96-translated retained presence for player 1 or 2 |
@@ -460,11 +460,15 @@ The control topics are:
 | `ultra96/<player_id>/menu_controls` | Ultra96-translated menu-control event |
 
 The ESP32 hardware runtime maps the confirmed middle hold to up and the
-confirmed ring hold to down. The confirmed index hold toggles that device's
-Ultra96 throw mode between `CATCH_THROW` (the default) and `POKEBALL_THROW`,
-and remains the menu-select input forwarded to Unity. These one-shot inputs use
-`flags` bit 0 for index, bit 1 for middle, and bit 2 for ring in the next normal
-telemetry packet. Ultra96 extracts the bitmask and emits the small
+confirmed ring hold to down. A fresh index touch toggles the ESP-owned throw
+mode between `CATCH_THROW` (the default) and `POKEBALL_THROW`; the existing
+confirmed index hold remains the menu-select input forwarded to Unity. These
+one-shot menu inputs use `flags` bit 0 for index, bit 1 for middle, and bit 2 for
+ring in the next normal telemetry packet. Persistent bit 3 is clear for catch
+and set for battle throw. The ESP guards mode changes for 250 ms and shows green
+for catch or red for battle once connected; it blinks blue while connecting.
+Ultra96 accepts state edges with a shorter 200 ms guard, extracts the menu
+bitmask, and emits the small
 player-labelled `menu_controls` event; the ESP32 makes no additional MQTT
 publication. Unity exposes the result as pending input through
 `MiddlePressPending`, `RingPressPending`, and `IndexPressPending`.
@@ -515,8 +519,9 @@ Stop Aim while already neutral is ignored and does not clear that repeat filter.
 All transitions, including Neutral/reset, require confidence at or above 90%
 by default. A rejected MQTT publish leaves the sequence unchanged so a later
 valid prediction can retry. MQTT QoS 0 acceptance does not confirm AR delivery.
-Each confirmed index hold toggles the originating device's throw action; the
-mode starts at `CATCH_THROW` whenever the Ultra96 service restarts.
+Each debounced index touch toggles the originating device's throw action on the
+ESP. Ultra96 recovers the current persistent state from subsequent telemetry,
+including after the Ultra96 service restarts.
 
 For live testing, `ultra96/comms/tests/final_demo.py` uses the same inference
 path and shows the current prediction, explicit decision reason, last sent

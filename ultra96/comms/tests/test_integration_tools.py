@@ -53,7 +53,7 @@ class PacketViewerTests(unittest.TestCase):
         for field in ("[board1]", "sample_index=7", "timestamp_ms=70",
                       "accel_x=9.80665", "accel_y=-9.80665", "accel_z=4.903325",
                       "gyro_x=0.125", "gyro_y=-0.25", "gyro_z=0.5",
-                      "menu_flags=0x01", "flags=0x81",
+                      "menu_flags=0x01", "throw_mode=catch", "flags=0x81",
                       f"crc32=0x{zlib.crc32(payload(7)[:-4]):08x} (valid)"):
             self.assertIn(field, line)
 
@@ -125,11 +125,11 @@ class ProcessingTests(unittest.TestCase):
                     topic="esp32/dce6f6215788/telemetry"))
         self.assertEqual(self.client.publish.call_count, 1)
 
-    def test_index_toggles_throw_mode_once_and_remains_menu_select(self):
+    def test_esp_mode_bit_selects_battle_and_index_remains_menu_select(self):
         worker = SimpleNamespace(confidence_threshold=0.75, submit=Mock())
         service = TelemetryService(self.client, worker)
         index_event = message(
-            payload(7, flags=0x01),
+            payload(7, flags=0x09),
             topic="esp32/dce6f6215788/telemetry",
         )
 
@@ -146,27 +146,29 @@ class ProcessingTests(unittest.TestCase):
 
         service.on_message(
             self.client, None,
-            message(payload(8, flags=0x01),
+            message(payload(8, flags=0x08),
                     topic="esp32/dce6f6215788/telemetry"))
         self.assertEqual(processor.throw_action, 'POKEBALL_THROW')
+        self.assertEqual(self.client.publish.call_count, 1)
 
-        service.on_message(
-            self.client, None,
-            message(payload(9, flags=0),
-                    topic="esp32/dce6f6215788/telemetry"))
-        service.on_message(
-            self.client, None,
-            message(payload(10, flags=0x01),
-                    topic="esp32/dce6f6215788/telemetry"))
+    def test_u96_mode_guard_is_shorter_than_esp_guard(self):
+        worker = SimpleNamespace(confidence_threshold=0.75, submit=Mock())
+        processor = TelemetryService(self.client, worker).processor_factory(
+            self.client, "dce6f6215788", worker)
+
+        processor.process_packet(payload(1, flags=0x08), received_at=10.0)
+        self.assertEqual(processor.throw_action, 'POKEBALL_THROW')
+        processor.process_packet(payload(2, flags=0), received_at=10.199)
+        self.assertEqual(processor.throw_action, 'POKEBALL_THROW')
+        processor.process_packet(payload(3, flags=0), received_at=10.201)
         self.assertEqual(processor.throw_action, 'CATCH_THROW')
-        self.assertEqual(self.client.publish.call_count, 3)
 
     def test_index_is_preserved_when_relaying_combined_menu_controls(self):
         worker = SimpleNamespace(confidence_threshold=0.75, submit=Mock())
         service = TelemetryService(self.client, worker)
         service.on_message(
             self.client, None,
-            message(payload(7, flags=0x03),
+            message(payload(7, flags=0x0b),
                     topic="esp32/dce6f6215788/telemetry"))
 
         topic, body = self.client.publish.call_args.args[:2]

@@ -45,6 +45,9 @@ unsigned long ringMotorStart = 0;
 bool isUpPressed = false; //used to send status to ultra96
 bool isDownPressed = false;
 bool isSelectPressed = false;
+bool battleThrowMode = false; // false = catch (green), true = battle throw (red)
+unsigned long lastThrowModeChange = 0;
+bool hasThrowModeChange = false;
 
 bool indexSelectFiredTouch = false;
 
@@ -62,6 +65,7 @@ void IRAM_ATTR onRingTouchIsr()   {
 }
 
 void handleIndexHoldToggle();
+void handleIndexModeTouch();
 void checkSelectGesture();
 void routeGestures();
 void checkSimulatedModelResponse();
@@ -100,7 +104,10 @@ void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
   static unsigned long gestureSoundStartedAt = 0;
   const bool wasStarted = programStarted;
   handleIndexHoldToggle();
-  if (indexButton.consumeFreshTouch()) indexMotorTrigger = true;
+  if (indexButton.consumeFreshTouch()) {
+    indexMotorTrigger = true;
+    if (programStarted) handleIndexModeTouch();
+  }
   middleButton.update();
   ringButton.update();
   if (middleButton.consumeFreshTouch()) middleMotorTrigger = true;
@@ -143,15 +150,32 @@ void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
   updateConnectionLed(connected);
 }
 
-// MQTT is the usable end-to-end connection: blink while it is being established
-// or recovered, then hold a dim blue once it is available.
+// MQTT is the usable end-to-end connection: blink blue while it is being
+// established or recovered, then show the ESP-owned throw mode continuously.
 void updateConnectionLed(bool connected) {
   const bool blinkOn = (millis() / CONNECTION_LED_BLINK_MS) % 2 == 0;
-  if (connected || blinkOn) {
+  if (!connected && blinkOn) {
     led.blue(CONNECTION_LED_BLUE_BRIGHTNESS);
-  } else {
+  } else if (!connected) {
     led.off();
+  } else if (battleThrowMode) {
+    led.red();
+  } else {
+    led.green();
   }
+}
+
+// -------------------------------------------------
+// Index touch: toggle throw mode once per debounced touch edge.
+// -------------------------------------------------
+void handleIndexModeTouch() {
+  const unsigned long now = millis();
+  if (hasThrowModeChange && now - lastThrowModeChange < THROW_MODE_DEBOUNCE_MS) return;
+
+  battleThrowMode = !battleThrowMode;
+  lastThrowModeChange = now;
+  hasThrowModeChange = true;
+  Serial.printf("Throw mode: %s\n", battleThrowMode ? "BATTLE" : "CATCH");
 }
 
 // -------------------------------------------------
@@ -262,12 +286,14 @@ void runSensorCycle() {
   // printImuReadings(a, g);
 
   // Always read and buffer at 50 Hz. Optional gating uses the unchanged API.
-  const uint8_t touchFlags =
+  const uint8_t controlFlags =
       (isSelectPressed ? TELEMETRY_TOUCH_INDEX : 0) |
       (isUpPressed ? TELEMETRY_TOUCH_MIDDLE : 0) |
-      (isDownPressed ? TELEMETRY_TOUCH_RING : 0);
-  if ((!DETECT_MOTION || touchFlags || motion.hasSignificantChange()) &&
-      enqueueMotionSample(a, g, touchFlags, telemetryStreamStart, DETECT_MOTION)) {
+      (isDownPressed ? TELEMETRY_TOUCH_RING : 0) |
+      (battleThrowMode ? TELEMETRY_BATTLE_THROW : 0);
+  if ((!DETECT_MOTION || (controlFlags & TELEMETRY_TOUCH_MASK) ||
+       motion.hasSignificantChange()) &&
+      enqueueMotionSample(a, g, controlFlags, telemetryStreamStart, DETECT_MOTION)) {
     motion.markTransmitted();
     telemetryStreamStart = false;
   }
@@ -302,6 +328,9 @@ void shutdownHardware() {
   indexSelectFiredTouch = false;
 
   app.reset();
+  battleThrowMode = false;
+  lastThrowModeChange = 0;
+  hasThrowModeChange = false;
 
   isUpPressed = isDownPressed = isSelectPressed = false;
 
