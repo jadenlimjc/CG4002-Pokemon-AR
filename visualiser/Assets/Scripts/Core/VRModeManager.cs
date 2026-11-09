@@ -79,15 +79,11 @@ public class VRModeManager : MonoBehaviour
 
         mainCamera.ResetProjectionMatrix();
         Matrix4x4 leftProj = mainCamera.projectionMatrix;
-        leftProj[0, 0] *= lensScaleFactor;
-        leftProj[1, 1] *= lensScaleFactor;
         leftProj[0, 2] += projectionOffset;
         mainCamera.projectionMatrix = leftProj;
 
         rightEyeCamera.ResetProjectionMatrix();
         Matrix4x4 rightProj = rightEyeCamera.projectionMatrix;
-        rightProj[0, 0] *= lensScaleFactor;
-        rightProj[1, 1] *= lensScaleFactor;
         rightProj[0, 2] -= projectionOffset;
         rightEyeCamera.projectionMatrix = rightProj;
     }
