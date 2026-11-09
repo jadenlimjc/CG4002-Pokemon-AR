@@ -42,7 +42,7 @@ public class PokemonData : ScriptableObject
     [Range(0f, 1f)]
     public float baseCatchRate = 0.5f;
 
-    [Header("Moves (for player's Pokemon)")]
+    [Header("Moves")]
     public MoveData[] moves = new MoveData[4];
 
     [Header("Visuals")]
