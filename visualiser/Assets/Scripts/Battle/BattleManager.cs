@@ -482,6 +482,8 @@ public class BattleManager : MonoBehaviour
         if (hits)
         {
             int damage = CalculateDamage(move.power, playerPokemon.attack, wildPokemonData.defense);
+            if (DemoModeManager.Instance != null && DemoModeManager.Instance.IsTutorial)
+                damage = 0;
             wildHP = Mathf.Max(0, wildHP - damage);
             OnHPChanged?.Invoke(playerHP, wildHP);
 
@@ -535,6 +537,8 @@ public class BattleManager : MonoBehaviour
         }
 
         int wildDamage = CalculateDamage(50, wildPokemonData.attack, playerPokemon.defense);
+        if (DemoModeManager.Instance != null && DemoModeManager.Instance.IsTutorial)
+            wildDamage = 0;
         playerHP = Mathf.Max(0, playerHP - wildDamage);
         if (DemoModeManager.Instance != null && DemoModeManager.Instance.IsGodMode)
             playerHP = Mathf.Max(1, playerHP);
