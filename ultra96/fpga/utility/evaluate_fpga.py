@@ -229,7 +229,6 @@ def main():
                                    args.show_predictions)
         report_performance(timings, accelerator.configured_clock_mhz(),
                            args.performance_csv, args.sample_rate, args.window_size)
-        model_id = accelerator.model_id
     accuracy = 100.0 * np.trace(matrix) / matrix.sum()
     mode = "Negative-Control FPGA" if args.shuffle_labels else "FPGA"
     balanced = 100.0 * np.mean(np.diag(matrix) / matrix.sum(axis=1).clip(min=1))
@@ -238,7 +237,7 @@ def main():
     print(matrix)
     save_confusion_matrix(matrix, args.output, source.class_names, f"{mode} | {label}")
     metadata = {"sample_rate_hz": args.sample_rate, "window_size": args.window_size,
-                "architecture": "temporal", "model_id": model_id,
+                "architecture": "temporal",
                 "dataset": str(Path(args.data).resolve()), "overlay": str(Path(args.overlay).resolve()),
                 "accuracy": accuracy, "balanced_accuracy": balanced,
                 "correct": int(np.trace(matrix)), "total": int(matrix.sum()),

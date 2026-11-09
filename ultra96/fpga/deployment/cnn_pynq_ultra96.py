@@ -13,20 +13,6 @@ IN_CHANNELS = 6
 IN_LENGTH = 128
 SAMPLE_RATE_HZ = 50
 NUM_CLASSES = 11
-# Temporal CNN v1 identity at AXI-Lite 0x10; includes window size and class count.
-MODEL_ID_REGISTER = 0x10
-MODEL_ID_PREFIX = 0x54000000
-
-
-def validate_model_id(cnn, window_size):
-    expected = MODEL_ID_PREFIX | (window_size << 8) | NUM_CLASSES
-    actual = cnn.read(MODEL_ID_REGISTER)
-    if actual != expected:
-        raise RuntimeError(
-            f"FPGA model mismatch: read 0x{actual:08x}, expected 0x{expected:08x}. "
-            "Rebuild the temporal HLS IP and Vivado bitstream, then copy the matching .bit/.hwh pair."
-        )
-    return actual
 
 INPUT_DATA_SIZE = IN_CHANNELS * IN_LENGTH  # Default: 6 * 128 = 768 floats
 OUTPUT_DATA_SIZE = NUM_CLASSES             # 11 floats (logits)
@@ -160,13 +146,12 @@ class GestureCNNAccelerator:
     """Low-level Overlay, DMA, and MMIO driver used by evaluate_fpga.py."""
 
     def __init__(self, overlay_path=OVERLAY_PATH, window_size=IN_LENGTH, sample_rate=SAMPLE_RATE_HZ):
-        if type(window_size) is not int or not 16 <= window_size < 65536 or window_size % 4:
-            raise ValueError("window_size must be 16..65532 and divisible by 4, matching the temporal bitstream")
+        if type(window_size) is not int or window_size < 16 or window_size % 4:
+            raise ValueError("window_size must be at least 16 and divisible by 4, matching the temporal bitstream")
         if type(sample_rate) is not int or not 1 <= sample_rate <= 100:
             raise ValueError("sample_rate must be an integer from 1 to 100")
         self.window_size = window_size
         self.sample_rate = sample_rate
-        self.model_id = None
         overlay_path = os.path.abspath(os.path.expanduser(os.fspath(overlay_path)))
         hwh_path = os.path.splitext(overlay_path)[0] + ".hwh"
         if not os.path.exists(overlay_path):
@@ -267,9 +252,6 @@ class GestureCNNAccelerator:
             accelerator_end = perf_counter_ns()
             wait_for_dma(self.dma.recvchannel, "receive")
             receive_end = perf_counter_ns()
-            # Output ports are valid after ap_done. An old overlay still accepts
-            # the same DMA lengths, so check identity before returning any logits.
-            self.model_id = validate_model_id(self.cnn, self.window_size)
         except Exception:
             # Partial transfers require overlay recovery before reuse.
             self._faulted = True

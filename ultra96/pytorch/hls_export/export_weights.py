@@ -225,8 +225,7 @@ def export_weights_and_vectors(
         with (output_dir / filename).open('w', newline='\n') as handle:
             np.savetxt(handle, values.flatten(), fmt='%.8f')
     manifest = {"architecture": "temporal", "model_config": model.config,
-                "model_id": 0x54000000 | (window_size << 8) | len(class_names),
-                "model_id_register": 0x10, "sample_rate_hz": sample_rate,
+                "sample_rate_hz": sample_rate,
                 "window_size": window_size, "class_names": class_names,
                 "checkpoint": str(model_path.resolve()),
                 "checkpoint_sha256": hashlib.sha256(model_path.read_bytes()).hexdigest(),

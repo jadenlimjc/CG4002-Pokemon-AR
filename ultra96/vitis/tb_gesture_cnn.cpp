@@ -322,12 +322,7 @@ int main(int argc, char** argv) {
     gesture_cnn_ref(in_buf_quantized, ref_logits);
 
     // Run Kernel
-    unsigned int model_id = 0;
-    gesture_cnn_top(in_stream, out_stream, model_id);
-    if (model_id != MODEL_ID) {
-        std::cerr << "Incorrect hardware model identity" << std::endl;
-        return 1;
-    }
+    gesture_cnn_top(in_stream, out_stream);
 
     // Compare HLS kernel output with the generated fixed-point reference
     bool match = true;

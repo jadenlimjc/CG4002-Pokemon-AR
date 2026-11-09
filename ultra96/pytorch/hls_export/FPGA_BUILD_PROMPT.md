@@ -156,9 +156,8 @@ dataset under the expected filename and record that choice.
 
 Check that the bundle includes the matching bitstream/handoff pair, driver,
 evaluator, data-source helper, golden vectors and test dataset. Check the HWH
-for the expected CNN IP and read-only model-ID register at offset `0x10`.
-For the current 128-sample, 11-class architecture the expected runtime ID is
-`0x5400800b`; its actual register value requires inference on hardware.
+for the expected CNN IP and confirm that the build configuration matches the
+architecture and window size recorded in the export manifest.
 
 Back up the existing `.bit`, `.hwh`, golden vectors and dataset in
 `ultra96/fpga/deployment` to a uniquely named ignored build directory. Then copy

@@ -61,12 +61,8 @@ constexpr int CONV3_PAD = CONV3_DILATION * (CONV3_KERNEL / 2);
 constexpr int TEMPORAL_BINS = 4;
 constexpr int FC1_INPUT_SIZE = 128 * TEMPORAL_BINS;
 static_assert(BLOCK2_LENGTH >= TEMPORAL_BINS, "Need at least one position per temporal bin");
-// Temporal architecture v1, window length, class count. Exposed at AXI-Lite 0x10.
-static_assert(IN_LENGTH < 65536, "Window length must fit the hardware identity register");
-constexpr unsigned int MODEL_ID = 0x54000000u | (IN_LENGTH << 8) | NUM_CLASSES;
 
-void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_stream,
-                     unsigned int& model_id);
+void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_stream);
 
 // =================================================================================
 // LAYER IMPLEMENTATIONS (TEMPLATES)

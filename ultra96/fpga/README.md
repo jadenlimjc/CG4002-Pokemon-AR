@@ -80,11 +80,9 @@ To upgrade your existing Vivado project manually instead:
 4. Copy the new `.bit` and corresponding block-design `.hwh` to the board with
    the same basename, for example `gesture_cnn.bit` and `gesture_cnn.hwh`.
 
-The kernel exposes a read-only `model_id` output at AXI-Lite offset `0x10`,
-valid after inference completes. For 128 samples and 11 classes the value is
-`0x5400800b`. The driver checks it before returning logits and rejects old or
-different-window overlays. This identifies the architecture/window, not the
-individual trained weights; keep the export manifest with the build artifacts.
+Keep the export manifest with the build artifacts and deploy the matching
+`.bit`/`.hwh` pair for the configured architecture and window size. The driver
+does not automatically verify the hardware model identity.
 
 ## Board files and evaluation
 
@@ -105,5 +103,5 @@ python3 evaluate_fpga.py --overlay gesture_cnn.bit --data real_gestures_test.npz
 ```
 
 The first command verifies the golden vector. The second measures accuracy,
-latency and throughput; its JSON includes the verified hardware model identity.
+latency and throughput; its JSON records the evaluation configuration and results.
 The DMA and accelerator still use the existing bounded waits and fault recovery.

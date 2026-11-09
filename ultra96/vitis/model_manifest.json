@@ -22,8 +22,6 @@
     ],
     "temporal_bins": 4
   },
-  "model_id": 1409318923,
-  "model_id_register": 16,
   "sample_rate_hz": 50,
   "window_size": 128,
   "class_names": [

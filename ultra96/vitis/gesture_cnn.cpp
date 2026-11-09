@@ -33,13 +33,9 @@ static void read_input(
 
 static void write_output(
     const result_t logits[NUM_CLASSES],
-    hls::stream<axis_t>& out_stream,
-    unsigned int& model_id
+    hls::stream<axis_t>& out_stream
 ) {
     #pragma HLS INLINE off
-    // Keep scalar assignment inside a task so the top-level DATAFLOW region
-    // consists only of declarations and function calls.
-    model_id = MODEL_ID;
     for (int i = 0; i < NUM_CLASSES; ++i) {
         #pragma HLS PIPELINE II=1
         axis_t pkt;
@@ -109,13 +105,11 @@ static void fc2_process(
 // =================================================================================
 // TOP-LEVEL SYNTHESIZABLE KERNEL
 // =================================================================================
-void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_stream,
-                     unsigned int& model_id) {
+void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_stream) {
     // AXI streams carry data; AXI-Lite exposes ap_start and ap_done.
     #pragma HLS INTERFACE axis port=in_stream
     #pragma HLS INTERFACE axis port=out_stream
     #pragma HLS INTERFACE s_axilite port=return bundle=control
-    #pragma HLS INTERFACE s_axilite port=model_id bundle=control offset=0x10
     // DATAFLOW lets independent streaming stages overlap in time.
     #pragma HLS DATAFLOW
 
@@ -159,5 +153,5 @@ void gesture_cnn_top(hls::stream<axis_t>& in_stream, hls::stream<axis_t>& out_st
     fc2_process(fc1_out, final_logits);
 
     // 6. Convert and send the logits over AXI DMA.
-    write_output(final_logits, out_stream, model_id);
+    write_output(final_logits, out_stream);
 }
