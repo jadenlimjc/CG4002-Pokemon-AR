@@ -50,6 +50,11 @@ public class TutorialManager : MonoBehaviour
             triggerPhase = GamePhase.Idle
         },
         new TutorialStep {
+            name = "View Party",
+            instruction = "Open your Party menu to see your Pokemon!",
+            expectedGesture = GestureAction.PARTY_POKEMON
+        },
+        new TutorialStep {
             name = "Battle Entry",
             instruction = "A new Pokemon appeared! Press the button on your index finger, then aim and throw your Pokemon to battle!",
             expectedGesture = GestureAction.NONE,
@@ -66,6 +71,17 @@ public class TutorialManager : MonoBehaviour
             name = "Protect",
             instruction = "Use Move 2 (Protect) to block the next attack!",
             expectedGesture = GestureAction.BATTLE_MOVE_2
+        },
+        new TutorialStep {
+            name = "Use Potion",
+            instruction = "Use a Potion to heal your Pokemon!",
+            expectedGesture = GestureAction.BATTLE_ITEM
+        },
+        new TutorialStep {
+            name = "Switch Pokemon",
+            instruction = "If you have multiple Pokemon, you can open the Party menu in battle to switch your active Pokemon!",
+            expectedGesture = GestureAction.NONE,
+            autoAdvanceDelay = 6f
         },
         new TutorialStep {
             name = "Battle Catch",
