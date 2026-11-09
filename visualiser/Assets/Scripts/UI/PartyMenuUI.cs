@@ -25,11 +25,6 @@ public class PartyMenuUI : MonoBehaviour
     [SerializeField] private Sprite slotBgUnselected;
     [SerializeField] private Sprite slotBgSelected;
 
-    [Header("Colors")]
-    [SerializeField] private Color normalColor = new Color(0.15f, 0.15f, 0.2f, 0.9f);
-    [SerializeField] private Color selectedColor = new Color(0.3f, 0.4f, 0.7f, 0.95f);
-    [SerializeField] private Color faintedColor = new Color(0.3f, 0.15f, 0.15f, 0.7f);
-    [SerializeField] private Color activeColor = new Color(0.2f, 0.5f, 0.3f, 0.9f);
 
     private int selectedIndex = 0;
     private bool isOpen = false;
@@ -108,7 +103,7 @@ public class PartyMenuUI : MonoBehaviour
                     }
                 }
 
-                UpdateSlotColor(i);
+                UpdateSlotVisual(i);
             }
             else
             {
@@ -117,28 +112,19 @@ public class PartyMenuUI : MonoBehaviour
         }
     }
 
-    private void UpdateSlotColor(int index)
+    private void UpdateSlotVisual(int index)
     {
         if (slotBackgrounds[index] == null) return;
 
         PlayerParty party = PlayerParty.Instance;
         if (party == null || index >= party.Count) return;
 
-        PartyPokemon pm = party.Party[index];
         bool isSelected = index == selectedIndex;
 
         if (slotBgUnselected != null && slotBgSelected != null)
             slotBackgrounds[index].sprite = isSelected ? slotBgSelected : slotBgUnselected;
 
-        if (pm.IsFainted)
-            slotBackgrounds[index].color = isSelected
-                ? Color.Lerp(faintedColor, selectedColor, 0.3f) : faintedColor;
-        else if (index == party.LeadIndex && isBattleContext)
-            slotBackgrounds[index].color = activeColor;
-        else if (isSelected)
-            slotBackgrounds[index].color = selectedColor;
-        else
-            slotBackgrounds[index].color = normalColor;
+        slotBackgrounds[index].color = Color.white;
     }
 
     private void Update()
@@ -178,8 +164,8 @@ public class PartyMenuUI : MonoBehaviour
         int oldIndex = selectedIndex;
         selectedIndex = (selectedIndex + 1) % party.Count;
 
-        UpdateSlotColor(oldIndex);
-        UpdateSlotColor(selectedIndex);
+        UpdateSlotVisual(oldIndex);
+        UpdateSlotVisual(selectedIndex);
     }
 
     private void ConfirmSelection()
