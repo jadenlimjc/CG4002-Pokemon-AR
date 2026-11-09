@@ -171,6 +171,13 @@ public class NetworkManager : MonoBehaviour
         return middle || index || ring;
     }
 
+    public void InjectMenuControl(bool index = false, bool middle = false, bool ring = false)
+    {
+        IndexPressPending |= index;
+        MiddlePressPending |= middle;
+        RingPressPending |= ring;
+    }
+
     public async Task<PairingResult> ForgetPairingAsync(CancellationToken cancellation = default)
     {
         if (string.IsNullOrEmpty(pairedDeviceId))
@@ -379,7 +386,7 @@ public class NetworkManager : MonoBehaviour
             if (payload == null || payload.sequence < 0 || payload.sequence > uint.MaxValue ||
                 payload.flags < 1 || payload.flags > 7)
                 throw new FormatException("Invalid menu-control payload.");
-            // Ultra96 also uses this index pulse to toggle CATCH_THROW/POKEBALL_THROW;
+            // Ultra96 also uses this index pulse to toggle CATCH_THROW/BATTLE_THROW;
             // it remains forwarded so Unity can still treat index as menu select.
             IndexPressPending |= (payload.flags & 0x01) != 0;
             MiddlePressPending |= (payload.flags & 0x02) != 0;

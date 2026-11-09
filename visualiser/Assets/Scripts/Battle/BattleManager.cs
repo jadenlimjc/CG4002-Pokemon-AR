@@ -6,7 +6,6 @@ public class BattleManager : MonoBehaviour
     public static BattleManager Instance { get; private set; }
 
     [Header("Player Pokemon")]
-    [SerializeField] private PokemonData playerPokemon;
     [SerializeField] private GameObject playerPokemonInstance;
 
     [Header("Battle State")]
@@ -18,6 +17,8 @@ public class BattleManager : MonoBehaviour
     [Header("Spawn Offset")]
     [SerializeField] private float playerPokemonDistance = 1.5f;
     [SerializeField] private float playerPokemonSide = 0.5f;
+
+    private PokemonData playerPokemon;
 
     public int PlayerHP => playerHP;
     public int WildHP => wildHP;
@@ -48,6 +49,9 @@ public class BattleManager : MonoBehaviour
     [Tooltip("Extra pause between player turn and wild turn")]
     [SerializeField] private float turnTransitionDelay = 1.0f;
 
+    [Header("Potion")]
+    [SerializeField] private int potionHealAmount = 20;
+
     private Animator playerAnimator;
     private Animator wildAnimator;
     private PokemonData wildPokemonData;
@@ -55,6 +59,7 @@ public class BattleManager : MonoBehaviour
     private bool isBattleCatching = false;
     private bool isBattleAiming = false;
     private bool isWaitingRunConfirm = false;
+    private bool isWaitingForcedSwitch = false;
     private GameObject activePokeball;
 
     private void Awake()
@@ -72,6 +77,9 @@ public class BattleManager : MonoBehaviour
         if (GameStateManager.Instance != null)
             GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
         GestureEvents.OnGestureReceived += HandleGesture;
+
+        if (PartyMenuUI.Instance != null)
+            PartyMenuUI.Instance.OnPokemonSelected += HandlePartySelection;
     }
 
     private void Start()
@@ -81,6 +89,12 @@ public class BattleManager : MonoBehaviour
             GameStateManager.Instance.OnPhaseChanged -= HandlePhaseChanged;
             GameStateManager.Instance.OnPhaseChanged += HandlePhaseChanged;
         }
+
+        if (PartyMenuUI.Instance != null)
+        {
+            PartyMenuUI.Instance.OnPokemonSelected -= HandlePartySelection;
+            PartyMenuUI.Instance.OnPokemonSelected += HandlePartySelection;
+        }
     }
 
     private void OnDisable()
@@ -88,6 +102,9 @@ public class BattleManager : MonoBehaviour
         if (GameStateManager.Instance != null)
             GameStateManager.Instance.OnPhaseChanged -= HandlePhaseChanged;
         GestureEvents.OnGestureReceived -= HandleGesture;
+
+        if (PartyMenuUI.Instance != null)
+            PartyMenuUI.Instance.OnPokemonSelected -= HandlePartySelection;
     }
 
     private void HandlePhaseChanged(GamePhase oldPhase, GamePhase newPhase)
@@ -103,6 +120,7 @@ public class BattleManager : MonoBehaviour
                 PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
                 spawner?.RemoveWildPokemon(engagedWild);
             }
+            SaveHPToParty();
             StartCoroutine(DelayedTransition(GamePhase.Idle, 3f));
         }
         else if (newPhase == GamePhase.Idle)
@@ -117,6 +135,8 @@ public class BattleManager : MonoBehaviour
         if (GameStateManager.Instance.CurrentPhase != GamePhase.BattleActive) return;
         if (isProcessingMove) return;
         if (!isPlayerTurn) return;
+
+        if (PartyMenuUI.Instance != null && PartyMenuUI.Instance.IsOpen) return;
 
         if (isWaitingRunConfirm)
         {
@@ -146,7 +166,7 @@ public class BattleManager : MonoBehaviour
             case GestureAction.BATTLE_MOVE_3:
             case GestureAction.BATTLE_MOVE_4:
                 int moveIndex = action - GestureAction.BATTLE_MOVE_1;
-                if (moveIndex < playerPokemon.moves.Length)
+                if (playerPokemon != null && moveIndex < playerPokemon.moves.Length)
                     StartCoroutine(ExecutePlayerMove(moveIndex));
                 break;
 
@@ -155,12 +175,12 @@ public class BattleManager : MonoBehaviour
                 OnBattleMessage?.Invoke("Flee? Press Run again to confirm, Cancel to stay.");
                 break;
 
-            case GestureAction.BATTLE_SWITCH:
-                OnBattleMessage?.Invoke("Switch Pokemon — Coming Soon!");
+            case GestureAction.PARTY_POKEMON:
+                OpenPartyMenu();
                 break;
 
             case GestureAction.BATTLE_ITEM:
-                OnBattleMessage?.Invoke("Use Item — Coming Soon!");
+                StartCoroutine(UsePotion());
                 break;
 
             case GestureAction.BATTLE_CATCH:
@@ -168,6 +188,109 @@ public class BattleManager : MonoBehaviour
                 OnBattleMessage?.Invoke("Catch mode! Aim then throw!");
                 break;
         }
+    }
+
+    private void OpenPartyMenu()
+    {
+        if (PlayerParty.Instance == null || PlayerParty.Instance.Count <= 1) return;
+        if (PartyMenuUI.Instance == null) return;
+
+        isProcessingMove = true;
+        PartyMenuUI.Instance.OnMenuClosed += HandlePartyMenuClosed;
+        PartyMenuUI.Instance.Show(battleContext: true);
+    }
+
+    public void ForceOpenPartyMenu()
+    {
+        if (PlayerParty.Instance == null || !PlayerParty.Instance.HasUsablePokemon()) return;
+        if (PartyMenuUI.Instance == null) return;
+
+        isWaitingForcedSwitch = true;
+        isProcessingMove = true;
+        OnBattleMessage?.Invoke("Choose a Pokemon!");
+        PartyMenuUI.Instance.Show(battleContext: true, forcedSwitch: true);
+    }
+
+    private void HandlePartyMenuClosed()
+    {
+        if (PartyMenuUI.Instance != null)
+            PartyMenuUI.Instance.OnMenuClosed -= HandlePartyMenuClosed;
+
+        if (!isWaitingForcedSwitch)
+            isProcessingMove = false;
+    }
+
+    private void HandlePartySelection(int partyIndex, bool isBattle)
+    {
+        if (!isBattle) return;
+        StartCoroutine(ExecuteSwitch(partyIndex));
+    }
+
+    private IEnumerator ExecuteSwitch(int partyIndex)
+    {
+        isWaitingForcedSwitch = false;
+        PlayerParty party = PlayerParty.Instance;
+        if (party == null) { isProcessingMove = false; yield break; }
+
+        string oldName = playerPokemon.pokemonName;
+        SaveHPToParty();
+
+        yield return StartCoroutine(ShowMessage($"{oldName}, come back!"));
+
+        if (playerPokemonInstance != null)
+        {
+            Destroy(playerPokemonInstance);
+            playerPokemonInstance = null;
+        }
+
+        party.SetLead(partyIndex);
+        playerPokemon = party.LeadPokemon.Data;
+        playerHP = party.LeadPokemon.CurrentHP;
+
+        Transform cam = Camera.main.transform;
+        Vector3 spawnPos = cam.position
+            + cam.forward * playerPokemonDistance
+            + cam.right * playerPokemonSide;
+        spawnPos.y -= 0.5f;
+
+        SpawnPlayerPokemon(spawnPos);
+
+        yield return StartCoroutine(ShowMessage($"Go, {playerPokemon.pokemonName}!"));
+
+        OnHPChanged?.Invoke(playerHP, wildHP);
+
+        yield return new WaitForSeconds(turnTransitionDelay);
+
+        yield return StartCoroutine(ExecuteWildMove());
+
+        isProcessingMove = false;
+    }
+
+    private IEnumerator UsePotion()
+    {
+        if (playerPokemon == null) yield break;
+
+        if (playerHP >= playerPokemon.maxHP)
+        {
+            OnBattleMessage?.Invoke($"{playerPokemon.pokemonName}'s HP is full!");
+            yield break;
+        }
+
+        isProcessingMove = true;
+
+        int actualHeal = Mathf.Min(potionHealAmount, playerPokemon.maxHP - playerHP);
+        playerHP += actualHeal;
+        SaveHPToParty();
+
+        yield return StartCoroutine(ShowMessage($"Player used a Potion! It restored {actualHeal} HP!"));
+
+        OnHPChanged?.Invoke(playerHP, wildHP);
+
+        yield return new WaitForSeconds(turnTransitionDelay);
+
+        yield return StartCoroutine(ExecuteWildMove());
+
+        isProcessingMove = false;
     }
 
     private void HandleBattleCatchGesture(GestureAction action)
@@ -201,7 +324,16 @@ public class BattleManager : MonoBehaviour
         engagedWild = spawner.EngagedPokemon;
         wildPokemonData = engagedWild.Data;
 
-        playerHP = playerPokemon.maxHP;
+        if (PlayerParty.Instance != null && PlayerParty.Instance.LeadPokemon != null)
+        {
+            playerPokemon = PlayerParty.Instance.LeadPokemon.Data;
+            playerHP = PlayerParty.Instance.LeadPokemon.CurrentHP;
+        }
+        else
+        {
+            playerHP = 100;
+        }
+
         wildHP = wildPokemonData.maxHP;
 
         OnHPChanged?.Invoke(playerHP, wildHP);
@@ -280,7 +412,7 @@ public class BattleManager : MonoBehaviour
 
     private void SpawnPlayerPokemon(Vector3 spawnPos)
     {
-        if (playerPokemon.modelPrefab == null) return;
+        if (playerPokemon == null || playerPokemon.modelPrefab == null) return;
 
         playerPokemonInstance = Instantiate(
             playerPokemon.modelPrefab,
@@ -407,6 +539,7 @@ public class BattleManager : MonoBehaviour
         if (DemoModeManager.Instance != null && DemoModeManager.Instance.IsGodMode)
             playerHP = Mathf.Max(1, playerHP);
         OnHPChanged?.Invoke(playerHP, wildHP);
+        SaveHPToParty();
 
         Handheld.Vibrate();
 
@@ -418,6 +551,13 @@ public class BattleManager : MonoBehaviour
             if (playerAnimator != null)
                 playerAnimator.SetTrigger("isFainted");
             yield return StartCoroutine(WaitForAnimation(playerAnimator));
+
+            if (PlayerParty.Instance != null && PlayerParty.Instance.HasUsablePokemon())
+            {
+                ForceOpenPartyMenu();
+                yield break;
+            }
+
             GameStateManager.Instance.TransitionTo(GamePhase.BattleResult);
             yield break;
         }
@@ -503,7 +643,11 @@ public class BattleManager : MonoBehaviour
 
         if (caught)
         {
-            OnBattleMessage?.Invoke($"Gotcha! {wildPokemonData.pokemonName} was caught!");
+            bool added = PlayerParty.Instance != null && PlayerParty.Instance.AddPokemon(wildPokemonData);
+            string catchMsg = added
+                ? $"Gotcha! {wildPokemonData.pokemonName} was caught and added to your party!"
+                : $"Gotcha! {wildPokemonData.pokemonName} was caught! But your party is full...";
+            OnBattleMessage?.Invoke(catchMsg);
             Destroy(activePokeball);
             PokemonSpawner spawner = FindFirstObjectByType<PokemonSpawner>();
             spawner?.RemoveWildPokemon(engagedWild);
@@ -554,6 +698,12 @@ public class BattleManager : MonoBehaviour
         return Mathf.Max(1, Mathf.RoundToInt(damage));
     }
 
+    private void SaveHPToParty()
+    {
+        if (PlayerParty.Instance != null)
+            PlayerParty.Instance.SaveHP(playerHP);
+    }
+
     private void CleanupBattle()
     {
         if (playerPokemonInstance != null)
@@ -569,6 +719,7 @@ public class BattleManager : MonoBehaviour
         isBattleCatching = false;
         isBattleAiming = false;
         isWaitingRunConfirm = false;
+        isWaitingForcedSwitch = false;
     }
 
     private IEnumerator DelayedTransition(GamePhase phase, float delay)

@@ -162,6 +162,9 @@ public class BattleHUD : MonoBehaviour
         BattleManager battle = BattleManager.Instance;
         if (battle == null) return;
 
+        if (playerNameText != null)
+            playerNameText.text = battle.PlayerPokemon?.pokemonName ?? "???";
+
         if (playerHPBar != null)
             playerHPBar.value = (float)playerHP / battle.PlayerMaxHP;
         if (playerHPText != null)
@@ -171,6 +174,29 @@ public class BattleHUD : MonoBehaviour
             wildHPBar.value = (float)wildHP / battle.WildMaxHP;
         if (wildHPText != null)
             wildHPText.text = $"{wildHP}/{battle.WildMaxHP}";
+
+        RefreshMoveTiles(battle);
+    }
+
+    private void RefreshMoveTiles(BattleManager battle)
+    {
+        if (battle.PlayerPokemon?.moves == null) return;
+        var moves = battle.PlayerPokemon.moves;
+        for (int i = 0; i < 4; i++)
+        {
+            if (i < moves.Length && moveTiles[i] != null)
+            {
+                moveTiles[i].SetActive(true);
+                if (moveTileTexts[i] != null)
+                    moveTileTexts[i].text = moves[i].moveName;
+                if (moveTileImages[i] != null)
+                    moveTileImages[i].color = GetTypeColor(moves[i].moveType);
+            }
+            else if (moveTiles[i] != null)
+            {
+                moveTiles[i].SetActive(false);
+            }
+        }
     }
 
     private void ShowMessage(string message)
@@ -188,11 +214,12 @@ public class BattleHUD : MonoBehaviour
         }
     }
 
-    private void HandleCatchResult(bool success, string pokemonName)
+    private void HandleCatchResult(bool success, string text)
     {
-        ShowMessage(success
-            ? $"Gotcha! {pokemonName} was caught!"
-            : $"Oh no! {pokemonName} broke free!");
+        if (success)
+            ShowMessage($"Gotcha! {text}");
+        else
+            ShowMessage($"Oh no! {text} broke free!");
     }
 
     private void ShowBattleResult()
@@ -230,7 +257,7 @@ public class BattleHUD : MonoBehaviour
             GestureAction.BATTLE_MOVE_3 => moveTiles.Length > 2 ? moveTiles[2] : null,
             GestureAction.BATTLE_MOVE_4 => moveTiles.Length > 3 ? moveTiles[3] : null,
             GestureAction.BATTLE_CATCH => catchTile,
-            GestureAction.BATTLE_SWITCH => pokemonTile,
+            GestureAction.PARTY_POKEMON => pokemonTile,
             GestureAction.BATTLE_ITEM => itemTile,
             GestureAction.BATTLE_RUN => runTile,
             _ => null

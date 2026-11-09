@@ -45,8 +45,9 @@ public class PokemonData : ScriptableObject
     [Header("Moves (for player's Pokemon)")]
     public MoveData[] moves = new MoveData[4];
 
-    [Header("Prefab")]
+    [Header("Visuals")]
     public GameObject modelPrefab;
+    public Sprite partySprite;
 }
 
 [Serializable]

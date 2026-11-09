@@ -43,8 +43,8 @@ public class MockInputController : MonoBehaviour
                     GestureEvents.RaiseGestureReceived(GestureAction.CANCEL, mockConfidence);
                     break;
                 case KeyCode.B:
-                    Debug.Log("[MockInput] POKEBALL_THROW triggered (battle entry)");
-                    GestureEvents.RaiseGestureReceived(GestureAction.POKEBALL_THROW, mockConfidence);
+                    Debug.Log("[MockInput] BATTLE_THROW triggered (battle entry)");
+                    GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_THROW, mockConfidence);
                     break;
                 case KeyCode.Alpha1:
                     Debug.Log("[MockInput] BATTLE_MOVE_1: Close Combat");
@@ -61,6 +61,18 @@ public class MockInputController : MonoBehaviour
                 case KeyCode.Alpha4:
                     Debug.Log("[MockInput] BATTLE_MOVE_4: Drain Punch");
                     GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_4, mockConfidence);
+                    break;
+                case KeyCode.F:
+                    Debug.Log("[MockInput] BATTLE_RUN triggered");
+                    GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_RUN, mockConfidence);
+                    break;
+                case KeyCode.V:
+                    Debug.Log("[MockInput] PARTY_POKEMON triggered");
+                    GestureEvents.RaiseGestureReceived(GestureAction.PARTY_POKEMON, mockConfidence);
+                    break;
+                case KeyCode.I:
+                    Debug.Log("[MockInput] BATTLE_ITEM triggered");
+                    GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_ITEM, mockConfidence);
                     break;
                 case KeyCode.R:
                     Debug.Log("[MockInput] RESET to Idle");
@@ -95,19 +107,18 @@ public class MockInputController : MonoBehaviour
             }
         }
 
-        GUILayout.BeginArea(new Rect(Screen.width - 310, Screen.height - 260, 300, 250));
+        GUILayout.BeginArea(new Rect(Screen.width - 310, Screen.height - 310, 300, 300));
         GUILayout.Label("=== MOCK INPUT (Debug) ===");
         GUILayout.Label($"State: {GameStateManager.Instance?.CurrentPhase}");
         GUILayout.Label($"Aiming: {(CatchManager.Instance?.IsAiming == true ? "YES" : "no")}");
+        GUILayout.Label($"Party: {PlayerParty.Instance?.Count ?? 0}/{PlayerParty.MaxPartySize}");
         GUILayout.Label("");
         GUILayout.Label("[A] Aim (show reticle)");
         GUILayout.Label("[C] Catch Throw (fire ball)");
         GUILayout.Label("[X] Cancel (hide reticle)");
         GUILayout.Label("[B] Battle Entry");
-        GUILayout.Label("[1] Move 1: Close Combat");
-        GUILayout.Label("[2] Move 2: Protect");
-        GUILayout.Label("[3] Move 3: Brick Break");
-        GUILayout.Label("[4] Move 4: Drain Punch");
+        GUILayout.Label("[1-4] Battle Moves");
+        GUILayout.Label("[F] Flee  [V] Party  [I] Item");
         GUILayout.Label("[R] Reset to Idle");
         GUILayout.Label("[T] Tutorial  [G] God Mode  [P] Full Play");
         GUILayout.Label("[S] Skip Tutorial Step");

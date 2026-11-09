@@ -56,6 +56,14 @@ public class CatchManager : MonoBehaviour
         var phase = GameStateManager.Instance.CurrentPhase;
         if (phase != GamePhase.Idle && phase != GamePhase.Encounter) return;
 
+        if (PartyMenuUI.Instance != null && PartyMenuUI.Instance.IsOpen) return;
+
+        if (action == GestureAction.PARTY_POKEMON)
+        {
+            OpenPartyMenuForLeadSelect();
+            return;
+        }
+
         switch (action)
         {
             case GestureAction.ARM_PULLBACK:
@@ -81,7 +89,7 @@ public class CatchManager : MonoBehaviour
                 }
                 break;
 
-            case GestureAction.POKEBALL_THROW when isAiming:
+            case GestureAction.BATTLE_THROW when isAiming:
                 isAiming = false;
                 HideReticle();
                 WildPokemonInstance battleTarget = FindPokemonInReticle();
@@ -97,6 +105,31 @@ public class CatchManager : MonoBehaviour
                 isAiming = false;
                 HideReticle();
                 break;
+        }
+    }
+
+    private void OpenPartyMenuForLeadSelect()
+    {
+        if (PlayerParty.Instance == null || PlayerParty.Instance.Count <= 1) return;
+        if (PartyMenuUI.Instance == null) return;
+
+        PartyMenuUI.Instance.OnPokemonSelected += HandleLeadSelect;
+        PartyMenuUI.Instance.OnMenuClosed += HandleLeadSelectClosed;
+        PartyMenuUI.Instance.Show(battleContext: false);
+    }
+
+    private void HandleLeadSelect(int partyIndex, bool isBattle)
+    {
+        if (isBattle) return;
+        PlayerParty.Instance?.SetLead(partyIndex);
+    }
+
+    private void HandleLeadSelectClosed()
+    {
+        if (PartyMenuUI.Instance != null)
+        {
+            PartyMenuUI.Instance.OnPokemonSelected -= HandleLeadSelect;
+            PartyMenuUI.Instance.OnMenuClosed -= HandleLeadSelectClosed;
         }
     }
 
@@ -290,7 +323,12 @@ public class CatchManager : MonoBehaviour
             if (sparkleVFX != null)
                 Instantiate(sparkleVFX, activePokeball.transform.position, Quaternion.identity);
 
-            OnCatchResult?.Invoke(true, target.Data.pokemonName);
+            bool added = PlayerParty.Instance != null && PlayerParty.Instance.AddPokemon(target.Data);
+            string pokemonName = target.Data.pokemonName;
+            string catchText = added
+                ? $"{pokemonName} was caught and added to your party!"
+                : $"{pokemonName} was caught! But your party is full...";
+            OnCatchResult?.Invoke(true, catchText);
 
             yield return new WaitForSeconds(2f);
             Destroy(activePokeball);
