@@ -254,6 +254,16 @@ public class VRModeManager : MonoBehaviour
         float uvScale = zoomCompensation;
         float uvOff = (1f - uvScale) / 2f;
 
+        var bgObj = new GameObject("DebugBG");
+        bgObj.transform.SetParent(vrCanvasObject.transform, false);
+        var bgImage = bgObj.AddComponent<RawImage>();
+        bgImage.color = Color.magenta;
+        var bgRect = bgObj.GetComponent<RectTransform>();
+        bgRect.anchorMin = Vector2.zero;
+        bgRect.anchorMax = Vector2.one;
+        bgRect.offsetMin = Vector2.zero;
+        bgRect.offsetMax = Vector2.zero;
+
         var leftObj = new GameObject("LeftEye");
         leftObj.transform.SetParent(vrCanvasObject.transform, false);
         var leftImage = leftObj.AddComponent<RawImage>();
