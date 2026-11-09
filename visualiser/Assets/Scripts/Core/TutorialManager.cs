@@ -62,24 +62,24 @@ public class TutorialManager : MonoBehaviour
             name = "Battle Entry",
             instruction = "A new Pokemon appeared!",
             expectedGesture = GestureAction.NONE,
+            forceSpawnBefore = true,
             autoAdvanceDelay = 3f
         },
         new TutorialStep {
             name = "Battle Entry",
             instruction = "Press the button on your index finger, then aim and throw your Pokemon to battle!",
             expectedGesture = GestureAction.NONE,
-            forceSpawnBefore = true,
             autoAdvanceOnPhase = true,
             triggerPhase = GamePhase.BattleActive
         },
         new TutorialStep {
             name = "Attack",
-            instruction = "Use Move 1 (Close Combat) to attack!",
+            instruction = "Punch to use Move 1 (Close Combat)!",
             expectedGesture = GestureAction.BATTLE_MOVE_1
         },
         new TutorialStep {
             name = "Protect",
-            instruction = "Use Move 2 (Protect) to block the next attack!",
+            instruction = "Block to use Move 2 (Protect)!",
             expectedGesture = GestureAction.BATTLE_MOVE_2
         },
         new TutorialStep {
