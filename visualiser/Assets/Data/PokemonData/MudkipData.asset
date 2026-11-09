@@ -50,3 +50,4 @@ MonoBehaviour:
     isProtect: 0
     animationTrigger: 
   modelPrefab: {fileID: 2044147987640301277, guid: 78183cc41e42e4415a69c92940025c3a, type: 3}
+  partySprite: {fileID: 21300000, guid: ff1878510f0a24a71a824b5d3b4fd473, type: 3}

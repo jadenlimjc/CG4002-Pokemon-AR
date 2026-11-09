@@ -56,7 +56,13 @@ public class TutorialManager : MonoBehaviour
         },
         new TutorialStep {
             name = "Battle Entry",
-            instruction = "A new Pokemon appeared! Press the button on your index finger, then aim and throw your Pokemon to battle!",
+            instruction = "A new Pokemon appeared!",
+            expectedGesture = GestureAction.NONE,
+            autoAdvanceDelay = 3f
+        },
+        new TutorialStep {
+            name = "Battle Entry",
+            instruction = "Press the button on your index finger, then aim and throw your Pokemon to battle!",
             expectedGesture = GestureAction.NONE,
             forceSpawnBefore = true,
             autoAdvanceOnPhase = true,
@@ -74,12 +80,12 @@ public class TutorialManager : MonoBehaviour
         },
         new TutorialStep {
             name = "Use Potion",
-            instruction = "Use a Potion to heal your Pokemon!",
+            instruction = "Open your bag to use a potion to heal your Pokemon!",
             expectedGesture = GestureAction.BATTLE_ITEM
         },
         new TutorialStep {
             name = "Switch Pokemon",
-            instruction = "If you have multiple Pokemon, you can open the Party menu in battle to switch your active Pokemon!",
+            instruction = "Open the Party menu in battle to switch your active Pokemon!",
             expectedGesture = GestureAction.NONE,
             autoAdvanceDelay = 6f
         },
