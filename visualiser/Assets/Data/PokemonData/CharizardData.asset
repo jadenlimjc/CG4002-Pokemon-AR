@@ -21,7 +21,7 @@ MonoBehaviour:
   defense: 50
   speed: 50
   spawnBehavior: 1
-  spawnScale: 100
+  spawnScale: 70
   moveSpeed: 1
   baseCatchRate: 0.5
   moves:
@@ -50,3 +50,4 @@ MonoBehaviour:
     isProtect: 0
     animationTrigger: 
   modelPrefab: {fileID: 1754757414477881273, guid: 0bc03edb1f47e4410b195a9d0fc417d3, type: 3}
+  partySprite: {fileID: 21300000, guid: e322f024488a74312b8938ce76f2ba39, type: 3}
