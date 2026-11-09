@@ -20,6 +20,10 @@ public class TutorialManager : MonoBehaviour
         public bool forceSpawnAfter;
     }
 
+    [Header("Tutorial Pokemon")]
+    [SerializeField] private PokemonData tutorialPokemon;
+    
+
     private readonly TutorialStep[] steps = new TutorialStep[]
     {
         new TutorialStep {
