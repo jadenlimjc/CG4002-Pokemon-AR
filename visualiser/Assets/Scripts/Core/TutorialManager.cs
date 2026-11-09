@@ -96,11 +96,12 @@ public class TutorialManager : MonoBehaviour
         new TutorialStep {
             name = "Battle Catch",
             instruction = "Aim and throw to catch the Pokemon in battle!",
-            expectedGesture = GestureAction.BATTLE_CATCH
+            expectedGesture = GestureAction.NONE,
+            autoAdvanceDelay = 6f
         },
         new TutorialStep {
             name = "Run Away",
-            instruction = "Turn around to run from battle!",
+            instruction = "You can also turn around to run from battle!",
             expectedGesture = GestureAction.BATTLE_RUN
         },
         new TutorialStep {
