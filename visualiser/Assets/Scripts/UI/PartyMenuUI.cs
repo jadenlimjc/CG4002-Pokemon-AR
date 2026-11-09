@@ -21,6 +21,10 @@ public class PartyMenuUI : MonoBehaviour
     [SerializeField] private Image middleButtonIcon;
     [SerializeField] private Image ringButtonIcon;
 
+    [Header("Slot Backgrounds")]
+    [SerializeField] private Sprite slotBgUnselected;
+    [SerializeField] private Sprite slotBgSelected;
+
     [Header("Colors")]
     [SerializeField] private Color normalColor = new Color(0.15f, 0.15f, 0.2f, 0.9f);
     [SerializeField] private Color selectedColor = new Color(0.3f, 0.4f, 0.7f, 0.95f);
@@ -121,13 +125,17 @@ public class PartyMenuUI : MonoBehaviour
         if (party == null || index >= party.Count) return;
 
         PartyPokemon pm = party.Party[index];
+        bool isSelected = index == selectedIndex;
+
+        if (slotBgUnselected != null && slotBgSelected != null)
+            slotBackgrounds[index].sprite = isSelected ? slotBgSelected : slotBgUnselected;
 
         if (pm.IsFainted)
-            slotBackgrounds[index].color = index == selectedIndex
+            slotBackgrounds[index].color = isSelected
                 ? Color.Lerp(faintedColor, selectedColor, 0.3f) : faintedColor;
         else if (index == party.LeadIndex && isBattleContext)
             slotBackgrounds[index].color = activeColor;
-        else if (index == selectedIndex)
+        else if (isSelected)
             slotBackgrounds[index].color = selectedColor;
         else
             slotBackgrounds[index].color = normalColor;
