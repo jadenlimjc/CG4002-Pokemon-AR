@@ -83,6 +83,16 @@ public class TutorialManager : MonoBehaviour
             expectedGesture = GestureAction.BATTLE_MOVE_2
         },
         new TutorialStep {
+            name = "Brick Break",
+            instruction = "Swing down to use Move 3 (Brick Break)!",
+            expectedGesture = GestureAction.BATTLE_MOVE_3
+        },
+        new TutorialStep {
+            name = "Uppercut",
+            instruction = "Uppercut to use Move 4 (Fire Blast)!",
+            expectedGesture = GestureAction.BATTLE_MOVE_4
+        },
+        new TutorialStep {
             name = "Use Potion",
             instruction = "Open your bag to use a potion to heal your Pokemon!",
             expectedGesture = GestureAction.BATTLE_ITEM

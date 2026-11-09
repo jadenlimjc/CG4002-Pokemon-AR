@@ -59,7 +59,7 @@ public class MockInputController : MonoBehaviour
                     GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_3, mockConfidence);
                     break;
                 case KeyCode.Alpha4:
-                    Debug.Log("[MockInput] BATTLE_MOVE_4: Drain Punch");
+                    Debug.Log("[MockInput] BATTLE_MOVE_4: Uppercut");
                     GestureEvents.RaiseGestureReceived(GestureAction.BATTLE_MOVE_4, mockConfidence);
                     break;
                 case KeyCode.F:

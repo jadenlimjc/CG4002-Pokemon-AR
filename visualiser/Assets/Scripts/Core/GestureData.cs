@@ -10,7 +10,7 @@ public enum GestureAction
     BATTLE_MOVE_1,      // Many punches -> Close Combat
     BATTLE_MOVE_2,      // Block stance -> Protect
     BATTLE_MOVE_3,      // Up-to-down motion -> Brick Break
-    BATTLE_MOVE_4,      // Single punch -> Drain Punch / Mach Punch
+    BATTLE_MOVE_4,      // Uppercut motion -> Uppercut
     BATTLE_RUN,         // Flee from battle
     PARTY_POKEMON,      // View party / switch active pokemon
     BATTLE_ITEM,        // Use an item
