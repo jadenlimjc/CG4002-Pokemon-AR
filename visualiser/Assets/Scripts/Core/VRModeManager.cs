@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.UI;
 using UnityEngine.XR.ARFoundation;
 
 public class VRModeManager : MonoBehaviour
@@ -35,6 +36,7 @@ public class VRModeManager : MonoBehaviour
     private Vector3 originalLocalPosition;
     private ScreenOrientation originalOrientation;
     private Coroutine meshLayerCoroutine;
+    private GameObject blackMaskCanvas;
 
     private void Awake()
     {
@@ -133,6 +135,7 @@ public class VRModeManager : MonoBehaviour
         Screen.sleepTimeout = SleepTimeout.NeverSleep;
 
         CreateRightEyeCamera();
+        CreateBlackMask();
 
         SetARMeshLayer(AR_MESH_LAYER);
         meshLayerCoroutine = StartCoroutine(PeriodicMeshLayerUpdate());
@@ -165,6 +168,12 @@ public class VRModeManager : MonoBehaviour
             Destroy(rightEyeObject);
             rightEyeObject = null;
             rightEyeCamera = null;
+        }
+
+        if (blackMaskCanvas != null)
+        {
+            Destroy(blackMaskCanvas);
+            blackMaskCanvas = null;
         }
 
         Screen.orientation = originalOrientation;
@@ -202,6 +211,39 @@ public class VRModeManager : MonoBehaviour
 
         rightEyeObject.transform.localPosition = new Vector3(ipd, 0f, 0f);
         rightEyeObject.transform.localRotation = Quaternion.identity;
+    }
+
+    private void CreateBlackMask()
+    {
+        blackMaskCanvas = new GameObject("VRBlackMask");
+        var canvas = blackMaskCanvas.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 998;
+
+        float eyeW = 0.5f * lensScaleFactor;
+        float eyeH = lensScaleFactor;
+        float yOff = (1f - eyeH) / 2f;
+        float leftX = (0.5f - eyeW) / 2f;
+        float rightX = 0.5f + (0.5f - eyeW) / 2f;
+
+        CreateMaskPanel("Top", 0f, yOff + eyeH, 1f, 1f);
+        CreateMaskPanel("Bottom", 0f, 0f, 1f, yOff);
+        CreateMaskPanel("Left", 0f, yOff, leftX, yOff + eyeH);
+        CreateMaskPanel("CenterGap", leftX + eyeW, yOff, rightX, yOff + eyeH);
+        CreateMaskPanel("Right", rightX + eyeW, yOff, 1f, yOff + eyeH);
+    }
+
+    private void CreateMaskPanel(string name, float xMin, float yMin, float xMax, float yMax)
+    {
+        var obj = new GameObject(name);
+        obj.transform.SetParent(blackMaskCanvas.transform, false);
+        var image = obj.AddComponent<Image>();
+        image.color = Color.black;
+        var rt = obj.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(xMin, yMin);
+        rt.anchorMax = new Vector2(xMax, yMax);
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
     }
 
     private void SetARMeshLayer(int layer)
