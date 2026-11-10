@@ -143,6 +143,7 @@ public class BattleManager : MonoBehaviour
             if (action == GestureAction.BATTLE_RUN)
             {
                 isWaitingRunConfirm = false;
+                isProcessingMove = true;
                 StartCoroutine(ExecuteRun());
             }
             else if (action == GestureAction.CANCEL)
@@ -228,7 +229,11 @@ public class BattleManager : MonoBehaviour
 
     private IEnumerator ExecuteSwitch(int partyIndex)
     {
+        isProcessingMove = true;
         isWaitingForcedSwitch = false;
+        isWaitingRunConfirm = false;
+        isBattleCatching = false;
+        isBattleAiming = false;
         PlayerParty party = PlayerParty.Instance;
         if (party == null) { isProcessingMove = false; yield break; }
 
@@ -263,7 +268,8 @@ public class BattleManager : MonoBehaviour
 
         yield return StartCoroutine(ExecuteWildMove());
 
-        isProcessingMove = false;
+        if (!isWaitingForcedSwitch)
+            isProcessingMove = false;
     }
 
     private IEnumerator UsePotion()
@@ -277,6 +283,9 @@ public class BattleManager : MonoBehaviour
         }
 
         isProcessingMove = true;
+        isWaitingRunConfirm = false;
+        isBattleCatching = false;
+        isBattleAiming = false;
 
         int actualHeal = Mathf.Min(potionHealAmount, playerPokemon.maxHP - playerHP);
         playerHP += actualHeal;
@@ -290,7 +299,8 @@ public class BattleManager : MonoBehaviour
 
         yield return StartCoroutine(ExecuteWildMove());
 
-        isProcessingMove = false;
+        if (!isWaitingForcedSwitch)
+            isProcessingMove = false;
     }
 
     private void HandleBattleCatchGesture(GestureAction action)
@@ -305,6 +315,7 @@ public class BattleManager : MonoBehaviour
             case GestureAction.CATCH_THROW when isBattleAiming:
                 isBattleAiming = false;
                 isBattleCatching = false;
+                isProcessingMove = true;
                 if (reticleUI != null) reticleUI.SetActive(false);
                 StartCoroutine(ExecuteBattleCatch());
                 break;
@@ -462,6 +473,9 @@ public class BattleManager : MonoBehaviour
     private IEnumerator ExecutePlayerMove(int moveIndex)
     {
         isProcessingMove = true;
+        isWaitingRunConfirm = false;
+        isBattleCatching = false;
+        isBattleAiming = false;
         MoveData move = playerPokemon.moves[moveIndex];
 
         yield return StartCoroutine(ShowMessage($"{playerPokemon.pokemonName} used {move.moveName}!"));
@@ -474,7 +488,8 @@ public class BattleManager : MonoBehaviour
         if (move.isProtect)
         {
             yield return StartCoroutine(ExecuteWildMove(blocked: true));
-            isProcessingMove = false;
+            if (!isWaitingForcedSwitch)
+                isProcessingMove = false;
             yield break;
         }
 
@@ -490,9 +505,9 @@ public class BattleManager : MonoBehaviour
             if (wildAnimator != null)
                 wildAnimator.SetTrigger("isHit");
 
-            yield return StartCoroutine(ShowMessage($"It dealt {damage} damage!"));
-
             yield return StartCoroutine(WaitForAnimation(wildAnimator));
+
+            yield return StartCoroutine(ShowMessage($"It dealt {damage} damage!"));
         }
         else
         {
@@ -506,7 +521,8 @@ public class BattleManager : MonoBehaviour
                 wildAnimator.SetTrigger("isFainted");
             yield return StartCoroutine(WaitForAnimation(wildAnimator));
             GameStateManager.Instance.TransitionTo(GamePhase.BattleResult);
-            isProcessingMove = false;
+            if (!isWaitingForcedSwitch)
+                isProcessingMove = false;
             yield break;
         }
 
@@ -514,7 +530,8 @@ public class BattleManager : MonoBehaviour
 
         yield return StartCoroutine(ExecuteWildMove());
 
-        isProcessingMove = false;
+        if (!isWaitingForcedSwitch)
+            isProcessingMove = false;
     }
 
     private IEnumerator ExecuteWildMove(bool blocked = false)
@@ -561,7 +578,12 @@ public class BattleManager : MonoBehaviour
             OnHPChanged?.Invoke(playerHP, wildHP);
             SaveHPToParty();
 
+            if (playerAnimator != null)
+                playerAnimator.SetTrigger("isHit");
+
             Handheld.Vibrate();
+
+            yield return StartCoroutine(WaitForAnimation(playerAnimator));
 
             yield return StartCoroutine(ShowMessage($"Dealt {wildDamage} damage!"));
         }
@@ -608,6 +630,9 @@ public class BattleManager : MonoBehaviour
     private IEnumerator ExecuteRun()
     {
         isProcessingMove = true;
+        isWaitingRunConfirm = false;
+        isBattleCatching = false;
+        isBattleAiming = false;
         OnBattleMessage?.Invoke("Got away safely!");
         yield return new WaitForSeconds(1.5f);
 
@@ -621,6 +646,9 @@ public class BattleManager : MonoBehaviour
     private IEnumerator ExecuteBattleCatch()
     {
         isProcessingMove = true;
+        isWaitingRunConfirm = false;
+        isBattleCatching = false;
+        isBattleAiming = false;
 
         if (engagedWild == null || engagedWild.GameObject == null)
         {
@@ -708,7 +736,8 @@ public class BattleManager : MonoBehaviour
             yield return StartCoroutine(ExecuteWildMove());
         }
 
-        isProcessingMove = false;
+        if (!isWaitingForcedSwitch)
+            isProcessingMove = false;
     }
 
     private IEnumerator JigglePokeball()
