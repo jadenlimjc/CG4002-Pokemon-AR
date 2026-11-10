@@ -103,5 +103,36 @@ python3 evaluate_fpga.py --overlay gesture_cnn.bit --data real_gestures_test.npz
 ```
 
 The first command verifies the golden vector. The second measures accuracy,
-latency and throughput; its JSON records the evaluation configuration and results.
+latency and throughput, saving a confusion-matrix PNG/CSV and a performance CSV.
 The DMA and accelerator still use the existing bounded waits and fault recovery.
+
+FPGA evaluation defaults to the original unrestricted 11-class evaluation.
+Enable state masking explicitly for the original 11-label gesture dataset:
+
+```bash
+python3 evaluate_fpga.py --overlay gesture_cnn.bit --data real_gestures_test.npz --state-mask
+```
+
+With `--state-mask`, state-masked accuracy is the primary result and unrestricted
+accuracy is retained for comparison.
+It uses the same logits from one hardware inference per input window. Normal
+state allows Neutral, Aim and the seven battle gestures; aiming state allows
+Neutral, Stop Aim and Throw. Offline labels supply expected state; Neutral is
+scored in both states. These scores assume correct game state and do not test
+live state tracking. `--state-mask` rejects unknown class orders.
+
+By default, the PNG and CSV show the unrestricted 11-class matrix. With
+`--state-mask`, the existing PNG matches the software layout: normal state
+(nine classes) on the left and aiming state (three classes) on the right, each
+with its own accuracy and balanced accuracy. Neutral appears once in each panel.
+In masked mode, the CSV retains both combined masked and unrestricted matrices, with `evaluation` and `true_class`
+columns identifying each row. There are no JSON sidecars or extra output variants.
+The existing performance CSV is retained. Neutral contributes two masked scoring
+tasks but only one FPGA inference. Warm-up windows count toward both accuracy
+reports but are excluded from latency statistics. Performance timings and
+throughput cover driver inference; CPU state masking is excluded.
+
+`--shuffle-labels` remains a negative control. Its state masks follow the shuffled
+scoring labels too, so use the unrestricted score for the 11-class chance check.
+No PyTorch or training scripts are required on the board, and the command above
+is unchanged. Copy the updated `evaluate_fpga.py` into the board bundle.

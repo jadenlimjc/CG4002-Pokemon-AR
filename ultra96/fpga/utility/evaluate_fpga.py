@@ -1,8 +1,7 @@
-"""End-to-end board demo: accuracy, latency, throughput, and confusion matrix."""
+"""FPGA evaluation: state-masked/unrestricted accuracy and inference performance."""
 
 import argparse
 import csv
-import json
 import os
 from pathlib import Path
 import sys
@@ -35,10 +34,54 @@ OVERLAY_PATH = (str(SCRIPT_DIR / "gesture_cnn.bit")
                 if (SCRIPT_DIR / "gesture_cnn.bit").is_file() else DRIVER_OVERLAY_PATH)
 
 
-def evaluate(accelerator, data_source, warmup=10, show_predictions=False):
-    """Drive the low-level accelerator once per held-out test window."""
-    # Confusion matrix uses [true class, predicted class].
+# Keep the board bundle independent of PyTorch and the training source tree.
+# These are the original NPZ class IDs, not additional hardware outputs.
+GESTURE_CLASS_NAMES = (
+    "Neutral", "Aim", "Stop Aim", "Throw", "Punch", "Downward Swipe", "Guard",
+    "Flee / U-turn", "Switch Pokemon / Back-pocket reach",
+    "Use Item / Front-pocket reach", "Uppercut",
+)
+STATE_CLASS_IDS = {"normal": (0, 1, 4, 5, 6, 7, 8, 9, 10), "aiming": (0, 2, 3)}
+
+
+def classification_metrics(matrix, class_names):
+    """Percent scores, matching software evaluation; absent recalls are excluded."""
+    support, predicted = matrix.sum(1), matrix.sum(0)
+    correct = np.diag(matrix)
+    recall = np.divide(correct, support, out=np.zeros(len(matrix)), where=support > 0)
+    precision = np.divide(correct, predicted, out=np.zeros(len(matrix)), where=predicted > 0)
+    denominator = support + predicted
+    f1 = np.divide(2 * correct, denominator, out=np.zeros(len(matrix)), where=denominator > 0)
+    total = int(matrix.sum())
+    return {
+        "accuracy": float(100 * correct.sum() / total) if total else None,
+        "balanced_accuracy": float(100 * recall[support > 0].mean()) if total else None,
+        "macro_f1": float(100 * f1.mean()) if total else None,
+        "correct": int(correct.sum()), "total": total,
+        "per_class": [
+            {"class": str(name), "support": int(n), "precision": float(100 * p),
+             "recall": float(100 * r) if n else None, "f1": float(100 * f)}
+            for name, n, p, r, f in zip(class_names, support, precision, recall, f1)
+        ],
+        "confusion_matrix": matrix.tolist(),
+    }
+
+
+def evaluate(accelerator, data_source, warmup=10, show_predictions=False, *, state_mask=False):
+    """Infer once per source window; score both restrictions from the same logits.
+
+    Returns (evaluation report, hardware timings). CPU masking is outside the
+    driver's timed interval. State is supplied by labels for clip evaluation;
+    this does not simulate live state tracking or action acceptance.
+    """
+    if warmup < 0:
+        raise ValueError("warmup must be non-negative")
+    names = data_source.class_names
+    if state_mask and tuple(names) != GESTURE_CLASS_NAMES:
+        raise ValueError("State masking requires the original 11 gesture labels in their original order")
+    state_masking = state_mask
     matrix = np.zeros((NUM_CLASSES, NUM_CLASSES), dtype=np.int64)
+    state_matrices = {state: np.zeros_like(matrix) for state in STATE_CLASS_IDS} if state_masking else {}
     timings = []
     count = 0
     for count, (window, target) in enumerate(data_source, start=1):
@@ -46,33 +89,45 @@ def evaluate(accelerator, data_source, warmup=10, show_predictions=False):
         if not 0 <= target < NUM_CLASSES:
             raise ValueError(f"Invalid label {target} at sample {count}")
         logits, timing = accelerator.predict_logits_timed(window)
+        logits = np.asarray(logits)
+        if logits.shape != (NUM_CLASSES,) or not np.isfinite(logits).all():
+            raise ValueError(f"Sample {count}: expected {NUM_CLASSES} finite FPGA logits")
         prediction = int(np.argmax(logits))
-        # Warm-up samples count toward accuracy but not latency statistics.
         if count > warmup:
             timings.append(timing.as_dict())
         matrix[target, prediction] += 1
+        state_predictions = {}
+        for state, ids in STATE_CLASS_IDS.items() if state_masking else ():
+            if target in ids:
+                # Restrict before argmax, rather than rejecting an invalid winner.
+                selected = int(ids[int(np.argmax(logits[list(ids)]))])
+                state_matrices[state][target, selected] += 1
+                state_predictions[state] = selected
         if show_predictions:
-            logit_text = ", ".join(
-                f"{class_id}:{float(value):.6f}"
-                for class_id, value in enumerate(logits)
-            )
-            print(
-                f"Sample {count:3d}: true={target}, pred={prediction}, "
-                f"logits=[{logit_text}]", flush=True
-            )
+            logit_text = ", ".join(f"{i}:{float(value):.6f}" for i, value in enumerate(logits))
+            print(f"Sample {count:3d}: true={target}, unrestricted={prediction}, "
+                  f"state_masked={state_predictions}, logits=[{logit_text}]", flush=True)
         else:
-            print(
-                f"\rProcessed {count} samples; latest true={target}, pred={prediction}",
-                end="", flush=True
-            )
+            print(f"\rProcessed {count} samples; latest true={target}, unrestricted={prediction}", end="", flush=True)
     if not show_predictions:
         print()
     if count == 0:
         raise ValueError("The data source did not produce any samples")
     if not timings:
         raise ValueError("Samples must exceed --warmup to produce benchmark data")
-    return matrix, timings
-
+    primary = np.sum(list(state_matrices.values()), axis=0) if state_masking else matrix
+    report = {
+        **classification_metrics(primary, names),
+        "evaluation_mode": "state_masked_single" if state_masking else "unrestricted_single",
+        "state_masking_enabled": state_masking, "source_windows": count,
+        "evaluation_context": ("Label-supplied state; Neutral tested in both states; assumes correct game state"
+                               if state_masking else "Unrestricted single-head classification"),
+        "unrestricted": classification_metrics(matrix, names), "states": {},
+    }
+    for state, full_matrix in state_matrices.items():
+        ids = list(STATE_CLASS_IDS[state])
+        report["states"][state] = classification_metrics(full_matrix[np.ix_(ids, ids)], [names[i] for i in ids])
+    return report, timings
 
 def report_performance(timings, configured_clocks, csv_path=None,
                        sample_rate=SAMPLE_RATE_HZ, window_size=IN_LENGTH):
@@ -114,40 +169,55 @@ def report_performance(timings, configured_clocks, csv_path=None,
         print(f"  Saved raw performance data to {csv_path}")
 
 
-def save_confusion_matrix(matrix, path, class_names, title_prefix="FPGA"):
-    """Save a PNG when matplotlib is installed, plus an always-available CSV."""
+def save_confusion_matrix(matrix, path, class_names, title_prefix="FPGA", unrestricted_matrix=None, state_results=None):
+    """Plot software-compatible state panels; keep both evaluations in one CSV."""
+    panels = [("State-masked", matrix), ("Unrestricted", unrestricted_matrix)] if unrestricted_matrix is not None else [("Unrestricted", matrix)]
     csv_path = os.path.splitext(path)[0] + ".csv"
-    np.savetxt(csv_path, matrix, fmt="%d", delimiter=",")
+    with open(csv_path, "w", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(["evaluation", "true_class", *class_names])
+        for name, values in panels:
+            for label, row in zip(class_names, values):
+                writer.writerow([name, label, *row.tolist()])
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
-        print(f"matplotlib is unavailable; saved numeric matrix to {csv_path}")
+        print(f"matplotlib is unavailable; saved confusion matrices to {csv_path}")
         return
 
-    accuracy = 100.0 * np.trace(matrix) / matrix.sum()
-    balanced = 100.0 * np.mean(np.diag(matrix) / matrix.sum(axis=1).clip(min=1))
-    figure, axis = plt.subplots(figsize=(10, 8))
-    image = axis.imshow(matrix, interpolation="nearest", cmap="Blues")
-    figure.colorbar(image, ax=axis)
-    axis.set(
-        xticks=np.arange(NUM_CLASSES), yticks=np.arange(NUM_CLASSES),
-        xticklabels=class_names, yticklabels=class_names,
-        xlabel="Predicted Label", ylabel="True Label",
-        title=f"{title_prefix}\nConfusion Matrix (Accuracy: {accuracy:.2f}%, Balanced: {balanced:.2f}%)"
-    )
-    plt.setp(axis.get_xticklabels(), rotation=45, ha="right")
-    threshold = matrix.max() / 2.0
-    for row in range(NUM_CLASSES):
-        for column in range(NUM_CLASSES):
-            axis.text(column, row, str(matrix[row, column]), ha="center", va="center",
-                      color="white" if matrix[row, column] > threshold else "black")
+    plot_panels = []
+    if state_results:
+        for state, metrics in state_results.items():
+            names = [class_names[i] for i in STATE_CLASS_IDS[state]]
+            plot_panels.append((f"{state.title()} state", np.asarray(metrics["confusion_matrix"]), names))
+    else:
+        plot_panels = [(name, values, class_names) for name, values in panels]
+    figure, axes = plt.subplots(1, len(plot_panels), figsize=(9 * len(plot_panels), 8), squeeze=False)
+    for axis, (name, values, names) in zip(axes[0], plot_panels):
+        metrics = classification_metrics(values, names)
+        accuracy, balanced = metrics["accuracy"], metrics["balanced_accuracy"]
+        image = axis.imshow(values, interpolation="nearest", cmap="Blues", aspect="auto", vmin=0)
+        figure.colorbar(image, ax=axis)
+        panel_title = (f"{name} | accuracy {accuracy:.2f}% | balanced {balanced:.2f}%"
+                       if metrics["total"] else f"{name} | no eligible test windows")
+        axis.set(
+            xticks=np.arange(len(names)), yticks=np.arange(len(names)),
+            xticklabels=names, yticklabels=names,
+            xlabel="Predicted Label", ylabel="True Label", title=panel_title,
+        )
+        plt.setp(axis.get_xticklabels(), rotation=90, ha="center")
+        threshold = values.max() / 2.0
+        for row in range(len(names)):
+            for column in range(len(names)):
+                axis.text(column, row, str(values[row, column]), ha="center", va="center",
+                          color="white" if values[row, column] > threshold else "black")
+    figure.suptitle(title_prefix)
     figure.tight_layout()
-    figure.savefig(path)
+    figure.savefig(path, bbox_inches="tight")
     plt.close(figure)
-    print(f"Saved confusion matrix to {path} and {csv_path}")
-
+    print(f"Saved confusion matrices to {path} and {csv_path}")
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -161,6 +231,8 @@ def parse_args():
                         help="initial inferences excluded from performance results")
     parser.add_argument("--show-predictions", action="store_true",
                         help="print true class, predicted class, and all logits for every window")
+    parser.add_argument("--state-mask", action="store_true",
+                        help="enable state-masked evaluation and normal/aiming PNG panels (default: unrestricted)")
     parser.add_argument(
         "--shuffle-labels", action="store_true",
         help="negative control: shuffle scoring labels, not input windows"
@@ -210,6 +282,8 @@ def main():
             f"Dataset has {len(source.class_names)} classes but overlay expects "
             f"{NUM_CLASSES}; retrain/export/resynthesize the matching accelerator"
         )
+    if args.state_mask and tuple(source.class_names) != GESTURE_CLASS_NAMES:
+        raise ValueError("State masking requires the original 11 gesture labels in their original order")
     if args.shuffle_labels:
         # Negative control changes only labels used for scoring; inputs stay identical.
         original_labels = source.labels.copy()
@@ -225,25 +299,36 @@ def main():
     # Load the overlay once, then benchmark every held-out window.
     with GestureCNNAccelerator(args.overlay, window_size=args.window_size,
                                sample_rate=args.sample_rate) as accelerator:
-        matrix, timings = evaluate(accelerator, source, args.warmup,
-                                   args.show_predictions)
+        results, timings = evaluate(accelerator, source, args.warmup,
+                                   args.show_predictions, state_mask=args.state_mask)
         report_performance(timings, accelerator.configured_clock_mhz(),
                            args.performance_csv, args.sample_rate, args.window_size)
-    accuracy = 100.0 * np.trace(matrix) / matrix.sum()
     mode = "Negative-Control FPGA" if args.shuffle_labels else "FPGA"
-    balanced = 100.0 * np.mean(np.diag(matrix) / matrix.sum(axis=1).clip(min=1))
-    print(f"Balanced FPGA accuracy: {balanced:.2f}%")
-    print(f"Overall FPGA accuracy: {accuracy:.2f}% ({np.trace(matrix)}/{matrix.sum()})")
-    print(matrix)
-    save_confusion_matrix(matrix, args.output, source.class_names, f"{mode} | {label}")
-    metadata = {"sample_rate_hz": args.sample_rate, "window_size": args.window_size,
-                "architecture": "temporal",
-                "dataset": str(Path(args.data).resolve()), "overlay": str(Path(args.overlay).resolve()),
-                "accuracy": accuracy, "balanced_accuracy": balanced,
-                "correct": int(np.trace(matrix)), "total": int(matrix.sum()),
-                "negative_control": args.shuffle_labels, "warmup": args.warmup,
-                "measured_windows": len(timings), "performance_csv": args.performance_csv}
-    Path(args.output).with_suffix(".json").write_text(json.dumps(metadata, indent=2) + "\n")
+    print(f"\n{results['evaluation_context']}")
+    if args.shuffle_labels and results["state_masking_enabled"]:
+        print("Negative control: masks also use SHUFFLED scoring labels. "
+              "Use unrestricted results for the 11-class chance-level check.")
+    print(f"Primary ({results['evaluation_mode']}) accuracy: {results['accuracy']:.2f}% "
+          f"({results['correct']}/{results['total']} evaluation tasks; {results['source_windows']} FPGA windows)")
+    print(f"Primary balanced accuracy: {results['balanced_accuracy']:.2f}%")
+    print(f"Unrestricted accuracy: {results['unrestricted']['accuracy']:.2f}% | "
+          f"balanced: {results['unrestricted']['balanced_accuracy']:.2f}%")
+    for state, metrics in results["states"].items():
+        if metrics["total"]:
+            print(f"{state.title()} state: accuracy={metrics['accuracy']:.2f}% | "
+                  f"balanced={metrics['balanced_accuracy']:.2f}% | tasks={metrics['total']}")
+        else:
+            print(f"{state.title()} state: no eligible test windows")
+    title = f"{mode} | {label} | {results['evaluation_mode']}"
+    if results["state_masking_enabled"]:
+        title += "\nLabel-supplied state; Neutral tested in both states; assumes correct game state"
+    save_confusion_matrix(
+        np.asarray(results["confusion_matrix"]), args.output, source.class_names, title,
+        unrestricted_matrix=(np.asarray(results["unrestricted"]["confusion_matrix"])
+                             if results["state_masking_enabled"] else None),
+        state_results=results["states"],
+    )
+
 
 
 if __name__ == "__main__":

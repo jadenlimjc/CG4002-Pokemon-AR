@@ -26,6 +26,9 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from ultra96.pytorch.training.model import Gesture1DCNN
+from ultra96.pytorch.training.cross_validate_loso import (
+    STATE_CLASS_IDS, single_head_config, state_evaluation_batches, state_evaluation_metrics,
+)
 from ultra96.pytorch.training.train_baseline import (
     DATASET_CONFIGS, NPZIMUDataset, set_seed, SAMPLE_RATE_HZ, WINDOW_SIZE, run_label, resolve_software_checkpoint,
 )
@@ -34,53 +37,49 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTORCH_DIR = os.path.dirname(SCRIPT_DIR)
 
 def evaluate_and_generate_confusion_matrix(model, data_loader, device, class_map, filename="confusion_matrix.png"):
-    """
-    Evaluates the model on the given dataset and generates a confusion matrix.
-    This is the definitive way to assess classification performance.
-    """
+    """Report state-masked single-head predictions and preserve unrestricted scores."""
     label = run_label(data_loader.dataset.sample_rate, data_loader.dataset.window_size)
-    print(f"\n--- Generating Confusion Matrix: {label} ---")
+    names = list(class_map.values())
     model.eval()
-    all_preds = []
-    all_targets = []
-
+    unrestricted_cm = np.zeros((len(names), len(names)), dtype=np.int64)
+    state_cms, by_state = {}, {}
     with torch.no_grad():
         for inputs, targets in data_loader:
             inputs, targets = inputs.to(device), targets.to(device)
-            outputs = model(inputs)
-            _, predicted = outputs.max(1)
-            all_preds.extend(predicted.cpu().numpy())
-            all_targets.extend(targets.cpu().numpy())
-
-    # Rows are true classes; columns are predicted classes.
-    cm = confusion_matrix(all_targets, all_preds, labels=range(len(class_map)))
-    correct = int(np.sum(np.diag(cm)))
-    total = int(np.sum(cm))
-    accuracy = 100.0 * correct / total
-    # Balanced accuracy averages recall so every gesture counts equally.
-    recalls = np.diag(cm) / np.maximum(cm.sum(axis=1), 1)
-    balanced_accuracy = 100.0 * np.mean(recalls)
-    print(f"Overall Test Accuracy: {accuracy:.2f}%")
-    print(f"Balanced Test Accuracy: {balanced_accuracy:.2f}%")
-    print(classification_report(
-        all_targets, all_preds, labels=range(len(class_map)),
-        target_names=list(class_map.values()), zero_division=0
-    ))
-
-    figure = plt.figure(figsize=(12, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=class_map.values(), yticklabels=class_map.values())
-    plt.xlabel('Predicted Label')
-    plt.ylabel('True Label')
-    plt.title(
-        f'{label}\nConfusion Matrix (Accuracy: {accuracy:.2f}%, '
-        f'Balanced: {balanced_accuracy:.2f}%)\n'
-        f'Correctly predicted: {correct} / {total}'
-    )
-    plt.tight_layout()
-    plt.savefig(filename, bbox_inches="tight")
+            logits = model(inputs)
+            np.add.at(unrestricted_cm, (targets.cpu().numpy(), logits.argmax(1).cpu().numpy()), 1)
+            for state, masked, selected_targets, _ in state_evaluation_batches(logits, targets, names):
+                predictions = masked.argmax(1).cpu().numpy()
+                selected_targets = selected_targets.cpu().numpy()
+                cm = state_cms.setdefault(state, np.zeros_like(unrestricted_cm))
+                np.add.at(cm, (selected_targets, predictions), 1)
+                predicted, actual = by_state.setdefault(state, ([], []))
+                predicted.extend(predictions.tolist())
+                actual.extend(selected_targets.tolist())
+    result = state_evaluation_metrics(state_cms, unrestricted_cm, names)
+    print(f"\nEvaluation: {result['evaluation_mode']} | {label}")
+    print(result["evaluation_context"])
+    print(f"State-masked balanced accuracy: {result['balanced_accuracy']:.2f}%")
+    print(f"Unrestricted balanced accuracy: {result['unrestricted']['balanced_accuracy']:.2f}%")
+    figure, axes = plt.subplots(1, len(state_cms), figsize=(9 * len(state_cms), 8), squeeze=False)
+    for ax, (state, full_cm) in zip(axes[0], state_cms.items()):
+        ids = list(STATE_CLASS_IDS[state]) if state in STATE_CLASS_IDS else list(range(len(names)))
+        state_names = [names[i] for i in ids]
+        cm = full_cm[np.ix_(ids, ids)]
+        metrics = result['states'][state]
+        predictions, targets = by_state[state]
+        print(f"{state.title()} state: accuracy={metrics['accuracy']:.2f}%, balanced={metrics['balanced_accuracy']:.2f}%")
+        print(classification_report(targets, predictions, labels=ids, target_names=state_names, zero_division=0))
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax, xticklabels=state_names, yticklabels=state_names)
+        ax.set(xlabel="Predicted Label", ylabel="True Label",
+               title=f"{state.title()} state | accuracy {metrics['accuracy']:.2f}% | balanced {metrics['balanced_accuracy']:.2f}%")
+    figure.suptitle(f"{label} | {result['evaluation_mode']}\n{result['evaluation_context']}")
+    figure.tight_layout()
+    figure.savefig(filename, bbox_inches="tight")
     plt.close(figure)
-    print(f"Saved confusion matrix to '{filename}'")
+    Path(filename).with_suffix(".json").write_text(json.dumps(result, indent=2) + "\n")
+    print(f"Saved evaluation image and JSON to '{filename}'")
+    return result
 
 def main(args=None):
     """
@@ -128,11 +127,11 @@ def main(args=None):
                 raise ValueError(f"Checkpoint {key}={metadata[key]} does not match requested {expected}")
         config = metadata["model_config"]
         print(f"Loading model configuration from '{config_path}'")
-    model = Gesture1DCNN(**config).to(device)
+    model = Gesture1DCNN(**single_head_config(config)).to(device)
     model.load_state_dict(torch.load(best_model_path, map_location=device))
 
     # --- Evaluate ---
-    evaluate_and_generate_confusion_matrix(
+    return evaluate_and_generate_confusion_matrix(
         model, test_loader, device, gesture_map, filename=output_path
     )
 
