@@ -16,6 +16,7 @@ import torch
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from ultra96.pytorch.training.model import Gesture1DCNN
+from ultra96.pytorch.training.cross_validate_loso import STATE_CLASS_IDS, single_head_config, state_evaluation_batches
 from ultra96.pytorch.training.train_baseline import resolve_software_checkpoint, SAMPLE_RATE_HZ as DEFAULT_SAMPLE_RATE_HZ
 from ultra96.real_data.preprocess_for_training import (
     load_csv, motion_centre, resample_signal, SAMPLE_RATE_HZ,
@@ -24,10 +25,11 @@ from ultra96.real_data.preprocess_for_training import (
 ROOT = Path(__file__).resolve().parents[2]  # ultra96/
 
 
-def select_reference(index, correct, labels, subjects, sessions):
+def select_reference(index, correct, labels, subjects, sessions, states=None):
     """Prefer the same session; never substitute another person's gesture."""
     candidates = [int(j) for j in correct
-                  if labels[j] == labels[index] and subjects[j] == subjects[index]]
+                  if labels[j] == labels[index] and subjects[j] == subjects[index]
+                  and (states is None or states[j] == states[index])]
     same_session = [j for j in candidates if sessions[j] == sessions[index]]
     return next(iter(same_session or candidates), None)
 
@@ -70,13 +72,20 @@ def main():
             if key in metadata and metadata[key] != expected:
                 raise ValueError(f"Checkpoint {key} does not match dataset")
         config = metadata["model_config"]
-    model = Gesture1DCNN(**config)
+    model = Gesture1DCNN(**single_head_config(config))
     model.load_state_dict(torch.load(args.checkpoint, map_location="cpu", weights_only=True))
     model.eval()
     with torch.no_grad():
         outputs = model(torch.from_numpy(windows).float())
-        logits = outputs.numpy()
-        probabilities = outputs.softmax(dim=1).numpy()
+        batches = state_evaluation_batches(outputs, torch.from_numpy(labels).long(), names)
+        logits = torch.cat([masked for _, masked, _, _ in batches]).numpy()
+        probabilities = torch.cat([masked.softmax(1) for _, masked, _, _ in batches]).numpy()
+    indices = [i for _, _, _, selected in batches for i in selected.tolist()]
+    states = [state for state, _, targets, _ in batches for _ in targets]
+    labels, offsets = labels[indices], offsets[indices]
+    centres = centres[indices] if centres is not None else None
+    filenames, subjects, sessions = ([values[i] for i in indices] for values in (filenames, subjects, sessions))
+    print("State-conditioned clip evaluation; Neutral tested in both states for the original gesture dataset.")
     predictions = probabilities.argmax(axis=1)
     if args.output.exists():
         shutil.rmtree(args.output)
@@ -87,7 +96,7 @@ def main():
     references = set()
     comparisons = {}
     for i in errors:
-        reference = select_reference(i, correct, labels, subjects, sessions)
+        reference = select_reference(i, correct, labels, subjects, sessions, states)
         comparisons[int(i)] = reference
         if reference is not None:
             references.add(reference)
@@ -99,11 +108,11 @@ def main():
         kind = "correct" if predictions[i] == labels[i] else "error"
         return f"{kind}_{i:03d}_{Path(filenames[i]).stem}.png"
 
-    print(f"{len(errors)} errors / {len(labels)} test windows")
+    print(f"{len(errors)} errors / {len(labels)} supervised test tasks")
     with (args.output / "errors.csv").open("w", newline="") as handle, (args.output / "correct.csv").open("w", newline="") as correct_handle:
         error_writer = csv.writer(handle)
         correct_writer = csv.writer(correct_handle)
-        columns = ["filename", "true", "predicted", "softmax_score", "plot"]
+        columns = ["filename", "true", "predicted", "softmax_score", "plot", "state"]
         error_writer.writerow(columns + ["correct_reference_plot", "reference_same_session", "reference_status"])
         correct_writer.writerow(columns)
         for i in list(errors) + sorted(references):
@@ -133,14 +142,15 @@ def main():
                 ax.legend(loc="upper right", fontsize=8)
                 ax.grid(alpha=0.2)
             axes[-1].set_xlabel(f"Seconds from recording start ({sample_rate} Hz)")
+            ids = list(STATE_CLASS_IDS[states[i]]) if states[i] in STATE_CLASS_IDS else list(range(len(names)))
             colors = ["tab:orange" if j == predictions[i] else
                       "tab:green" if j == labels[i] else "tab:blue"
-                      for j in range(len(names))]
-            bars = logit_ax.bar(names, logits[i], color=colors)
+                      for j in ids]
+            bars = logit_ax.bar([names[j] for j in ids], logits[i, ids], color=colors)
             logit_ax.bar_label(bars, fmt="%.3f", padding=3, fontsize=8)
             logit_ax.axhline(0, color="black", linewidth=0.7)
             logit_ax.set_ylabel("Raw logit (before softmax)")
-            logit_ax.set_title("Class logits — orange: predicted, green: true (if different)")
+            logit_ax.set_title(f"{states[i].title()} state logits — orange: predicted, green: true (if different)")
             logit_ax.tick_params(axis="x", labelrotation=30)
             logit_ax.margins(y=0.2)
             logit_ax.grid(axis="y", alpha=0.2)
@@ -149,7 +159,7 @@ def main():
             plot = args.output / plot_name(i)
             fig.savefig(plot)
             plt.close(fig)
-            row = [filenames[i], names[labels[i]], names[predictions[i]], float(probabilities[i, predictions[i]]), plot.name]
+            row = [filenames[i], names[labels[i]], names[predictions[i]], float(probabilities[i, predictions[i]]), plot.name, states[i]]
             if predictions[i] == labels[i]:
                 correct_writer.writerow(row)
             else:

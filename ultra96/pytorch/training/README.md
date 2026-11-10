@@ -1,3 +1,37 @@
+# Single-head state-masked evaluation
+
+The CNN retains one output layer for the original 11 labels. Training and
+validation checkpoint selection are unchanged. Software test evaluation, LOSO,
+and error inspection automatically restrict predictions by expected game state:
+
+| State | Available labels |
+| --- | --- |
+| Normal | Neutral, Aim, Punch, Swipe, Guard, Flee, Switch Pokemon, Use Item, Uppercut |
+| Aiming | Neutral, Stop Aim, Throw |
+
+Masking excludes invalid logits before argmax/softmax; it does not add learned
+heads or require new training data. For offline clips, the true gesture label
+supplies expected state, and Neutral is evaluated in both states. These scores
+assume correct game state, not measured live state tracking. Duplicated Neutral
+means there are more supervised evaluation tasks than source windows.
+
+State-conditioned scores are the main output. Unrestricted single-head scores
+are preserved under `unrestricted` in JSON. Per-state scores are under `states`.
+The confusion-matrix image has normal/aiming panels, with a JSON report beside
+it. `train_baseline --evaluate` stores the test results in the existing `run.json`.
+LOSO summary CSV adds normal, aiming and unrestricted balanced-accuracy columns.
+Other datasets retain unrestricted evaluation. FPGA and communications are unchanged.
+
+Refresh a completed single-head LOSO run without retraining:
+
+```powershell
+.\ultra96\.venv\Scripts\python.exe -m ultra96.pytorch.training.cross_validate_loso --reevaluate-run ultra96/pytorch/loso_runs/2026-11-09_00-35-48_013762
+```
+
+This refreshes saved predictions, plots, metrics, summary JSON/CSV and evaluation
+metadata. Checkpoints and training results are retained. Archived dual-head
+checkpoints are rejected; automatic software checkpoint selection skips them.
+
 # Temporal CNN training
 
 Training defaults to the `temporal` architecture for either dataset. Select

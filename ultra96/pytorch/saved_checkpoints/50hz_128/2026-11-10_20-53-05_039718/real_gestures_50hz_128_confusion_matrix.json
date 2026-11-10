@@ -1,0 +1,678 @@
+{
+  "accuracy": 98.86685552407933,
+  "balanced_accuracy": 98.91774891774892,
+  "macro_f1": 98.91250924622102,
+  "per_class": [
+    {
+      "class": "Neutral",
+      "support": 60,
+      "precision": 98.33333333333333,
+      "recall": 98.33333333333333,
+      "f1": 98.33333333333333
+    },
+    {
+      "class": "Aim",
+      "support": 29,
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1": 100.0
+    },
+    {
+      "class": "Stop Aim",
+      "support": 30,
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1": 100.0
+    },
+    {
+      "class": "Throw",
+      "support": 30,
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1": 100.0
+    },
+    {
+      "class": "Punch",
+      "support": 28,
+      "precision": 100.0,
+      "recall": 96.42857142857143,
+      "f1": 98.18181818181819
+    },
+    {
+      "class": "Downward Swipe",
+      "support": 30,
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1": 100.0
+    },
+    {
+      "class": "Guard",
+      "support": 30,
+      "precision": 100.0,
+      "recall": 96.66666666666667,
+      "f1": 98.30508474576271
+    },
+    {
+      "class": "Flee / U-turn",
+      "support": 29,
+      "precision": 96.66666666666667,
+      "recall": 100.0,
+      "f1": 98.30508474576271
+    },
+    {
+      "class": "Switch Pokemon / Back-pocket reach",
+      "support": 29,
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1": 100.0
+    },
+    {
+      "class": "Use Item / Front-pocket reach",
+      "support": 28,
+      "precision": 96.55172413793103,
+      "recall": 100.0,
+      "f1": 98.24561403508771
+    },
+    {
+      "class": "Uppercut",
+      "support": 30,
+      "precision": 96.66666666666667,
+      "recall": 96.66666666666667,
+      "f1": 96.66666666666667
+    }
+  ],
+  "confusion_matrix": [
+    [
+      59,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      29,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      30,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      30,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      27,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      30,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      29,
+      0,
+      0,
+      0,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      29,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      29,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      28,
+      0
+    ],
+    [
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      29
+    ]
+  ],
+  "evaluation_mode": "state_masked_single",
+  "evaluation_context": "Label-supplied state; Neutral tested in both states; assumes correct game state",
+  "unrestricted": {
+    "accuracy": 98.45201238390094,
+    "balanced_accuracy": 98.46320346320347,
+    "macro_f1": 98.4527434863719,
+    "per_class": [
+      {
+        "class": "Neutral",
+        "support": 30,
+        "precision": 96.66666666666667,
+        "recall": 96.66666666666667,
+        "f1": 96.66666666666667
+      },
+      {
+        "class": "Aim",
+        "support": 29,
+        "precision": 100.0,
+        "recall": 100.0,
+        "f1": 100.0
+      },
+      {
+        "class": "Stop Aim",
+        "support": 30,
+        "precision": 96.7741935483871,
+        "recall": 100.0,
+        "f1": 98.36065573770492
+      },
+      {
+        "class": "Throw",
+        "support": 30,
+        "precision": 100.0,
+        "recall": 100.0,
+        "f1": 100.0
+      },
+      {
+        "class": "Punch",
+        "support": 28,
+        "precision": 100.0,
+        "recall": 96.42857142857143,
+        "f1": 98.18181818181819
+      },
+      {
+        "class": "Downward Swipe",
+        "support": 30,
+        "precision": 100.0,
+        "recall": 100.0,
+        "f1": 100.0
+      },
+      {
+        "class": "Guard",
+        "support": 30,
+        "precision": 100.0,
+        "recall": 96.66666666666667,
+        "f1": 98.30508474576271
+      },
+      {
+        "class": "Flee / U-turn",
+        "support": 29,
+        "precision": 96.66666666666667,
+        "recall": 100.0,
+        "f1": 98.30508474576271
+      },
+      {
+        "class": "Switch Pokemon / Back-pocket reach",
+        "support": 29,
+        "precision": 100.0,
+        "recall": 100.0,
+        "f1": 100.0
+      },
+      {
+        "class": "Use Item / Front-pocket reach",
+        "support": 28,
+        "precision": 96.55172413793103,
+        "recall": 100.0,
+        "f1": 98.24561403508771
+      },
+      {
+        "class": "Uppercut",
+        "support": 30,
+        "precision": 96.55172413793103,
+        "recall": 93.33333333333333,
+        "f1": 94.91525423728814
+      }
+    ],
+    "confusion_matrix": [
+      [
+        29,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        29,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        30,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        30,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        27,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        30,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        29,
+        0,
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        29,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        29,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        28,
+        0
+      ],
+      [
+        1,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        28
+      ]
+    ]
+  },
+  "states": {
+    "normal": {
+      "accuracy": 98.47908745247149,
+      "balanced_accuracy": 98.49206349206348,
+      "macro_f1": 98.48565944908496,
+      "per_class": [
+        {
+          "class": "Neutral",
+          "support": 30,
+          "precision": 96.66666666666667,
+          "recall": 96.66666666666667,
+          "f1": 96.66666666666667
+        },
+        {
+          "class": "Aim",
+          "support": 29,
+          "precision": 100.0,
+          "recall": 100.0,
+          "f1": 100.0
+        },
+        {
+          "class": "Punch",
+          "support": 28,
+          "precision": 100.0,
+          "recall": 96.42857142857143,
+          "f1": 98.18181818181819
+        },
+        {
+          "class": "Downward Swipe",
+          "support": 30,
+          "precision": 100.0,
+          "recall": 100.0,
+          "f1": 100.0
+        },
+        {
+          "class": "Guard",
+          "support": 30,
+          "precision": 100.0,
+          "recall": 96.66666666666667,
+          "f1": 98.30508474576271
+        },
+        {
+          "class": "Flee / U-turn",
+          "support": 29,
+          "precision": 96.66666666666667,
+          "recall": 100.0,
+          "f1": 98.30508474576271
+        },
+        {
+          "class": "Switch Pokemon / Back-pocket reach",
+          "support": 29,
+          "precision": 100.0,
+          "recall": 100.0,
+          "f1": 100.0
+        },
+        {
+          "class": "Use Item / Front-pocket reach",
+          "support": 28,
+          "precision": 96.55172413793103,
+          "recall": 100.0,
+          "f1": 98.24561403508771
+        },
+        {
+          "class": "Uppercut",
+          "support": 30,
+          "precision": 96.66666666666667,
+          "recall": 96.66666666666667,
+          "f1": 96.66666666666667
+        }
+      ],
+      "confusion_matrix": [
+        [
+          29,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          29,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          27,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          30,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          29,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          29,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          29,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          28,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          29
+        ]
+      ]
+    },
+    "aiming": {
+      "accuracy": 100.0,
+      "balanced_accuracy": 100.0,
+      "macro_f1": 100.0,
+      "per_class": [
+        {
+          "class": "Neutral",
+          "support": 30,
+          "precision": 100.0,
+          "recall": 100.0,
+          "f1": 100.0
+        },
+        {
+          "class": "Stop Aim",
+          "support": 30,
+          "precision": 100.0,
+          "recall": 100.0,
+          "f1": 100.0
+        },
+        {
+          "class": "Throw",
+          "support": 30,
+          "precision": 100.0,
+          "recall": 100.0,
+          "f1": 100.0
+        }
+      ],
+      "confusion_matrix": [
+        [
+          30,
+          0,
+          0
+        ],
+        [
+          0,
+          30,
+          0
+        ],
+        [
+          0,
+          0,
+          30
+        ]
+      ]
+    }
+  }
+}

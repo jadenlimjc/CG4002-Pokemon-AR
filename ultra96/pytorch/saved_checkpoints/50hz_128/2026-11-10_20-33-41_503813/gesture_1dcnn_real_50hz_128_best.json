@@ -1,0 +1,72 @@
+{
+  "sample_rate_hz": 50,
+  "window_size": 128,
+  "model_config": {
+    "in_channels": 6,
+    "num_classes": 11,
+    "channels": [
+      32,
+      64,
+      128
+    ],
+    "kernel_sizes": [
+      7,
+      5,
+      7
+    ],
+    "hidden_features": 64,
+    "dropout": 0.22214197961920232,
+    "dilations": [
+      1,
+      2,
+      4
+    ],
+    "temporal_bins": 4,
+    "head_type": "dual"
+  },
+  "class_names": [
+    "Neutral",
+    "Aim",
+    "Stop Aim",
+    "Throw",
+    "Punch",
+    "Downward Swipe",
+    "Guard",
+    "Flee / U-turn",
+    "Switch Pokemon / Back-pocket reach",
+    "Use Item / Front-pocket reach",
+    "Uppercut"
+  ],
+  "params": {
+    "lr": 0.0011709413361488715,
+    "weight_decay": 0.00016330261109656093,
+    "dropout": 0.22214197961920232
+  },
+  "augmentation": {
+    "kind": "imu",
+    "probability": 0.5,
+    "rotation_degrees": 10.0,
+    "warp_strength": 0.1,
+    "magnitude_fraction": 0.1,
+    "seed": 43
+  },
+  "evaluation_context": "State-conditioned clip evaluation: label selects eligible head; Neutral is evaluated in both heads.",
+  "metrics": {
+    "seed": 42,
+    "epoch": 30,
+    "balanced_accuracy": 98.92894625663757,
+    "val_loss": 0.09444489229998128,
+    "heads": {
+      "normal": {
+        "accuracy": 98.46743295019157,
+        "balanced_accuracy": 98.50574135780334,
+        "tasks": 261
+      },
+      "aiming": {
+        "accuracy": 100.0,
+        "balanced_accuracy": 100.0,
+        "tasks": 90
+      }
+    }
+  }
+}

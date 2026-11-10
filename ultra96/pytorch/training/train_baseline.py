@@ -55,6 +55,8 @@ def resolve_software_checkpoint(dataset="real", sample_rate=SAMPLE_RATE_HZ, wind
     candidates = []
     for metadata_path in root.rglob("run.json"):
         metadata = json.loads(metadata_path.read_text())
+        if metadata.get("model_config", {}).get("head_type", "single") != "single":
+            continue
         if (metadata.get("dataset") == dataset and metadata.get("sample_rate_hz") == sample_rate
                 and metadata.get("window_size") == window_size and metadata.get("checkpoint")):
             path = metadata_path.parent / Path(metadata["checkpoint"]).name
@@ -350,10 +352,11 @@ def run_pipeline(num_epochs=30, dataset="real", data_dir=None, checkpoint=None,
     if evaluate:
         # Reuse the standalone evaluator, explicitly loading the best saved epoch.
         from ultra96.pytorch.training.evaluate_model import main as evaluate_model
-        evaluate_model(argparse.Namespace(data=str(evaluation_path), data_dir=None,
+        evaluation_metrics = evaluate_model(argparse.Namespace(data=str(evaluation_path), data_dir=None,
                                          checkpoint=str(best_model_path), output=str(matrix_path),
                                          sample_rate=sample_rate, window_size=window_size))
-        metadata.update(evaluation_completed=True, confusion_matrix=matrix_path.name)
+        metadata.update(evaluation_completed=True, confusion_matrix=matrix_path.name,
+                        evaluation_metrics=evaluation_metrics)
         metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
     return run_dir
 
