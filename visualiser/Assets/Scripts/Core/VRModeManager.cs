@@ -26,6 +26,7 @@ public class VRModeManager : MonoBehaviour
     private const int AR_MESH_LAYER = 25;
 
     public bool IsVRMode { get; private set; }
+    public float LensScaleFactor => lensScaleFactor;
 
     public delegate void VRModeChangedHandler(bool isVR);
     public event VRModeChangedHandler OnVRModeChanged;
