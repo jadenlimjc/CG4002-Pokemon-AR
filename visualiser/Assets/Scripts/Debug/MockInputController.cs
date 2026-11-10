@@ -1,4 +1,4 @@
-using UnityEngine;
+if using UnityEngine;
 
 public class MockInputController : MonoBehaviour
 {
@@ -107,6 +107,7 @@ public class MockInputController : MonoBehaviour
             }
         }
 
+#if UNITY_EDITOR
         GUILayout.BeginArea(new Rect(Screen.width - 310, Screen.height - 310, 300, 300));
         GUILayout.Label("=== MOCK INPUT (Debug) ===");
         GUILayout.Label($"State: {GameStateManager.Instance?.CurrentPhase}");
@@ -128,5 +129,6 @@ public class MockInputController : MonoBehaviour
         GUILayout.Label($"Network: {(NetworkManager.Instance?.IsConnected == true ? "Connected" : "Disconnected")}");
         GUILayout.Label($"Paired: {(NetworkManager.Instance?.IsPaired == true ? "Player " + NetworkManager.Instance.PairedDeviceId : "No")}");
         GUILayout.EndArea();
+#endif
     }
 }
