@@ -18,8 +18,8 @@ class TouchButton {
     // Called from the global ISR - keep minimal, no Serial/delay.
     void onIsr();
 
-    // Call every loop(). Updates touchedState_ and startMillis_
-    // based on the ISR flag and current touchRead().
+    // Call every loop(). The interrupt starts a touch, then update() polls
+    // until release so one physical press can produce only one fresh edge.
     void update();
 
     bool isTouched() const;
@@ -40,6 +40,7 @@ class TouchButton {
     volatile bool isrFlag_ = false;
     bool touchedState_ = false;
     bool freshTouch_ = false;
+    bool touchArmed_ = true;
     unsigned long startMillis_ = 0;
 };
 
