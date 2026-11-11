@@ -41,6 +41,7 @@ GESTURE_CONFIDENCE_THRESHOLDS = {
     "FLEE": 0.90,
     "NEUTRAL": 0.80,
     "AIM": 0.50,
+    "GUARD": 0.50,
     "DOWNWARD_SWIPE": 0.85,
 }
 
