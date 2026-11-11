@@ -27,10 +27,10 @@ const int TOUCH_THRESHOLD = 350;
 const unsigned long START_HOLD_TIME_MS  = 5000;  // index: hold to start/stop
 const unsigned long SELECT_HOLD_TIME_MS = 500;   // index: hold to select (Battle only)
 const unsigned long TOGGLE_HOLD_TIME_MS = 600;   // middle/ring: single hold
-const unsigned long MOTOR_RUN_TIME_MS   = 500;
+const unsigned long MOTOR_RUN_TIME_MS   = 100;
 const unsigned long CONNECTION_LED_BLINK_MS = 500;
 const unsigned long THROW_MODE_DEBOUNCE_MS = 250;
-const unsigned long GESTURE_BUZZER_DURATION_MS = 2000;
+const unsigned long GESTURE_BUZZER_DURATION_MS = 100;
 
 // =====================================================
 // PWM configuration
