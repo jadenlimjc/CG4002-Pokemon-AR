@@ -12,6 +12,8 @@ void TouchButton::begin() {
   baseline_ = 0.0f;
   baselineAccumulator_ = 0;
   baselineSamples_ = 0;
+  pressSamples_ = 0;
+  releaseSamples_ = 0;
 }
 
 void TouchButton::update() {
@@ -37,20 +39,52 @@ void TouchButton::update() {
   const int releaseThreshold = thresholdFor(
       TOUCH_RELEASE_DROP_PERCENT, TOUCH_RELEASE_MIN_DROP);
 
-  if (!touchedState_ && touchArmed_ && rawValue_ <= pressThreshold) {
-    touchedState_ = true;
-    freshTouch_ = true;
-    touchArmed_ = false;
-    startMillis_ = millis();
-    onFreshTouch();
-  } else if (rawValue_ > releaseThreshold) {
-    const bool wasTouched = touchedState_;
-    touchedState_ = false;
-    touchArmed_ = true;
-    if (wasTouched) onRelease();
+  if (touchedState_) {
+    pressSamples_ = 0;
+    if (rawValue_ > releaseThreshold) {
+      if (++releaseSamples_ >= TOUCH_RELEASE_DEBOUNCE_SAMPLES) {
+        touchedState_ = false;
+        touchArmed_ = true;
+        releaseSamples_ = 0;
+        onRelease();
+      }
+    } else {
+      releaseSamples_ = 0;
+    }
+    return;
+  }
 
-    baseline_ += (static_cast<float>(rawValue_) - baseline_) *
-        TOUCH_BASELINE_TRACKING_ALPHA;
+  // resetTouchState() deliberately disarms the button. Require the same stable
+  // physical release before it can generate another edge.
+  if (!touchArmed_) {
+    pressSamples_ = 0;
+    if (rawValue_ > releaseThreshold) {
+      if (++releaseSamples_ >= TOUCH_RELEASE_DEBOUNCE_SAMPLES) {
+        touchArmed_ = true;
+        releaseSamples_ = 0;
+      }
+    } else {
+      releaseSamples_ = 0;
+    }
+    return;
+  }
+
+  releaseSamples_ = 0;
+  if (rawValue_ <= pressThreshold) {
+    if (++pressSamples_ >= TOUCH_PRESS_DEBOUNCE_SAMPLES) {
+      touchedState_ = true;
+      freshTouch_ = true;
+      touchArmed_ = false;
+      pressSamples_ = 0;
+      startMillis_ = millis();
+      onFreshTouch();
+    }
+  } else {
+    pressSamples_ = 0;
+    if (rawValue_ > releaseThreshold) {
+      baseline_ += (static_cast<float>(rawValue_) - baseline_) *
+          TOUCH_BASELINE_TRACKING_ALPHA;
+    }
   }
 }
 
@@ -80,6 +114,8 @@ void TouchButton::resetTouchState() {
   touchedState_ = false;
   freshTouch_ = false;
   touchArmed_ = false;
+  pressSamples_ = 0;
+  releaseSamples_ = 0;
 }
 
 int TouchButton::requiredDrop(uint8_t percent, int minimum) const {

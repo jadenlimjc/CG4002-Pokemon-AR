@@ -274,7 +274,7 @@ class GestureDashboard:
             device = self.model_id or "+"
             subscriptions = [(f"esp32/{device}/{suffix}",
                               1 if suffix == "status" else 0)
-                             for suffix in ("telemetry", "status", "rtt")]
+                             for suffix in ("telemetry", "status", "rtt", "touch_debug")]
             subscriptions.append((PAIR_REQUEST_SUBSCRIPTION, 1))
             client.subscribe(subscriptions)
             logging.info("[PAIRING] subscribed to esp32/%s/status and %s",
@@ -310,7 +310,8 @@ class GestureDashboard:
                     logging.warning("[PAIRING NO FORWARD] request was not handled: %s",
                                     message.topic)
                 return
-        if len(parts) != 3 or parts[0] != "esp32" or parts[2] not in ("telemetry", "status", "rtt"):
+        if (len(parts) != 3 or parts[0] != "esp32"
+                or parts[2] not in ("telemetry", "status", "rtt", "touch_debug")):
             return
         try:
             device = validate_model_id(parts[1])
