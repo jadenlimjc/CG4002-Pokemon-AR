@@ -58,14 +58,22 @@ class PairingTraceClient:
     def __init__(self, client):
         self.client = client
         self.publish_count = 0
+        self.source_topic = "<unknown>"
+        self.source_payload = "<unknown>"
+
+    def begin_message(self, topic, payload):
+        self.source_topic = topic
+        self.source_payload = debug_payload(payload)
 
     def publish(self, topic, payload, **kwargs):
         result = self.client.publish(topic, payload, **kwargs)
         self.publish_count += 1
         logging.info(
-            "[PAIRING TX] topic=%s qos=%s retain=%s rc=%s payload=%s",
-            topic, kwargs.get("qos", 0), kwargs.get("retain", False),
-            getattr(result, "rc", "unknown"), debug_payload(payload),
+            "[PAIRING FORWARD rc=%s] %s -> %s | qos=%s retain=%s | "
+            "rx_payload=%s | tx_payload=%s",
+            getattr(result, "rc", "unknown"), self.source_topic, topic,
+            kwargs.get("qos", 0), kwargs.get("retain", False),
+            self.source_payload, debug_payload(payload),
         )
         return result
 
@@ -241,12 +249,14 @@ class GestureDashboard:
             logging.info("[PAIRING RX] topic=%s retain=%s payload=%s",
                          message.topic, message.retain,
                          debug_payload(message.payload))
+            self.pairing_client.begin_message(message.topic, message.payload)
             publications_before = self.pairing_client.publish_count
             handled = self.pairing.handle_message(message)
             if is_device_status and self.pairing_client.publish_count == publications_before:
                 logging.warning(
-                    "[PAIRING NO FORWARD] topic=%s was not mapped to a visualiser player",
-                    message.topic,
+                    "[PAIRING NO FORWARD] topic=%s payload=%s was not mapped "
+                    "to a visualiser player",
+                    message.topic, debug_payload(message.payload),
                 )
             if is_pairing_request:
                 if not handled:
