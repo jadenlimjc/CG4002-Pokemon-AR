@@ -36,6 +36,12 @@ std::atomic<bool> networkConnected{false};
 std::atomic<int> latestIndexTouchRaw{-1};
 std::atomic<int> latestMiddleTouchRaw{-1};
 std::atomic<int> latestRingTouchRaw{-1};
+std::atomic<int> latestIndexTouchBaseline{-1};
+std::atomic<int> latestMiddleTouchBaseline{-1};
+std::atomic<int> latestRingTouchBaseline{-1};
+std::atomic<int> latestIndexTouchThreshold{-1};
+std::atomic<int> latestMiddleTouchThreshold{-1};
+std::atomic<int> latestRingTouchThreshold{-1};
 
 // Endpoints of the renamed main_oop sketch; SensorSampleTask owns all hardware.
 void setupHardware();
@@ -152,12 +158,23 @@ void reportTouchDebug() {
     const int index = latestIndexTouchRaw.load(std::memory_order_relaxed);
     const int middle = latestMiddleTouchRaw.load(std::memory_order_relaxed);
     const int ring = latestRingTouchRaw.load(std::memory_order_relaxed);
-    if (index < 0 || middle < 0 || ring < 0) return;
+    const int indexBaseline = latestIndexTouchBaseline.load(std::memory_order_relaxed);
+    const int middleBaseline = latestMiddleTouchBaseline.load(std::memory_order_relaxed);
+    const int ringBaseline = latestRingTouchBaseline.load(std::memory_order_relaxed);
+    const int indexThreshold = latestIndexTouchThreshold.load(std::memory_order_relaxed);
+    const int middleThreshold = latestMiddleTouchThreshold.load(std::memory_order_relaxed);
+    const int ringThreshold = latestRingTouchThreshold.load(std::memory_order_relaxed);
+    if (index < 0 || middle < 0 || ring < 0 || indexBaseline < 0 ||
+        middleBaseline < 0 || ringBaseline < 0 || indexThreshold < 0 ||
+        middleThreshold < 0 || ringThreshold < 0) return;
 
-    char payload[128];
+    char payload[256];
     const int length = snprintf(payload, sizeof(payload),
-        "{\"index\":%d,\"middle\":%d,\"ring\":%d,\"threshold\":%d}",
-        index, middle, ring, TOUCH_THRESHOLD);
+        "{\"raw\":[%d,%d,%d],\"baseline\":[%d,%d,%d],"
+        "\"touch_below\":[%d,%d,%d],\"drop_percent\":%u,\"min_drop\":%d}",
+        index, middle, ring, indexBaseline, middleBaseline, ringBaseline,
+        indexThreshold, middleThreshold, ringThreshold,
+        static_cast<unsigned>(TOUCH_DROP_PERCENT), TOUCH_MIN_DROP);
     if (length > 0 && static_cast<size_t>(length) < sizeof(payload)) {
         client.publish(topic_touch_debug, payload, false);
     }

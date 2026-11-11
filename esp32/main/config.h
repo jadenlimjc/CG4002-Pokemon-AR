@@ -22,7 +22,15 @@ const int TOUCH_RING   = T6; // BCLK/E014
 // =====================================================
 // Touch / timing configuration
 // =====================================================
-const int TOUCH_THRESHOLD = 350;
+const uint16_t TOUCH_BASELINE_SAMPLE_COUNT = 50; // 1 second at 50 Hz; keep fingers off at boot
+const uint8_t TOUCH_DROP_PERCENT = 25;
+const int TOUCH_MIN_DROP = 100;
+const uint8_t TOUCH_RELEASE_DROP_PERCENT = 10;
+const int TOUCH_RELEASE_MIN_DROP = 50;
+const float TOUCH_BASELINE_TRACKING_ALPHA = 0.005f;
+static_assert(TOUCH_BASELINE_SAMPLE_COUNT > 0, "Touch calibration needs samples");
+static_assert(TOUCH_DROP_PERCENT > TOUCH_RELEASE_DROP_PERCENT,
+              "Touch release must be less sensitive than touch detection");
 
 const unsigned long START_HOLD_TIME_MS  = 5000;  // index: hold to start/stop
 const unsigned long SELECT_HOLD_TIME_MS = 500;   // index: hold to select (Battle only)

@@ -78,7 +78,7 @@ class PairingTraceClient:
         return result
 
 def decode_touch_debug(payload):
-    if len(payload) > 256:
+    if len(payload) > 512:
         raise ValueError("oversized touch debug payload")
     try:
         data = json.loads(payload)
@@ -87,13 +87,17 @@ def decode_touch_debug(payload):
     if not isinstance(data, dict):
         raise ValueError("touch debug payload must be an object")
     values = {}
-    for field in ("index", "middle", "ring", "threshold"):
+    for field in ("raw", "baseline", "touch_below"):
         value = data.get(field)
-        if type(value) is not int or value < 0:
+        if (not isinstance(value, list) or len(value) != 3
+                or any(type(item) is not int or item < 0 for item in value)):
             raise ValueError(f"invalid touch debug field: {field}")
         values[field] = value
-    if values["threshold"] == 0:
-        raise ValueError("touch threshold must be positive")
+    for field in ("drop_percent", "min_drop"):
+        value = data.get(field)
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"invalid touch debug field: {field}")
+        values[field] = value
     return values
 
 
@@ -232,12 +236,18 @@ class GestureMonitor:
                       f" RTT: {show(self.rtt.mean_ms)} ms | Est. one-way: "
                       f"{show(self.rtt.estimated_one_way_ms)} ms"]
             if self.touch_debug is None:
-                lines.append(" TOUCH RAW: -- waiting for ESP debug sample")
+                lines.append(
+                    " TOUCH RAW/BASE: -- calibrating; keep fingers off for first second after ESP boot"
+                )
             else:
                 touch = self.touch_debug
                 lines.append(
-                    f" TOUCH RAW: index {touch['index']} | middle {touch['middle']} | "
-                    f"ring {touch['ring']} | touched when raw < {touch['threshold']}"
+                    f" TOUCH RAW/BASE (touch <=): index {touch['raw'][0]}/{touch['baseline'][0]} "
+                    f"(<={touch['touch_below'][0]}) | middle {touch['raw'][1]}/"
+                    f"{touch['baseline'][1]} (<={touch['touch_below'][1]}) | ring "
+                    f"{touch['raw'][2]}/{touch['baseline'][2]} "
+                    f"(<={touch['touch_below'][2]}) | drop >= max({touch['drop_percent']}%, "
+                    f"{touch['min_drop']})"
                 )
         return lines
 

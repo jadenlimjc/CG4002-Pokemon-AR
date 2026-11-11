@@ -199,15 +199,21 @@ class ProcessingTests(unittest.TestCase):
         self.assertTrue(any("[1/t] Tutorial" in line for line in initial_lines))
         self.assertTrue(any("Packet rate:" in line for line in initial_lines))
         self.assertTrue(any("Est. one-way:" in line for line in initial_lines))
-        self.assertIn(" TOUCH RAW: -- waiting for ESP debug sample", initial_lines)
+        self.assertIn(
+            " TOUCH RAW/BASE: -- calibrating; keep fingers off for first second after ESP boot",
+            initial_lines,
+        )
 
         touch_event = message(
-            json.dumps({"index": 410, "middle": 320, "ring": 515, "threshold": 350}).encode(),
+            json.dumps({"raw": [410, 320, 515], "baseline": [810, 720, 900],
+                        "touch_below": [608, 540, 675],
+                        "drop_percent": 25, "min_drop": 100}).encode(),
             topic="esp32/board1/touch_debug",
         )
         monitor.on_message(touch_event, 10.1)
         self.assertIn(
-            " TOUCH RAW: index 410 | middle 320 | ring 515 | touched when raw < 350",
+            " TOUCH RAW/BASE (touch <=): index 410/810 (<=608) | middle 320/720 "
+            "(<=540) | ring 515/900 (<=675) | drop >= max(25%, 100)",
             monitor.lines(10.1),
         )
         processor.process_packet.assert_not_called()
@@ -235,11 +241,18 @@ class ProcessingTests(unittest.TestCase):
 
     def test_touch_debug_validation_and_dashboard_subscription(self):
         self.assertEqual(
-            decode_touch_debug(b'{"index":410,"middle":320,"ring":515,"threshold":350}'),
-            {"index": 410, "middle": 320, "ring": 515, "threshold": 350},
+            decode_touch_debug(
+                b'{"raw":[410,320,515],"baseline":[810,720,900],'
+                b'"touch_below":[608,540,675],"drop_percent":25,"min_drop":100}'
+            ),
+            {"raw": [410, 320, 515], "baseline": [810, 720, 900],
+             "touch_below": [608, 540, 675], "drop_percent": 25, "min_drop": 100},
         )
-        for invalid in (b'[]', b'{}', b'{"index":true,"middle":1,"ring":2,"threshold":3}',
-                        b'{"index":1,"middle":2,"ring":3,"threshold":0}', b'not json'):
+        for invalid in (b'[]', b'{}',
+                        b'{"raw":[true,1,2],"baseline":[1,2,3],"touch_below":[1,2,3],'
+                        b'"drop_percent":25,"min_drop":100}',
+                        b'{"raw":[1,2,3],"baseline":[1,2,3],"touch_below":[1,2,3],'
+                        b'"drop_percent":0,"min_drop":100}', b'not json'):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 decode_touch_debug(invalid)
 
