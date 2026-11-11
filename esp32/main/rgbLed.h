@@ -21,11 +21,8 @@ class RgbLed {
 
     void setColor(uint8_t r, uint8_t g, uint8_t b);
     void off();
-    void green();
     void red();
     void blue(uint8_t brightness = 255);
-
-
 };
 
 #endif // RGB_LED_H

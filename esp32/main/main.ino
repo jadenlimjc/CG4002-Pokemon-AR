@@ -47,7 +47,7 @@ std::atomic<int> latestRingTouchThreshold{-1};
 void setupHardware();
 void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected);
 bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
-                         uint8_t controlFlags, bool streamStart, bool changeGated);
+                         uint8_t controlFlags, bool streamStart);
 
 // Stable per-board identity. All boards run the same firmware.
 char model_id[13];
@@ -399,8 +399,8 @@ void SensorSampleTask(void* pvParameters) {
         updateHardware(demoMode.load() == AUTO,
                        gestureSoundRequested.exchange(false),
                        networkConnected.load());
-        // Startup/end melodies and MPU initialization can block. Resume from
-        // now rather than generating a burst of stale catch-up samples.
+        // MPU initialization can block. Resume from now rather than generating
+        // a burst of stale catch-up samples.
         if (xTaskGetTickCount() - lastWake >= SENSOR_PERIOD_TICKS) {
             lastWake = xTaskGetTickCount();
         }
@@ -409,7 +409,7 @@ void SensorSampleTask(void* pvParameters) {
 
 // Copy MotionSensor's getEvent() readings directly into the float32 packet.
 bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
-                         uint8_t controlFlags, bool streamStart, bool changeGated) {
+                         uint8_t controlFlags, bool streamStart) {
     if (!std::isfinite(a.acceleration.x) || !std::isfinite(a.acceleration.y) ||
         !std::isfinite(a.acceleration.z) || !std::isfinite(g.gyro.x) ||
         !std::isfinite(g.gyro.y) || !std::isfinite(g.gyro.z)) return false;
@@ -427,7 +427,6 @@ bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
     packet.gyro_y = g.gyro.y;
     packet.gyro_z = g.gyro.z;
     packet.flags = (controlFlags & TELEMETRY_CONTROL_MASK) |
-        (changeGated ? TELEMETRY_CHANGE_GATED : 0) |
         (streamStart ? TELEMETRY_STREAM_START : 0);
     packet.crc32 = telemetryCrc32(
         reinterpret_cast<const uint8_t*>(&packet), offsetof(TelemetryPacket, crc32));

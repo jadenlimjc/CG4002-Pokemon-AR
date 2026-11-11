@@ -1,7 +1,5 @@
-// Copied from hardware/main_oop/main_oop.ino. Hardware objects and lifecycle
-// stay here; main.ino schedules updateHardware() and transports sensor events.
-// OFF: send every 50 Hz reading. ON: send only significant motion changes.
-constexpr bool DETECT_MOTION = false;
+// Production hardware runtime. main.ino schedules updateHardware() at 50 Hz
+// and transports every sensor sample.
 
 #include "config.h"
 #include "touchButton.h"
@@ -10,7 +8,6 @@ constexpr bool DETECT_MOTION = false;
 #include "rgbLed.h"
 #include "passiveBuzzer.h"
 #include "motionSensor.h"
-#include "appStateMachine.h"
 
 // =====================================================
 // Global objects
@@ -23,9 +20,7 @@ VibrationMotor motor(VIBRATION_MOTOR_PIN, MOTOR_RUN_TIME_MS);
 RgbLed led(RED_PIN, GREEN_PIN, BLUE_PIN, LED_PWM_FREQUENCY, LED_PWM_RESOLUTION);
 PassiveBuzzer buzzer(BUZZER_PIN, BUZZER_PWM_FREQUENCY, BUZZER_PWM_RESOLUTION);
 MotionSensor motion;
-AppStateMachine app;
 
-bool programStarted = false; //Start program flag
 bool motionReady = false;
 bool telemetryStreamStart = true;
 unsigned long lastMotionInitAttempt = 0;
@@ -42,23 +37,12 @@ bool ringMotorTrigger = false;
 bool ringMotorRunning = false;
 unsigned long ringMotorStart = 0;
 
-bool isUpPressed = false; //used to send status to ultra96
-bool isDownPressed = false;
-bool isSelectPressed = false;
-bool battleThrowMode = false; // false = catch (green), true = battle throw (red)
-unsigned long lastThrowModeChange = 0;
-bool hasThrowModeChange = false;
+bool indexTouchFlag = false;
+bool middleTouchFlag = false;
+bool ringTouchFlag = false;
+bool battleThrowMode = false; // false = catch (blue), true = battle throw (red)
 
-bool indexSelectFiredTouch = false;
-
-void handleIndexHoldToggle();
-void handleIndexModeTouch();
-void checkSelectGesture();
-void routeGestures();
-void checkSimulatedModelResponse();
 void runSensorCycle();
-void initHardware();
-void shutdownHardware();
 void updateConnectionLed(bool connected);
 
 // =====================================================
@@ -68,9 +52,6 @@ void setupHardware() {
   indexButton.begin();
   middleButton.begin();
   ringButton.begin();
-
-  initHardware();
-  programStarted = true;
 
   motor.begin();
   motor.registerRunningFlag(&indexMotorRunning);
@@ -83,17 +64,22 @@ void setupHardware() {
   led.begin();
   led.off();
 
+  telemetryStreamStart = true;
+  motionReady = motion.begin();
+  lastMotionInitAttempt = millis();
+  Serial.println("Hardware runtime started");
 }
 
 void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
   if (!telemetryEnabled) telemetryStreamStart = true;
   static bool gestureSoundPlaying = false;
   static unsigned long gestureSoundStartedAt = 0;
-  const bool wasStarted = programStarted;
-  handleIndexHoldToggle();
+  indexButton.update();
   if (indexButton.consumeFreshTouch()) {
     indexMotorTrigger = true;
-    if (programStarted) handleIndexModeTouch();
+    battleThrowMode = !battleThrowMode;
+    indexTouchFlag = true;
+    Serial.printf("Throw mode: %s\n", battleThrowMode ? "BATTLE" : "CATCH");
   }
   middleButton.update();
   ringButton.update();
@@ -108,11 +94,11 @@ void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
   latestRingTouchThreshold.store(ringButton.touchThreshold(), std::memory_order_relaxed);
   if (middleButton.consumeFreshTouch()) middleMotorTrigger = true;
   if (ringButton.consumeFreshTouch()) ringMotorTrigger = true;
-  if (programStarted != wasStarted || !telemetryEnabled) {
+  if (!telemetryEnabled) {
     if (gestureSoundPlaying) buzzer.off();
     gestureSoundPlaying = false;
   }
-  if (gestureSound && telemetryEnabled && programStarted) {
+  if (gestureSound && telemetryEnabled) {
     buzzer.on(BUZZER_PWM_FREQUENCY);
     gestureSoundStartedAt = millis();
     gestureSoundPlaying = true;
@@ -123,22 +109,14 @@ void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
     gestureSoundPlaying = false;
   }
 
-  if (programStarted) {
-    checkSelectGesture();
-    routeGestures();
-    checkSimulatedModelResponse();
-    // checkHallStatusChange();
+  if (middleButton.checkHoldConfirmed()) middleTouchFlag = true;
+  if (ringButton.checkHoldConfirmed()) ringTouchFlag = true;
 
-    if (telemetryEnabled) runSensorCycle();
+  if (telemetryEnabled) runSensorCycle();
 
-    isUpPressed = false;
-    isDownPressed = false;
-    isSelectPressed = false;
-
-  } else {
-    middleButton.resetTouchState();
-    ringButton.resetTouchState();
-  }
+  indexTouchFlag = false;
+  middleTouchFlag = false;
+  ringTouchFlag = false;
 
   motor.checkTrigger(middleMotorTrigger, middleMotorRunning, middleMotorStart, "Middle finger");
   motor.checkTrigger(ringMotorTrigger,   ringMotorRunning,   ringMotorStart,  "Ring finger");
@@ -146,8 +124,10 @@ void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
   updateConnectionLed(connected);
 }
 
-// MQTT is the usable end-to-end connection: blink blue while it is being
+// MQTT is the usable end-to-end connection: blink dim blue while it is being
 // established or recovered, then show the ESP-owned throw mode continuously.
+// Catch uses steady full blue because the green channel is unreliable on one
+// glove; battle remains red.
 void updateConnectionLed(bool connected) {
   const bool blinkOn = (millis() / CONNECTION_LED_BLINK_MS) % 2 == 0;
   if (!connected && blinkOn) {
@@ -157,119 +137,16 @@ void updateConnectionLed(bool connected) {
   } else if (battleThrowMode) {
     led.red();
   } else {
-    led.green();
+    led.blue();
   }
-}
-
-// -------------------------------------------------
-// Index touch: toggle throw mode once per debounced touch edge.
-// -------------------------------------------------
-void handleIndexModeTouch() {
-  const unsigned long now = millis();
-  if (hasThrowModeChange && now - lastThrowModeChange < THROW_MODE_DEBOUNCE_MS) return;
-
-  battleThrowMode = !battleThrowMode;
-  lastThrowModeChange = now;
-  hasThrowModeChange = true;
-  Serial.printf("Throw mode: %s\n", battleThrowMode ? "BATTLE" : "CATCH");
-}
-
-// -------------------------------------------------
-// Index: 5s hold-to-toggle start/stop
-// -------------------------------------------------
-void handleIndexHoldToggle() {
-  indexButton.update();
-
-  if (indexButton.isTouched() && indexButton.heldForMs() >= START_HOLD_TIME_MS) {
-    indexButton.resetTouchState();
-    programStarted = !programStarted;
-
-    if (programStarted) {
-      Serial.println("Hold confirmed - starting program");
-      initHardware();
-      buzzer.playStartSound();
-    } else {
-      Serial.println("Hold confirmed - ending program");
-      buzzer.playEndSound();
-      shutdownHardware();
-    }
-  }
-}
-
-// -------------------------------------------------
-// Index 0.5s select / exit-browse gesture
-// -------------------------------------------------
-void checkSelectGesture() {
-  if (!indexButton.isTouched()) {
-    indexSelectFiredTouch = false;  // reset once finger lifts
-    return;
-  }
-
-  if (!indexSelectFiredTouch &&
-      indexButton.heldForMs() >= SELECT_HOLD_TIME_MS &&
-      indexButton.heldForMs() < START_HOLD_TIME_MS) {
-
-    indexSelectFiredTouch = true;
-    app.handleIndexAction();
-    isSelectPressed = true;
-  }
-}
-
-// -------------------------------------------------
-// Middle -> cycle app state. Ring -> cycle browse target.
-// -------------------------------------------------
-void routeGestures() {
-  if (middleButton.checkHoldConfirmed()) {
-    isUpPressed = true;
-    app.cycleState();
-    app.printAll();
-  }
-
-  if (ringButton.checkHoldConfirmed()) {
-    isDownPressed = true;
-    app.cycleRing();
-    app.printAll();
-  }
-}
-
-// -------------------------------------------------
-// SIMULATED model response for Battle/Explorer sub-mode
-// switching. Type 'p'/'i'/'n' + Enter in Serial Monitor.
-// -------------------------------------------------
-void checkSimulatedModelResponse() {
-  if (app.current != STATE_EXPLORER && app.current != STATE_BATTLE) {
-    while (Serial.available()) {
-      Serial.read();
-    }
-    return;
-  }
-  if (Serial.available()) {
-    char c = Serial.read();
-    if (c == 'p' || c == 'P' || c == 'i' || c == 'I' || c == 'n' || c == 'N') {
-      app.applySimulatedReach(c);
-      app.printAll();
-    }
-  }
-}
-
-// -------------------------------------------------
-// Debug CSV: IMU,timestamp_ms,ax,ay,az,gx,gy,gz.
-// Acceleration is m/s^2; rotation is rad/s. Four decimals match the collector's
-// display precision; the transmitted float32 values are not rounded.
-void printImuReadings(const sensors_event_t& a, const sensors_event_t& g) {
-  Serial.printf("IMU,%lu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
-                static_cast<unsigned long>(a.timestamp),
-                a.acceleration.x, a.acceleration.y, a.acceleration.z,
-                g.gyro.x, g.gyro.y, g.gyro.z);
 }
 
 // -------------------------------------------------
 // Main sensing cycle: MPU6050 motion
-// Called by updateHardware() while started and automatic telemetry is enabled.
+// Called by updateHardware() while automatic telemetry is enabled.
 // -------------------------------------------------
 void runSensorCycle() {
-  // SensorSampleTask supplies the 50 Hz cadence. Preserve MotionSensor's
-  // initialization, SI conversion and internal buffer without changing it.
+  // SensorSampleTask supplies the 50 Hz cadence.
   if (!motionReady) {
     if (millis() - lastMotionInitAttempt < 1000) return;
     motionReady = motion.begin();
@@ -278,57 +155,14 @@ void runSensorCycle() {
   }
 
   sensors_event_t a, g, temp;
-  motion.read(a, g, temp);   // reads AND buffers internally
-  // printImuReadings(a, g);
+  motion.read(a, g, temp);
 
-  // Always read and buffer at 50 Hz. Optional gating uses the unchanged API.
   const uint8_t controlFlags =
-      (isSelectPressed ? TELEMETRY_TOUCH_INDEX : 0) |
-      (isUpPressed ? TELEMETRY_TOUCH_MIDDLE : 0) |
-      (isDownPressed ? TELEMETRY_TOUCH_RING : 0) |
+      (indexTouchFlag ? TELEMETRY_TOUCH_INDEX : 0) |
+      (middleTouchFlag ? TELEMETRY_TOUCH_MIDDLE : 0) |
+      (ringTouchFlag ? TELEMETRY_TOUCH_RING : 0) |
       (battleThrowMode ? TELEMETRY_BATTLE_THROW : 0);
-  if ((!DETECT_MOTION || (controlFlags & TELEMETRY_TOUCH_MASK) ||
-       motion.hasSignificantChange()) &&
-      enqueueMotionSample(a, g, controlFlags, telemetryStreamStart, DETECT_MOTION)) {
-    motion.markTransmitted();
+  if (enqueueMotionSample(a, g, controlFlags, telemetryStreamStart)) {
     telemetryStreamStart = false;
   }
-}
-// -------------------------------------------------
-// Hardware init / shutdown, called on index 5s toggle
-// -------------------------------------------------
-void initHardware() {
-  telemetryStreamStart = true;
-
-  motor.stopAll();
-  indexMotorRunning = middleMotorRunning = ringMotorRunning = false;
-
-  motionReady = motion.begin();
-  lastMotionInitAttempt = millis();
-
-  Serial.println("Program has started!");
-}
-
-void shutdownHardware() {
-  motionReady = false;
-  motor.stopAll();
-  indexMotorRunning = middleMotorRunning = ringMotorRunning = false;
-  indexMotorTrigger = middleMotorTrigger = ringMotorTrigger = false;
-
-  led.off();
-  buzzer.off();
-
-  middleButton.resetTouchState();
-  ringButton.resetTouchState();
-  indexButton.resetTouchState();
-  indexSelectFiredTouch = false;
-
-  app.reset();
-  battleThrowMode = false;
-  lastThrowModeChange = 0;
-  hasThrowModeChange = false;
-
-  isUpPressed = isDownPressed = isSelectPressed = false;
-
-  Serial.println("Program stopped. Hardware shut down. All state reset to initial.");
 }

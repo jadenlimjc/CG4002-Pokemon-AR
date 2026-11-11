@@ -37,7 +37,7 @@ inline uint32_t telemetryCrc32(const uint8_t* bytes, size_t length) {
     return crc ^ 0xffffffffu;
 }
 
-// The unused Hall slots now carry hold-confirmed menu actions.
+// Touch actions and the throw mode are captured in the same sensor sample.
 constexpr uint8_t TELEMETRY_TOUCH_INDEX = 1u << 0;
 constexpr uint8_t TELEMETRY_TOUCH_MIDDLE = 1u << 1;
 constexpr uint8_t TELEMETRY_TOUCH_RING = 1u << 2;
@@ -45,8 +45,6 @@ constexpr uint8_t TELEMETRY_TOUCH_MASK = 0x07;
 // Persistent state owned by the ESP32: clear = catch throw, set = battle throw.
 constexpr uint8_t TELEMETRY_BATTLE_THROW = 1u << 3;
 constexpr uint8_t TELEMETRY_CONTROL_MASK = TELEMETRY_TOUCH_MASK | TELEMETRY_BATTLE_THROW;
-// Changed samples retain timestamps for receiver-side 50 Hz hold reconstruction.
-constexpr uint8_t TELEMETRY_CHANGE_GATED = 1u << 4;
 constexpr uint8_t TELEMETRY_STREAM_START = 1u << 5;
 // Bit 7 asks U96 to acknowledge this one telemetry packet.
 constexpr uint8_t TELEMETRY_RTT_REQUEST = 0x80;

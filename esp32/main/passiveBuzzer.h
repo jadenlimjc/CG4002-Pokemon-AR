@@ -16,12 +16,8 @@ class PassiveBuzzer {
     PassiveBuzzer(int pin, int freq, int resolution);
 
     bool begin();
-    void playStartSound();
-    void playEndSound();
     void on(uint32_t frequency);
     void off();
-
-
 };
 
 #endif // PASSIVE_BUZZER_H

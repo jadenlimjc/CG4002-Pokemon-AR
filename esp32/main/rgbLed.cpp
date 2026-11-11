@@ -27,10 +27,6 @@ void RgbLed::off()   {
   setColor(0, 0, 0); 
 }
 
-void RgbLed::green() { 
-  setColor(0, 255, 0); 
-}
-
 void RgbLed::red()   { 
   setColor(255, 0, 0); 
 }

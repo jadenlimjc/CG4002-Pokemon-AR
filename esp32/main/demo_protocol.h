@@ -90,7 +90,6 @@ public:
             if (p.crc32 != telemetryCrc32(data, offsetof(TelemetryPacket, crc32))) return 0;
             // Visible, deterministic modification for the manual float32 demo.
             p.accel_x = -1.0f - p.accel_x;
-            p.flags ^= TELEMETRY_CHANGE_GATED;
             p.timestamp_ms = now;
             p.crc32 = telemetryCrc32(reinterpret_cast<const uint8_t*>(&p), offsetof(TelemetryPacket, crc32));
             memcpy(reply, &p, sizeof(p));

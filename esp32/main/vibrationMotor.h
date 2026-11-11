@@ -36,9 +36,6 @@ class VibrationMotor {
     // fingers explicitly. Call once per source during setup.
     void registerRunningFlag(bool *flag);
 
-    void stopAll();
-
-
 };
 
 #endif // VIBRATION_MOTOR_H
