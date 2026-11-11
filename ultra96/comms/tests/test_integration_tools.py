@@ -234,6 +234,26 @@ class ProcessingTests(unittest.TestCase):
         second.publish_manual_action.assert_called_once_with("SKIP_STEP", None)
         self.assertFalse(dashboard.handle_key("q"))
 
+    def test_final_dashboard_forwards_status_and_subscribes_for_pairing(self):
+        worker = SimpleNamespace(confidence_threshold=0.75)
+        dashboard = GestureDashboard(self.client, worker)
+
+        dashboard.on_connect(self.client, None, None, 0)
+        subscriptions = self.client.subscribe.call_args.args[0]
+        self.assertIn(("esp32/+/status", 1), subscriptions)
+        self.assertIn(("visualiser/+/pair/request", 1), subscriptions)
+
+        self.client.publish.return_value.rc = 0
+        dashboard.on_message(self.client, None, message(
+            b'{"state":"online","device_id":"dce6f6215788"}',
+            topic="esp32/dce6f6215788/status",
+            retain=True,
+        ))
+        topic, body = self.client.publish.call_args.args[:2]
+        self.assertEqual(topic, "ultra96/1/status")
+        self.assertEqual(json.loads(body), {"device_id": "1", "state": "online"})
+        self.assertEqual(self.client.publish.call_args.kwargs, {"qos": 1, "retain": True})
+
     def test_final_dashboard_still_processes_telemetry(self):
         processor = Mock()
         processor.model_id = "board1"

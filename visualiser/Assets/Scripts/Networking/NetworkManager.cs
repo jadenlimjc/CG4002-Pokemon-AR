@@ -303,24 +303,37 @@ public class NetworkManager : MonoBehaviour
     void ProcessMqttMessage(ReceivedMessage message)
     {
         if (message == null) return;
+        Debug.Log($"[Network MQTT RX] Topic={message.Topic} | ModelId={message.ModelId ?? "<null>"} | " +
+                  $"PayloadBytes={message.Payload?.Length ?? 0} | Text={message.Text}");
         if (message.Topic == $"visualiser/{phoneId}/pair/result")
         {
+            Debug.Log($"[Network MQTT ROUTE] Pairing result for phone {phoneId}");
             ProcessPairingResult(message.Text);
             return;
         }
         if (!string.IsNullOrEmpty(message.ModelId) &&
             message.Topic == $"ultra96/{message.ModelId}/status")
         {
+            Debug.Log($"[Network MQTT ROUTE] Device status for Player {message.ModelId}");
             ProcessDeviceStatus(message);
             return;
         }
-        if (!IsPaired || message.ModelId != pairedDeviceId) return;
+        if (!IsPaired || message.ModelId != pairedDeviceId)
+        {
+            Debug.LogWarning($"[Network MQTT IGNORE] No active pairing for topic {message.Topic}; " +
+                             $"paired={IsPaired}, pairedDevice={pairedDeviceId ?? "<null>"}");
+            return;
+        }
         if (message.Topic == $"ultra96/{pairedDeviceId}/menu_controls")
         {
             ProcessMenuControls(message.Text);
             return;
         }
-        if (message.Topic != $"ultra96/{pairedDeviceId}/inference") return;
+        if (message.Topic != $"ultra96/{pairedDeviceId}/inference")
+        {
+            Debug.LogWarning($"[Network MQTT IGNORE] Unexpected accepted topic {message.Topic}");
+            return;
+        }
         lastMessage = message.Text;
         ProcessGesture(message.Text);
     }
@@ -329,10 +342,17 @@ public class NetworkManager : MonoBehaviour
     {
         DeviceStatusPayload payload;
         try { payload = JsonUtility.FromJson<DeviceStatusPayload>(message.Text); }
-        catch (ArgumentException) { return; }
+        catch (ArgumentException error)
+        {
+            Debug.LogWarning($"[Network MQTT STATUS] Invalid JSON for Player {message.ModelId}: " +
+                             $"{error.Message} | Text={message.Text}");
+            return;
+        }
         bool online = payload != null && payload.state == "online";
         devices[message.ModelId] = new PairableDevice(
             message.ModelId, online, message.Text, message.ReceivedAtUtc);
+        Debug.Log($"[Network MQTT STATUS] Player={message.ModelId} | State={payload?.state ?? "<missing>"} | " +
+                  $"Online={online} | DictionaryCount={devices.Count}");
         DevicesChanged?.Invoke();
         if (online && pairingState == PairState.Unpaired &&
             pairedDeviceId == message.ModelId && Client.IsConnected && restoreTask == null)

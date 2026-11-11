@@ -21,7 +21,9 @@ import tty
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from integration_support import live_client, parser_for
 from main import InferenceWorker, TelemetryProcessor, validate_model_id
-from pairing import player_id_for_model
+from pairing import (
+    PAIR_REQUEST_SUBSCRIPTION, PairingService, player_id_for_model,
+)
 from process_telemetry import (MENU_CONTROL_MASK, PacketError, SequenceStats,
                                decode_packet)
 from telemetry_diagnostics import TelemetryHealth, TelemetryRtt
@@ -39,6 +41,33 @@ MANUAL_ACTIONS = {
     "s": ("SKIP_STEP", None),
 }
 SUPPORTED_MANUAL_ACTIONS = frozenset(action for action, _ in MANUAL_ACTIONS.values())
+
+
+def debug_payload(payload, limit=512):
+    """Render bounded MQTT payload text without letting diagnostics fail."""
+    if isinstance(payload, bytes):
+        text = payload.decode("utf-8", errors="backslashreplace")
+    else:
+        text = str(payload)
+    return text if len(text) <= limit else text[:limit] + "...<truncated>"
+
+
+class PairingTraceClient:
+    """Log every publication made by PairingService and preserve its result."""
+
+    def __init__(self, client):
+        self.client = client
+        self.publish_count = 0
+
+    def publish(self, topic, payload, **kwargs):
+        result = self.client.publish(topic, payload, **kwargs)
+        self.publish_count += 1
+        logging.info(
+            "[PAIRING TX] topic=%s qos=%s retain=%s rc=%s payload=%s",
+            topic, kwargs.get("qos", 0), kwargs.get("retain", False),
+            getattr(result, "rc", "unknown"), debug_payload(payload),
+        )
+        return result
 
 
 class GestureMonitor:
@@ -181,13 +210,20 @@ class GestureDashboard:
         self.selected = 0
         self.broker_online = False
         self.last_log = "Waiting for telemetry"
+        self.pairing_client = PairingTraceClient(client)
+        self.pairing = PairingService(self.pairing_client)
 
     def on_connect(self, client, userdata, flags, reason_code, properties=None):
         self.broker_online = reason_code == 0
         if self.broker_online:
             device = self.model_id or "+"
-            client.subscribe([(f"esp32/{device}/{suffix}", 0)
-                              for suffix in ("telemetry", "status", "rtt")])
+            subscriptions = [(f"esp32/{device}/{suffix}",
+                              1 if suffix == "status" else 0)
+                             for suffix in ("telemetry", "status", "rtt")]
+            subscriptions.append((PAIR_REQUEST_SUBSCRIPTION, 1))
+            client.subscribe(subscriptions)
+            logging.info("[PAIRING] subscribed to esp32/%s/status and %s",
+                         device, PAIR_REQUEST_SUBSCRIPTION)
         else:
             logging.error("Broker connection rejected: %s", reason_code)
 
@@ -197,6 +233,26 @@ class GestureDashboard:
     def on_message(self, client, userdata, message):
         now = time.monotonic()
         parts = message.topic.split("/")
+        is_device_status = (len(parts) == 3 and parts[0] == "esp32"
+                            and parts[2] == "status")
+        is_pairing_request = (len(parts) == 4 and parts[0] == "visualiser"
+                              and parts[2:] == ["pair", "request"])
+        if is_device_status or is_pairing_request:
+            logging.info("[PAIRING RX] topic=%s retain=%s payload=%s",
+                         message.topic, message.retain,
+                         debug_payload(message.payload))
+            publications_before = self.pairing_client.publish_count
+            handled = self.pairing.handle_message(message)
+            if is_device_status and self.pairing_client.publish_count == publications_before:
+                logging.warning(
+                    "[PAIRING NO FORWARD] topic=%s was not mapped to a visualiser player",
+                    message.topic,
+                )
+            if is_pairing_request:
+                if not handled:
+                    logging.warning("[PAIRING NO FORWARD] request was not handled: %s",
+                                    message.topic)
+                return
         if len(parts) != 3 or parts[0] != "esp32" or parts[2] not in ("telemetry", "status", "rtt"):
             return
         try:
