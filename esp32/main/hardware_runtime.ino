@@ -70,8 +70,7 @@ void setupHardware() {
   Serial.println("Hardware runtime started");
 }
 
-void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
-  if (!telemetryEnabled) telemetryStreamStart = true;
+void updateHardware(bool gestureSound, bool connected) {
   static bool gestureSoundPlaying = false;
   static unsigned long gestureSoundStartedAt = 0;
   indexButton.update();
@@ -94,11 +93,7 @@ void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
   latestRingTouchThreshold.store(ringButton.touchThreshold(), std::memory_order_relaxed);
   if (middleButton.consumeFreshTouch()) middleMotorTrigger = true;
   if (ringButton.consumeFreshTouch()) ringMotorTrigger = true;
-  if (!telemetryEnabled) {
-    if (gestureSoundPlaying) buzzer.off();
-    gestureSoundPlaying = false;
-  }
-  if (gestureSound && telemetryEnabled) {
+  if (gestureSound) {
     buzzer.on(BUZZER_PWM_FREQUENCY);
     gestureSoundStartedAt = millis();
     gestureSoundPlaying = true;
@@ -112,7 +107,7 @@ void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
   if (middleButton.checkHoldConfirmed()) middleTouchFlag = true;
   if (ringButton.checkHoldConfirmed()) ringTouchFlag = true;
 
-  if (telemetryEnabled) runSensorCycle();
+  runSensorCycle();
 
   indexTouchFlag = false;
   middleTouchFlag = false;
@@ -126,24 +121,24 @@ void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
 
 // MQTT is the usable end-to-end connection: blink dim blue while it is being
 // established or recovered, then show the ESP-owned throw mode continuously.
-// Catch uses steady full blue because the green channel is unreliable on one
-// glove; battle remains red.
+// Catch uses steady blue because the green channel is unreliable on one glove;
+// catch, battle and the connection blink share the same reduced brightness.
 void updateConnectionLed(bool connected) {
   const bool blinkOn = (millis() / CONNECTION_LED_BLINK_MS) % 2 == 0;
   if (!connected && blinkOn) {
-    led.blue(CONNECTION_LED_BLUE_BRIGHTNESS);
+    led.blue(STATUS_LED_BRIGHTNESS);
   } else if (!connected) {
     led.off();
   } else if (battleThrowMode) {
-    led.red();
+    led.red(STATUS_LED_BRIGHTNESS);
   } else {
-    led.blue();
+    led.blue(STATUS_LED_BRIGHTNESS);
   }
 }
 
 // -------------------------------------------------
 // Main sensing cycle: MPU6050 motion
-// Called by updateHardware() while automatic telemetry is enabled.
+// Called by updateHardware() on every 50 Hz sensor cycle.
 // -------------------------------------------------
 void runSensorCycle() {
   // SensorSampleTask supplies the 50 Hz cadence.

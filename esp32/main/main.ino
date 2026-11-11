@@ -15,7 +15,6 @@
 #include "secrets.h"
 #include "network_profile.h"
 #include "telemetry_packet.h"
-#include "demo_protocol.h"
 #include "config.h"
 
 
@@ -45,7 +44,7 @@ std::atomic<int> latestRingTouchThreshold{-1};
 
 // Endpoints of the renamed main_oop sketch; SensorSampleTask owns all hardware.
 void setupHardware();
-void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected);
+void updateHardware(bool gestureSound, bool connected);
 bool enqueueMotionSample(const sensors_event_t& a, const sensors_event_t& g,
                          uint8_t controlFlags, bool streamStart);
 
@@ -58,13 +57,7 @@ char topic_ack[64];
 char topic_rtt[64];
 char topic_health[64];
 char topic_touch_debug[64];
-char topic_config[64];
 char topic_haptic[64];
-char topic_mode[64], topic_demo_in[64], topic_demo_out[64];
-enum DemoMode { AUTO, FILE_MODE, PIPELINE_MODE };
-std::atomic<DemoMode> demoMode{AUTO};
-const char* modeNames[] = {"auto", "file", "pipeline"};
-demo::Receiver demoReceiver; // File storage allocated on demand; NetworkTask owns it.
 
 void initialiseMqttIdentity() {
     snprintf(model_id, sizeof(model_id), "%012llx",
@@ -76,11 +69,7 @@ void initialiseMqttIdentity() {
     snprintf(topic_rtt, sizeof(topic_rtt), "esp32/%s/rtt", model_id);
     snprintf(topic_health, sizeof(topic_health), "esp32/%s/health", model_id);
     snprintf(topic_touch_debug, sizeof(topic_touch_debug), "esp32/%s/touch_debug", model_id);
-    snprintf(topic_config, sizeof(topic_config), "esp32/%s/config", model_id);
     snprintf(topic_haptic, sizeof(topic_haptic), "esp32/%s/haptic/cmd", model_id);
-    snprintf(topic_mode, sizeof(topic_mode), "esp32/%s/mode", model_id);
-    snprintf(topic_demo_in, sizeof(topic_demo_in), "esp32/%s/demo_in", model_id);
-    snprintf(topic_demo_out, sizeof(topic_demo_out), "esp32/%s/demo_out", model_id);
     Serial.printf("[BOOT] Model ID: %s | MQTT client: %s\n", model_id, mqtt_client_id);
 }
 
@@ -396,8 +385,7 @@ void SensorSampleTask(void* pvParameters) {
     TickType_t lastWake = xTaskGetTickCount();
     for (;;) {
         vTaskDelayUntil(&lastWake, SENSOR_PERIOD_TICKS);
-        updateHardware(demoMode.load() == AUTO,
-                       gestureSoundRequested.exchange(false),
+        updateHardware(gestureSoundRequested.exchange(false),
                        networkConnected.load());
         // MPU initialization can block. Resume from now rather than generating
         // a burst of stale catch-up samples.
@@ -517,7 +505,7 @@ void NetworkTask(void* pvParameters) {
                     reinterpret_cast<const uint8_t*>(&packet),
                     offsetof(TelemetryPacket, crc32));
             }
-            if (demoMode.load() == AUTO && WiFi.status() == WL_CONNECTED && client.connected()) {
+            if (WiFi.status() == WL_CONNECTED && client.connected()) {
                 // Millisecond subtraction remains valid across the device clock wrap.
                 const uint32_t ageMs = static_cast<uint32_t>(millis()) - packet.timestamp_ms;
                 if (ageMs > maximumPublishAgeMs) maximumPublishAgeMs = ageMs;
@@ -535,7 +523,7 @@ void NetworkTask(void* pvParameters) {
                 } else {
                     ++publishedSamples; // Local publish success, not proof of delivery.
                 }
-            } else if (demoMode.load() == AUTO) {
+            } else {
                 ++disconnectedDiscards;
             }
         }
@@ -703,11 +691,7 @@ void connectMQTT() {
             mqtt_connection_failures = 0;
 
             client.subscribe(topic_ack);
-            client.subscribe(topic_config);
             client.subscribe(topic_haptic);
-            client.subscribe(topic_demo_in);
-            demoReceiver.reset();
-            client.publish(topic_mode, modeNames[demoMode.load()]);
             // Inference results are consumed by downstream applications.
         } else {
             Serial.printf("[NetworkTask] MQTT connection failed. " "RC state: %d\n", client.state());
@@ -727,60 +711,11 @@ void publishOnlineStatus() {
     char payload[192];
     const int length = snprintf(payload, sizeof(payload),
         "{\"state\":\"online\",\"device_id\":\"%s\",\"pairing_protocol\":1,"
-        "\"mode\":\"%s\",\"rssi\":%d,\"rtt_session\":%lu}",
-        model_id, modeNames[demoMode.load()], WiFi.RSSI(),
+        "\"rssi\":%d,\"rtt_session\":%lu}",
+        model_id, WiFi.RSSI(),
         (unsigned long)telemetryRtt.session());
     if (length > 0 && static_cast<size_t>(length) < sizeof(payload)) {
         client.publish(topic_status, payload, true);
-    }
-}
-
-// Manual demonstrations only: keep automatic telemetry off Serial.
-void printGesturePacket(const char* direction, const TelemetryPacket& p) {
-    Serial.printf("  %s seq=%lu device_ms=%lu CRC=OK (%08lx)\n",
-                  direction, (unsigned long)p.sample_index,
-                  (unsigned long)p.timestamp_ms, (unsigned long)p.crc32);
-    Serial.printf("  accel=(%.4f,%.4f,%.4f) m/s^2 gyro=(%.4f,%.4f,%.4f) rad/s flags=0x%02x\n",
-                  p.accel_x, p.accel_y, p.accel_z, p.gyro_x, p.gyro_y,
-                  p.gyro_z, p.flags);
-}
-
-void printDemoReceipt(const uint8_t* request, const uint8_t* response) {
-    demo::Header h;
-    memcpy(&h, response, sizeof(h));
-    const uint8_t* data = response + sizeof(h);
-    if (h.kind == demo::FILE_ECHO) {
-        Serial.printf("[FILE RX] board=%s id=%08lx stored=%lu/%lu offset=%lu CRC=OK\n",
-                      model_id, (unsigned long)h.id, (unsigned long)(h.offset + h.length),
-                      (unsigned long)h.total, (unsigned long)h.offset);
-        Serial.println("--- stored chunk contents (non-text bytes escaped as \\xNN) ---");
-        for (uint16_t i = 0; i < h.length; ++i) {
-            uint8_t value = data[i];
-            if (value == '\n' || (value >= 32 && value <= 126 && value != '\\')) {
-                Serial.write(value);
-            } else if (value == '\\') {
-                Serial.print("\\\\");
-            } else {
-                Serial.printf("\\x%02x", value);
-            }
-        }
-        Serial.println("\n--- end stored chunk ---");
-    } else if (h.kind == demo::FILE_RECEIPT) {
-        uint32_t crc;
-        memcpy(&crc, data, sizeof(crc));
-        Serial.printf("[FILE COMPLETE] board=%s id=%08lx bytes=%lu full-file CRC32=%08lx\n",
-                      model_id, (unsigned long)h.id, (unsigned long)h.total, (unsigned long)crc);
-    } else if (h.kind == demo::PIPELINE_REPLY) {
-        TelemetryPacket before, after;
-        memcpy(&before, request + sizeof(h), sizeof(before));
-        memcpy(&after, data, sizeof(after));
-        Serial.printf("[GESTURE RX] board=%s id=%08lx valid telemetry packet received\n",
-                      model_id, (unsigned long)h.id);
-        printGesturePacket("U96 -> FB", before);
-        printGesturePacket("FB -> U96 (modified)", after);
-    } else if (h.kind == demo::TRANSFER_ERROR) {
-        Serial.printf("[FILE REJECTED] id=%08lx requested=%lu bytes; insufficient heap\n",
-                      (unsigned long)h.id, (unsigned long)h.total);
     }
 }
 
@@ -790,55 +725,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         return;
     }
 
-    if (strcmp(topic, topic_demo_in) == 0) {
-        uint8_t reply[sizeof(demo::Header) + demo::CHUNK + 4];
-        DemoMode mode = demoMode.load();
-        size_t size = demoReceiver.handle(payload, length, mode == FILE_MODE,
-                                          mode == PIPELINE_MODE, reply, millis());
-        if (size) {
-            // Trace only validated packets. File bytes come from the receiver's
-            // stored-byte readback, not a separate canned serial message.
-            printDemoReceipt(payload, reply);
-            if (!client.publish(topic_demo_out, reply, size)) {
-                Serial.println("[DEMO] Reply publish failed; waiting for sender retry");
-            }
-        } else {
-            Serial.println("[DEMO] Rejected packet (mode, CRC, length or transfer state)");
-        }
-        return;
-    }
-
-    if (strcmp(topic, topic_config) == 0) {
-        DemoMode selected = demoMode.load();
-        bool valid = false;
-        for (int i = 0; i < 3; ++i) {
-            char command[24];
-            snprintf(command, sizeof(command), "mode:%s", modeNames[i]);
-            if (length == strlen(command) && memcmp(payload, command, length) == 0) {
-                selected = static_cast<DemoMode>(i); valid = true;
-            }
-        }
-        // The unchanged Android Config button sends this legacy command.
-        const char* androidConfig = "{\"sample_rate_hz\":50,\"imu_range\":\"8g\",\"debug\":true}";
-        if (length == strlen(androidConfig) && memcmp(payload, androidConfig, length) == 0) {
-            selected = static_cast<DemoMode>((selected + 1) % 3); valid = true;
-        }
-        if (valid) {
-            if (selected != demoMode.load()) {
-                demoMode.store(selected);
-                telemetryRtt.cancel();
-                xQueueReset(telemetryQueue);
-                demoReceiver.reset();
-            }
-            // Repeated explicit mode requests are idempotent for ACK retries.
-            client.publish(topic_mode, modeNames[selected]);
-            publishOnlineStatus();
-            Serial.printf("[DEMO] Mode confirmed: %s\n", modeNames[selected]);
-        }
-    } else if (strcmp(topic, topic_haptic) == 0 && demoMode.load() == AUTO) {
+    if (strcmp(topic, topic_haptic) == 0) {
         // The Ultra96 posts here after successfully publishing a gesture.
         // Keep the MQTT callback non-blocking; SensorSampleTask owns the buzzer.
         gestureSoundRequested.store(true);
     }
-    // In manual modes the Ultra96 subscribes to Haptic commands as Send triggers.
 }

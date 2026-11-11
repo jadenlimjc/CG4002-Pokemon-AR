@@ -43,7 +43,7 @@ const unsigned long GESTURE_BUZZER_DURATION_MS = 100;
 // =====================================================
 #define LED_PWM_FREQUENCY  5000
 #define LED_PWM_RESOLUTION 8
-#define CONNECTION_LED_BLUE_BRIGHTNESS 64 // 25% of the 8-bit PWM range
+#define STATUS_LED_BRIGHTNESS 64 // 25% of the 8-bit PWM range
 #define BUZZER_PWM_FREQUENCY  1500
 #define BUZZER_PWM_RESOLUTION 8
 
