@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from datetime import datetime
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import select
 import shutil
@@ -381,11 +382,25 @@ def main():
                         default=DEFAULT_CONFIDENCE_THRESHOLD,
                         help="default minimum confidence, 0..1 (default: 0.60)")
     parser.add_argument("--max-devices", type=int, default=64)
+    parser.add_argument(
+        "--log-file", default="/tmp/cg4002-final-demo.log",
+        help="write complete diagnostics here while the dashboard is active "
+             "(default: /tmp/cg4002-final-demo.log)",
+    )
     args = parser.parse_args()
     if args.max_devices < 1:
         parser.error("--max-devices must be positive")
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         parser.error("the dashboard requires an interactive terminal")
+    log_handler = RotatingFileHandler(
+        args.log_file, maxBytes=4 * 1024 * 1024, backupCount=2,
+    )
+    log_handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s",
+    ))
+    logging.getLogger().addHandler(log_handler)
+    logging.info("Full final-demo diagnostics are being written to %s", args.log_file)
+
     worker = InferenceWorker(confidence_threshold=args.confidence_threshold)
     client = live_client(parser, args, None, "final-demo")
     dashboard = GestureDashboard(client, worker, args.model_id, args.require_crc, args.max_devices)
@@ -412,6 +427,8 @@ def main():
         finally:
             client.disconnect()
             client.loop_stop()
+            logging.getLogger().removeHandler(log_handler)
+            log_handler.close()
 
 
 if __name__ == "__main__":
