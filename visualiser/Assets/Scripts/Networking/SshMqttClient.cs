@@ -100,6 +100,7 @@ namespace CG4002.Comms
         readonly SemaphoreSlim publishGate = new SemaphoreSlim(1, 1);
         readonly Dictionary<string, ReceivedMessage> latest = new Dictionary<string, ReceivedMessage>();
         readonly Queue<ReceivedMessage> pending = new Queue<ReceivedMessage>();
+        readonly Queue<string> diagnostics = new Queue<string>();
         readonly string phoneId;
         readonly string clientId = "unity-" + Guid.NewGuid().ToString("N").Substring(0, 16);
         IMqttClient mqtt;
@@ -118,12 +119,34 @@ namespace CG4002.Comms
             secrets = settings;
             phoneId = stablePhoneId;
         }
-        void SetStatus(string text) { lock (gate) status = text; }
+        void AddDiagnosticLocked(string text)
+        {
+            if (diagnostics.Count >= 256) diagnostics.Dequeue();
+            diagnostics.Enqueue("[SSH/MQTT] " + text);
+        }
+        void Diagnostic(string text) { lock (gate) AddDiagnosticLocked(text); }
+        void SetStatus(string text)
+        {
+            lock (gate)
+            {
+                if (status == text) return;
+                status = text;
+                AddDiagnosticLocked("Status -> " + text);
+            }
+        }
         public ReceivedMessage[] Snapshot()
         { lock (gate) return latest.Values.OrderBy(x => x.ModelId).ThenBy(x => x.Topic).ToArray(); }
         public bool TryDequeue(out ReceivedMessage message)
         {
             lock (gate) { message = pending.Count == 0 ? null : pending.Dequeue(); return message != null; }
+        }
+        public bool TryDequeueDiagnostic(out string message)
+        {
+            lock (gate)
+            {
+                message = diagnostics.Count == 0 ? null : diagnostics.Dequeue();
+                return message != null;
+            }
         }
 
         SshClient CreateSsh(string host, int port, string username, string password, PrivateKeyFile key)
@@ -161,18 +184,22 @@ namespace CG4002.Comms
                             secrets.socUsername, secrets.socPassword, key))
                         {
                             await jump.ConnectAsync(cancellation).ConfigureAwait(false);
+                            Diagnostic($"Jump SSH connected to {secrets.jumpHost}:{secrets.jumpPort}.");
                             using (var sshPort = new ForwardedPortLocal("127.0.0.1", 0,
                                 secrets.ultra96Host, (uint)secrets.ultra96Port))
                             {
                                 jump.AddForwardedPort(sshPort); sshPort.Start();
+                                Diagnostic($"Jump tunnel opened for {secrets.ultra96Host}:{secrets.ultra96Port}.");
                                 SetStatus("Connecting to Ultra96 SSH...");
                                 using (var ultra = CreateSsh("127.0.0.1", (int)sshPort.BoundPort,
                                     secrets.ultra96Username, secrets.ultra96Password, key))
                                 {
                                     await ultra.ConnectAsync(cancellation).ConfigureAwait(false);
+                                    Diagnostic("Ultra96 SSH connected.");
                                     using (var brokerPort = new ForwardedPortLocal("127.0.0.1", 0, "127.0.0.1", 1883))
                                     {
                                         ultra.AddForwardedPort(brokerPort); brokerPort.Start();
+                                        Diagnostic("MQTT tunnel opened to Ultra96 127.0.0.1:1883.");
                                         await ReceiveAsync(jump, ultra, (int)brokerPort.BoundPort, cancellation).ConfigureAwait(false);
                                     }
                                 }
@@ -180,10 +207,17 @@ namespace CG4002.Comms
                         }
                     }
                     catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { break; }
-                    catch (SshAuthenticationException)
-                    { SetStatus("SSH authentication failed. Correct settings and retry."); return; }
+                    catch (SshAuthenticationException error)
+                    {
+                        Diagnostic($"SSH authentication exception: {error.Message}");
+                        SetStatus("SSH authentication failed. Correct settings and retry.");
+                        return;
+                    }
                     catch (Exception error)
-                    { SetStatus("Disconnected: " + error.Message + " (retrying)"); }
+                    {
+                        Diagnostic($"Connection exception ({error.GetType().Name}): {error.Message}");
+                        SetStatus("Disconnected: " + error.Message + " (retrying)");
+                    }
                     try { await Task.Delay(3000, cancellation).ConfigureAwait(false); }
                     catch (OperationCanceledException) { break; }
                 }
@@ -197,6 +231,8 @@ namespace CG4002.Comms
             using (var connection = new MqttFactory().CreateMqttClient())
             {
                 connection.ApplicationMessageReceivedAsync += args => {
+                    Diagnostic($"Raw MQTT RX topic={args.ApplicationMessage.Topic ?? "<null>"} " +
+                               $"bytes={args.ApplicationMessage.PayloadSegment.Count}");
                     Store(args.ApplicationMessage.Topic, args.ApplicationMessage.PayloadSegment);
                     return Task.CompletedTask;
                 };
@@ -208,6 +244,7 @@ namespace CG4002.Comms
                 {
                     SetStatus("Connecting to MQTT...");
                     await connection.ConnectAsync(options, cancellation).ConfigureAwait(false);
+                    Diagnostic($"MQTT connected with client ID {clientId}.");
                     var subscriptions = new MqttClientSubscribeOptionsBuilder()
                         .WithTopicFilter("ultra96/+/status")
                         .WithTopicFilter($"visualiser/{phoneId}/pair/result", MqttQualityOfServiceLevel.AtLeastOnce)
@@ -215,7 +252,10 @@ namespace CG4002.Comms
                     var result = await connection.SubscribeAsync(subscriptions, cancellation).ConfigureAwait(false);
                     if (result.Items.Any(x => (int)x.ResultCode >= 128))
                         throw new IOException("Broker rejected a subscription.");
+                    Diagnostic($"MQTT subscriptions accepted: ultra96/+/status, " +
+                               $"visualiser/{phoneId}/pair/result.");
                     lock (gate) { mqtt = connection; activeInferenceDevice = null; status = "Connected over SSH"; }
+                    Diagnostic("Status -> Connected over SSH");
                     while (connection.IsConnected && jump.IsConnected && ultra.IsConnected)
                         await Task.Delay(500, cancellation).ConfigureAwait(false);
                     throw new IOException("Connection closed.");
@@ -226,6 +266,7 @@ namespace CG4002.Comms
                     try
                     {
                         lock (gate) { mqtt = null; activeInferenceDevice = null; }
+                        Diagnostic("MQTT connection cleanup started.");
                         using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
                             if (connection.IsConnected)
                                 try { await connection.DisconnectAsync(new MqttClientDisconnectOptions(), timeout.Token).ConfigureAwait(false); }
@@ -272,6 +313,7 @@ namespace CG4002.Comms
                     var result = await connection.SubscribeAsync(subscription, timeout.Token).ConfigureAwait(false);
                     if (result.Items.Any(x => (int)x.ResultCode >= 128))
                         throw new IOException("Broker rejected the inference subscription.");
+                    Diagnostic($"Subscribed to ultra96/{modelId}/inference and menu_controls.");
                     if (!string.IsNullOrEmpty(previous))
                     {
                         var removal = new MqttClientUnsubscribeOptionsBuilder()
@@ -279,6 +321,7 @@ namespace CG4002.Comms
                             .WithTopicFilter($"ultra96/{previous}/menu_controls")
                             .Build();
                         await connection.UnsubscribeAsync(removal, timeout.Token).ConfigureAwait(false);
+                        Diagnostic($"Unsubscribed from Player {previous} inference and menu_controls.");
                     }
                     lock (gate) activeInferenceDevice = modelId;
                 }
@@ -304,6 +347,7 @@ namespace CG4002.Comms
                         .WithTopicFilter($"ultra96/{previous}/menu_controls")
                         .Build();
                     await connection.UnsubscribeAsync(removal, timeout.Token).ConfigureAwait(false);
+                    Diagnostic($"Unsubscribed from Player {previous} inference and menu_controls.");
                     lock (gate) activeInferenceDevice = null;
                 }
                 finally { publishGate.Release(); }
@@ -335,6 +379,7 @@ namespace CG4002.Comms
                         .WithRetainFlag(false).Build(), timeout.Token).ConfigureAwait(false);
                     if ((int)result.ReasonCode >= 128)
                         throw new IOException("Broker rejected the publication.");
+                    Diagnostic($"MQTT TX accepted topic={topic} qos={(int)qos} reason={result.ReasonCode}.");
                 }
                 finally { publishGate.Release(); }
             }
@@ -349,18 +394,40 @@ namespace CG4002.Comms
                  parts[2] == "menu_controls");
             bool pairingResult = parts.Length == 4 && parts[0] == "visualiser" &&
                 parts[1] == phoneId && parts[2] == "pair" && parts[3] == "result";
-            if (segment.Count > 4096 || (!deviceMessage && !pairingResult))
-            { lock (gate) rejected++; return; }
+            if (segment.Count > 4096)
+            {
+                lock (gate) { rejected++; AddDiagnosticLocked($"Rejected oversized MQTT payload topic={topic} bytes={segment.Count}."); }
+                return;
+            }
+            if (!deviceMessage && !pairingResult)
+            {
+                lock (gate) { rejected++; AddDiagnosticLocked($"Rejected unsupported MQTT topic={topic ?? "<null>"}."); }
+                return;
+            }
             var bytes = segment.ToArray();
             string text;
             try { text = Encoding.UTF8.GetString(bytes); }
-            catch (ArgumentException) { lock (gate) rejected++; return; }
+            catch (ArgumentException error)
+            {
+                lock (gate) { rejected++; AddDiagnosticLocked($"Rejected non-UTF8 payload topic={topic}: {error.Message}"); }
+                return;
+            }
             var message = new ReceivedMessage(deviceMessage ? parts[1] : null, topic, bytes, text);
             lock (gate)
             {
-                if (!latest.ContainsKey(topic) && latest.Count >= 192) { rejected++; return; }
+                if (!latest.ContainsKey(topic) && latest.Count >= 192)
+                {
+                    rejected++;
+                    AddDiagnosticLocked($"Rejected new topic because snapshot capacity is full: {topic}.");
+                    return;
+                }
                 latest[topic] = message;
-                if (pending.Count >= 256) { pending.Dequeue(); dropped++; }
+                if (pending.Count >= 256)
+                {
+                    pending.Dequeue();
+                    dropped++;
+                    AddDiagnosticLocked("Dropped oldest queued MQTT message because the Unity queue is full.");
+                }
                 pending.Enqueue(message);
             }
         }

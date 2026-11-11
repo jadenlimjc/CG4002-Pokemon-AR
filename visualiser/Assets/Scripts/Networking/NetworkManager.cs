@@ -48,7 +48,7 @@ public class NetworkManager : MonoBehaviour
     readonly object pendingGate = new object();
     readonly SemaphoreSlim pairingGate = new SemaphoreSlim(1, 1);
 
-    string connectionError, phoneId, pairedDeviceId;
+    string connectionError, phoneId, pairedDeviceId, lastLoggedStatus;
     PairState pairingState = PairState.Unpaired;
     bool paused, started, restartRequested = true, connectionWasUp;
     float nextRenewAt;
@@ -72,6 +72,8 @@ public class NetworkManager : MonoBehaviour
         }
         pairedDeviceId = PlayerPrefs.GetString(PairedDeviceKey, "");
         if (!ValidPlayerId(pairedDeviceId)) pairedDeviceId = "";
+        Debug.Log($"[Network Lifecycle] Awake | PhoneId={phoneId} | " +
+                  $"StoredPairedDevice={(string.IsNullOrEmpty(pairedDeviceId) ? "<none>" : pairedDeviceId)}");
     }
 
     private IEnumerator Start()
@@ -79,12 +81,15 @@ public class NetworkManager : MonoBehaviour
         started = true;
         string path = Path.Combine(Application.streamingAssetsPath, "secrets.json");
         string url = path.Contains("://") ? path : new Uri(path).AbsoluteUri;
+        Debug.Log($"[Network Settings] Loading connection settings from {url}");
         using (var request = UnityWebRequest.Get(url))
         {
             yield return request.SendWebRequest();
             if (request.result != UnityWebRequest.Result.Success)
             {
-                connectionError = "Cannot load secrets.json. Run root setup.sh before building.";
+                connectionError = "Cannot load secrets.json. Run root setup.sh before building. " +
+                                  $"UnityWebRequest: {request.error}";
+                Debug.LogError($"[Network Settings] {connectionError}");
                 yield break;
             }
             try
@@ -92,18 +97,27 @@ public class NetworkManager : MonoBehaviour
                 var settings = JsonUtility.FromJson<ConnectionSecrets>(request.downloadHandler.text);
                 if (settings == null) throw new InvalidDataException("Empty connection settings.");
                 Client = new SshMqttClient(settings, phoneId);
+                Debug.Log($"[Network Settings] Settings validated; client created. " +
+                          $"Jump={settings.jumpHost}:{settings.jumpPort} | " +
+                          $"Ultra96={settings.ultra96Host}:{settings.ultra96Port}");
             }
-            catch (Exception error) { connectionError = "Settings: " + error.Message; }
+            catch (Exception error)
+            {
+                connectionError = "Settings: " + error.Message;
+                Debug.LogError($"[Network Settings] Failed to create client ({error.GetType().Name}): {error.Message}");
+            }
         }
     }
 
     private void OnEnable()
     {
+        Debug.Log($"[Network Lifecycle] OnEnable | Started={started}");
         if (started) StartListening();
     }
 
     private void OnDisable()
     {
+        Debug.Log("[Network Lifecycle] OnDisable");
         StopListening();
     }
 
@@ -114,20 +128,29 @@ public class NetworkManager : MonoBehaviour
         if (networkTask != null && networkTask.IsCompleted)
         {
             if (networkTask.IsFaulted)
+            {
                 connectionError = "Connection stopped: " + networkTask.Exception.GetBaseException().Message;
+                Debug.LogError($"[Network Task] {connectionError}");
+            }
+            else Debug.Log("[Network Task] Connection task completed.");
             networkTask = null;
-            lifetime.Dispose();
+            lifetime?.Dispose();
             lifetime = null;
         }
+        LogConnectionStatusChange();
         if (paused || !isActiveAndEnabled) return;
         if (restartRequested && Client != null && networkTask == null)
         {
             restartRequested = false;
             lifetime = new CancellationTokenSource();
             var token = lifetime.Token;
+            Debug.Log("[Network Task] Starting SSH/MQTT connection task.");
             networkTask = Task.Run(() => Client.RunAsync(token));
         }
         if (Client == null) return;
+
+        for (int i = 0; i < 256 && Client.TryDequeueDiagnostic(out var diagnostic); i++)
+            Debug.Log(diagnostic);
 
         for (int i = 0; i < 256 && Client.TryDequeue(out var message); i++)
             ProcessMqttMessage(message);
@@ -136,12 +159,19 @@ public class NetworkManager : MonoBehaviour
         if (connected && !connectionWasUp)
         {
             connectionWasUp = true;
+            Debug.Log($"[Network Connection] CONNECTED | PhoneId={phoneId} | " +
+                      $"KnownDevices={devices.Count} | Rejected={Client.RejectedMessages} | " +
+                      $"Dropped={Client.DroppedMessages}");
             if (!string.IsNullOrEmpty(pairedDeviceId) && restoreTask == null)
+            {
+                Debug.Log($"[Network Pairing] Restoring stored pairing to Player {pairedDeviceId}.");
                 restoreTask = AcquirePairingAsync(pairedDeviceId, false, CancellationToken.None);
+            }
         }
-        else if (!connected)
+        else if (!connected && connectionWasUp)
         {
             connectionWasUp = false;
+            Debug.LogWarning($"[Network Connection] DISCONNECTED | Status={Status}");
             if (pairingState == PairState.Paired)
             {
                 pairingState = PairState.Unpaired;
@@ -281,18 +311,25 @@ public class NetworkManager : MonoBehaviour
         lock (pendingGate) pendingPairing.Add(requestId, completion);
         try
         {
+            Debug.Log($"[Network Pairing TX] Action={action} | Player={deviceId} | RequestId={requestId}");
             string json = JsonUtility.ToJson(new PairingRequest {
                 action = action, request_id = requestId, device_id = deviceId
             });
             await Client.PublishPairingRequestAsync(json, cancellation);
+            Debug.Log($"[Network Pairing TX] Publish accepted | RequestId={requestId}");
             Task timeout = Task.Delay(PairingTimeoutMilliseconds, cancellation);
             Task finished = await Task.WhenAny(completion.Task, timeout);
             if (finished != completion.Task)
             {
                 cancellation.ThrowIfCancellationRequested();
+                Debug.LogError($"[Network Pairing TIMEOUT] Action={action} | Player={deviceId} | " +
+                               $"RequestId={requestId} | TimeoutMs={PairingTimeoutMilliseconds}");
                 throw new TimeoutException("Pairing request timed out.");
             }
-            return await completion.Task;
+            PairingResult result = await completion.Task;
+            Debug.Log($"[Network Pairing RX] Status={result.Status} | Player={result.DeviceId} | " +
+                      $"RequestId={result.RequestId} | Detail={result.Detail ?? "<none>"}");
+            return result;
         }
         finally
         {
@@ -363,11 +400,24 @@ public class NetworkManager : MonoBehaviour
     {
         PairingWireResult wire;
         try { wire = JsonUtility.FromJson<PairingWireResult>(json); }
-        catch (ArgumentException) { return; }
-        if (wire == null || !ValidIdentifier(wire.request_id)) return;
+        catch (ArgumentException error)
+        {
+            Debug.LogWarning($"[Network Pairing RX] Invalid JSON: {error.Message} | Text={json}");
+            return;
+        }
+        if (wire == null || !ValidIdentifier(wire.request_id))
+        {
+            Debug.LogWarning($"[Network Pairing RX] Missing or invalid request ID | Text={json}");
+            return;
+        }
         TaskCompletionSource<PairingResult> completion;
         lock (pendingGate) pendingPairing.TryGetValue(wire.request_id, out completion);
-        completion?.TrySetResult(new PairingResult(wire));
+        if (completion == null)
+        {
+            Debug.LogWarning($"[Network Pairing RX] No pending request matches {wire.request_id} | Text={json}");
+            return;
+        }
+        completion.TrySetResult(new PairingResult(wire));
     }
 
     void ProcessGesture(string jsonMessage)
@@ -447,9 +497,23 @@ public class NetworkManager : MonoBehaviour
         task = null;
     }
 
+    void LogConnectionStatusChange()
+    {
+        string current = Status;
+        if (current == lastLoggedStatus) return;
+        lastLoggedStatus = current;
+        Debug.Log($"[Network Status] {current} | IsConnected={IsConnected} | " +
+                  $"ClientCreated={Client != null} | Paused={paused} | Active={isActiveAndEnabled}");
+    }
+
     public void Reconnect()
     {
-        if (Client == null) return;
+        if (Client == null)
+        {
+            Debug.LogWarning("[Network Lifecycle] Reconnect requested before the client was created.");
+            return;
+        }
+        Debug.Log("[Network Lifecycle] Manual reconnect requested.");
         connectionError = null;
         restartRequested = true;
         lifetime?.Cancel();
@@ -457,6 +521,7 @@ public class NetworkManager : MonoBehaviour
 
     private void OnApplicationPause(bool value)
     {
+        Debug.Log($"[Network Lifecycle] OnApplicationPause({value})");
         paused = value;
         if (value) StopListening();
         else if (started && isActiveAndEnabled) StartListening();
@@ -464,11 +529,13 @@ public class NetworkManager : MonoBehaviour
 
     public void StartListening()
     {
+        Debug.Log("[Network Lifecycle] StartListening requested.");
         restartRequested = true;
     }
 
     private void OnDestroy()
     {
+        Debug.Log("[Network Lifecycle] OnDestroy");
         StopListening();
         if (Instance == this) Instance = null;
         lock (pendingGate)
@@ -487,11 +554,13 @@ public class NetworkManager : MonoBehaviour
 
     private void OnApplicationQuit()
     {
+        Debug.Log("[Network Lifecycle] OnApplicationQuit");
         StopListening();
     }
 
     private void StopListening()
     {
+        Debug.Log($"[Network Lifecycle] StopListening | TaskRunning={networkTask != null && !networkTask.IsCompleted}");
         restartRequested = false;
         lifetime?.Cancel();
     }
