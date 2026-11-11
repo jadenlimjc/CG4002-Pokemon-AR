@@ -78,6 +78,25 @@ class PairingTraceClient:
         )
         return result
 
+def decode_touch_debug(payload):
+    if len(payload) > 256:
+        raise ValueError("oversized touch debug payload")
+    try:
+        data = json.loads(payload)
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise ValueError("invalid touch debug JSON") from exc
+    if not isinstance(data, dict):
+        raise ValueError("touch debug payload must be an object")
+    values = {}
+    for field in ("index", "middle", "ring", "threshold"):
+        value = data.get(field)
+        if type(value) is not int or value < 0:
+            raise ValueError(f"invalid touch debug field: {field}")
+        values[field] = value
+    if values["threshold"] == 0:
+        raise ValueError("touch threshold must be positive")
+    return values
+
 
 class GestureMonitor:
     """Per-device inference state, manual controls, and compact link metrics."""
@@ -92,6 +111,7 @@ class GestureMonitor:
         self.gameplay_mode = "FULL PLAY"
         self.last_manual_action = "-- none sent"
         self.last_menu_sequence = None
+        self.touch_debug = None
 
     def on_message(self, message, now):
         with self.lock:
@@ -117,6 +137,14 @@ class GestureMonitor:
         if suffix == "rtt":
             if self.health.presence != "offline":
                 self.rtt.receive(message.payload, message.retain, now)
+            return False
+        if suffix == "touch_debug":
+            if message.retain:
+                return False
+            try:
+                self.touch_debug = decode_touch_debug(message.payload)
+            except ValueError:
+                return False
             return False
 
         if message.retain:
@@ -204,6 +232,14 @@ class GestureMonitor:
                       f" Packet rate: {hz} Hz / 50 Hz expected",
                       f" RTT: {show(self.rtt.mean_ms)} ms | Est. one-way: "
                       f"{show(self.rtt.estimated_one_way_ms)} ms"]
+            if self.touch_debug is None:
+                lines.append(" TOUCH RAW: -- waiting for ESP debug sample")
+            else:
+                touch = self.touch_debug
+                lines.append(
+                    f" TOUCH RAW: index {touch['index']} | middle {touch['middle']} | "
+                    f"ring {touch['ring']} | touched when raw < {touch['threshold']}"
+                )
         return lines
 
 

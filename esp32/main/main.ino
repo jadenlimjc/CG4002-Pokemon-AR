@@ -16,6 +16,7 @@
 #include "network_profile.h"
 #include "telemetry_packet.h"
 #include "demo_protocol.h"
+#include "config.h"
 
 
 // ==========================================
@@ -27,10 +28,14 @@
 constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 50;
 constexpr uint16_t SENSOR_PERIOD_MS = 1000 / SENSOR_SAMPLE_RATE_HZ;
 constexpr TickType_t SENSOR_PERIOD_TICKS = pdMS_TO_TICKS(SENSOR_PERIOD_MS);
+constexpr uint32_t TOUCH_DEBUG_REPORT_INTERVAL_MS = 250;
 static_assert(SENSOR_PERIOD_TICKS > 0 && configTICK_RATE_HZ % SENSOR_SAMPLE_RATE_HZ == 0,
               "Sensor cadence must be representable by FreeRTOS ticks");
 std::atomic<bool> gestureSoundRequested{false};
 std::atomic<bool> networkConnected{false};
+std::atomic<int> latestIndexTouchRaw{-1};
+std::atomic<int> latestMiddleTouchRaw{-1};
+std::atomic<int> latestRingTouchRaw{-1};
 
 // Endpoints of the renamed main_oop sketch; SensorSampleTask owns all hardware.
 void setupHardware();
@@ -46,6 +51,7 @@ char topic_status[64];
 char topic_ack[64];
 char topic_rtt[64];
 char topic_health[64];
+char topic_touch_debug[64];
 char topic_config[64];
 char topic_haptic[64];
 char topic_mode[64], topic_demo_in[64], topic_demo_out[64];
@@ -63,6 +69,7 @@ void initialiseMqttIdentity() {
     snprintf(topic_ack, sizeof(topic_ack), "esp32/%s/telemetry_ack", model_id);
     snprintf(topic_rtt, sizeof(topic_rtt), "esp32/%s/rtt", model_id);
     snprintf(topic_health, sizeof(topic_health), "esp32/%s/health", model_id);
+    snprintf(topic_touch_debug, sizeof(topic_touch_debug), "esp32/%s/touch_debug", model_id);
     snprintf(topic_config, sizeof(topic_config), "esp32/%s/config", model_id);
     snprintf(topic_haptic, sizeof(topic_haptic), "esp32/%s/haptic/cmd", model_id);
     snprintf(topic_mode, sizeof(topic_mode), "esp32/%s/mode", model_id);
@@ -101,6 +108,7 @@ std::atomic<uint32_t> telemetryPublishFailures{0}, disconnectedDiscards{0}, publ
 std::atomic<uint32_t> staleTelemetryDiscards{0};
 uint32_t maximumPublishAgeMs = 0;
 uint64_t maximumPublishDurationUs = 0, lastHealthReportUs = 0;
+uint32_t lastTouchDebugReportMs = 0;
 
 // ==========================================
 // MQTT / SSH client
@@ -129,6 +137,29 @@ void reportTelemetryHealth() {
         (unsigned long)maximumPublishAgeMs, (unsigned long long)maximumPublishDurationUs);
     if (length > 0 && static_cast<size_t>(length) < sizeof(payload)) {
         client.publish(topic_health, payload, false);
+    }
+}
+
+// A small debug-only snapshot stays separate from the binary inference packet.
+// NetworkTask reads atomics; SensorSampleTask remains the sole hardware owner.
+void reportTouchDebug() {
+    if (!client.connected()) return;
+    const uint32_t now = millis();
+    if (static_cast<uint32_t>(now - lastTouchDebugReportMs) <
+        TOUCH_DEBUG_REPORT_INTERVAL_MS) return;
+    lastTouchDebugReportMs = now;
+
+    const int index = latestIndexTouchRaw.load(std::memory_order_relaxed);
+    const int middle = latestMiddleTouchRaw.load(std::memory_order_relaxed);
+    const int ring = latestRingTouchRaw.load(std::memory_order_relaxed);
+    if (index < 0 || middle < 0 || ring < 0) return;
+
+    char payload[128];
+    const int length = snprintf(payload, sizeof(payload),
+        "{\"index\":%d,\"middle\":%d,\"ring\":%d,\"threshold\":%d}",
+        index, middle, ring, TOUCH_THRESHOLD);
+    if (length > 0 && static_cast<size_t>(length) < sizeof(payload)) {
+        client.publish(topic_touch_debug, payload, false);
     }
 }
 
@@ -493,6 +524,7 @@ void NetworkTask(void* pvParameters) {
             }
         }
         reportTelemetryHealth();
+        reportTouchDebug();
 
         // ----------------------------------
         // SERIAL -> SSH
