@@ -10,7 +10,7 @@ import zlib
 import numpy as np
 
 from packet_viewer import PacketViewer, packet_line
-from final_demo import GestureDashboard, GestureMonitor
+from final_demo import GestureDashboard, GestureMonitor, decode_touch_debug
 from processing_demo import ProcessingDemo, ResultTrace
 from process_telemetry import BODY, CRC, InferenceWindow, PacketError, decode_packet
 from main import InferenceWorker, TelemetryService
@@ -199,6 +199,18 @@ class ProcessingTests(unittest.TestCase):
         self.assertTrue(any("[1/t] Tutorial" in line for line in initial_lines))
         self.assertTrue(any("Packet rate:" in line for line in initial_lines))
         self.assertTrue(any("Est. one-way:" in line for line in initial_lines))
+        self.assertIn(" TOUCH RAW: -- waiting for ESP debug sample", initial_lines)
+
+        touch_event = message(
+            json.dumps({"index": 410, "middle": 320, "ring": 515, "threshold": 350}).encode(),
+            topic="esp32/board1/touch_debug",
+        )
+        monitor.on_message(touch_event, 10.1)
+        self.assertIn(
+            " TOUCH RAW: index 410 | middle 320 | ring 515 | touched when raw < 350",
+            monitor.lines(10.1),
+        )
+        processor.process_packet.assert_not_called()
         self.assertTrue(monitor.publish_manual_action("SET_TUTORIAL", "TUTORIAL"))
         topic, body = self.client.publish.call_args.args[:2]
         self.assertEqual(topic, "ultra96/board1/inference")
@@ -220,6 +232,21 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(monitor.gameplay_mode, "TUTORIAL")
         with self.assertRaisesRegex(ValueError, "Unsupported manual action"):
             monitor.publish_manual_action("NOT_A_REAL_ACTION")
+
+    def test_touch_debug_validation_and_dashboard_subscription(self):
+        self.assertEqual(
+            decode_touch_debug(b'{"index":410,"middle":320,"ring":515,"threshold":350}'),
+            {"index": 410, "middle": 320, "ring": 515, "threshold": 350},
+        )
+        for invalid in (b'[]', b'{}', b'{"index":true,"middle":1,"ring":2,"threshold":3}',
+                        b'{"index":1,"middle":2,"ring":3,"threshold":0}', b'not json'):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                decode_touch_debug(invalid)
+
+        dashboard = GestureDashboard(self.client, SimpleNamespace(confidence_threshold=0.75))
+        dashboard.on_connect(self.client, None, None, 0)
+        subscriptions = self.client.subscribe.call_args.args[0]
+        self.assertIn(("esp32/+/touch_debug", 0), subscriptions)
 
     def test_final_dashboard_keys_target_selected_device(self):
         worker = SimpleNamespace(confidence_threshold=0.75)

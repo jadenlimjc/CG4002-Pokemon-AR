@@ -110,6 +110,9 @@ void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
   }
   middleButton.update();
   ringButton.update();
+  latestIndexTouchRaw.store(indexButton.rawValue(), std::memory_order_relaxed);
+  latestMiddleTouchRaw.store(middleButton.rawValue(), std::memory_order_relaxed);
+  latestRingTouchRaw.store(ringButton.rawValue(), std::memory_order_relaxed);
   if (middleButton.consumeFreshTouch()) middleMotorTrigger = true;
   if (ringButton.consumeFreshTouch()) ringMotorTrigger = true;
   if (programStarted != wasStarted || !telemetryEnabled) {
