@@ -4,26 +4,24 @@
 #include <Arduino.h>
 
 // =====================================================
-// TouchButton: encapsulates one touch pad's ISR flag,
-// touched-state tracking, and hold-duration timing.
-// ISRs on ESP32 must be free functions, so each TouchButton
-// exposes a public onIsr() that the global ISR calls into.
+// TouchButton: calibrates an untouched startup baseline, tracks slow drift,
+// and detects the large relative drop caused by a finger.
 // =====================================================
 class TouchButton {
   public:
-    TouchButton(int pin, int threshold);
+    explicit TouchButton(int pin);
 
-    void begin(void (*isrFunc)());
-
-    // Called from the global ISR - keep minimal, no Serial/delay.
-    void onIsr();
+    void begin();
 
     // Call every loop(). Polling supplies live diagnostics and observes release
     // so one physical press can produce only one fresh edge.
     void update();
 
     bool isTouched() const;
+    bool isCalibrated() const;
     int rawValue() const;
+    int baselineValue() const;
+    int touchThreshold() const;
     // Returns true once for each new touch edge.
     bool consumeFreshTouch();
     unsigned long heldForMs() const;
@@ -36,13 +34,18 @@ class TouchButton {
     virtual void onFreshTouch();
     virtual void onRelease();
 
+    int requiredDrop(uint8_t percent, int minimum) const;
+    int thresholdFor(uint8_t percent, int minimum) const;
+
     int pin_;
-    int threshold_;
-    volatile bool isrFlag_ = false;
     bool touchedState_ = false;
     bool freshTouch_ = false;
-    bool touchArmed_ = true;
+    bool touchArmed_ = false;
+    bool calibrated_ = false;
     int rawValue_ = -1;
+    float baseline_ = 0.0f;
+    uint32_t baselineAccumulator_ = 0;
+    uint16_t baselineSamples_ = 0;
     unsigned long startMillis_ = 0;
 };
 

@@ -14,7 +14,7 @@ class SingleHoldButton : public TouchButton {
     bool firedThisTouch_ = false;
     
   public:
-    SingleHoldButton(int pin, int threshold, unsigned long holdTimeMs);
+    SingleHoldButton(int pin, unsigned long holdTimeMs);
 
     // Call after update(). Returns true exactly once per
     // touch, the moment the hold threshold is crossed.

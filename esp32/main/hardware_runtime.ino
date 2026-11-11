@@ -15,9 +15,9 @@ constexpr bool DETECT_MOTION = false;
 // =====================================================
 // Global objects
 // =====================================================
-TouchButton indexButton(TOUCH_INDEX, TOUCH_THRESHOLD);
-SingleHoldButton middleButton(TOUCH_MIDDLE, TOUCH_THRESHOLD, TOGGLE_HOLD_TIME_MS);
-SingleHoldButton ringButton(TOUCH_RING, TOUCH_THRESHOLD, TOGGLE_HOLD_TIME_MS);
+TouchButton indexButton(TOUCH_INDEX);
+SingleHoldButton middleButton(TOUCH_MIDDLE, TOGGLE_HOLD_TIME_MS);
+SingleHoldButton ringButton(TOUCH_RING, TOGGLE_HOLD_TIME_MS);
 
 VibrationMotor motor(VIBRATION_MOTOR_PIN, MOTOR_RUN_TIME_MS);
 RgbLed led(RED_PIN, GREEN_PIN, BLUE_PIN, LED_PWM_FREQUENCY, LED_PWM_RESOLUTION);
@@ -51,19 +51,6 @@ bool hasThrowModeChange = false;
 
 bool indexSelectFiredTouch = false;
 
-// =====================================================
-// Free-function ISRs (required - cannot be member functions)
-// =====================================================
-void IRAM_ATTR onIndexTouchIsr()  { 
-  indexButton.onIsr(); 
-}
-void IRAM_ATTR onMiddleTouchIsr() { 
-  middleButton.onIsr(); 
-}
-void IRAM_ATTR onRingTouchIsr()   { 
-  ringButton.onIsr(); 
-}
-
 void handleIndexHoldToggle();
 void handleIndexModeTouch();
 void checkSelectGesture();
@@ -78,9 +65,9 @@ void updateConnectionLed(bool connected);
 // setup / loop
 // =====================================================
 void setupHardware() {
-  indexButton.begin(onIndexTouchIsr);
-  middleButton.begin(onMiddleTouchIsr);
-  ringButton.begin(onRingTouchIsr);
+  indexButton.begin();
+  middleButton.begin();
+  ringButton.begin();
 
   initHardware();
   programStarted = true;
@@ -113,6 +100,12 @@ void updateHardware(bool telemetryEnabled, bool gestureSound, bool connected) {
   latestIndexTouchRaw.store(indexButton.rawValue(), std::memory_order_relaxed);
   latestMiddleTouchRaw.store(middleButton.rawValue(), std::memory_order_relaxed);
   latestRingTouchRaw.store(ringButton.rawValue(), std::memory_order_relaxed);
+  latestIndexTouchBaseline.store(indexButton.baselineValue(), std::memory_order_relaxed);
+  latestMiddleTouchBaseline.store(middleButton.baselineValue(), std::memory_order_relaxed);
+  latestRingTouchBaseline.store(ringButton.baselineValue(), std::memory_order_relaxed);
+  latestIndexTouchThreshold.store(indexButton.touchThreshold(), std::memory_order_relaxed);
+  latestMiddleTouchThreshold.store(middleButton.touchThreshold(), std::memory_order_relaxed);
+  latestRingTouchThreshold.store(ringButton.touchThreshold(), std::memory_order_relaxed);
   if (middleButton.consumeFreshTouch()) middleMotorTrigger = true;
   if (ringButton.consumeFreshTouch()) ringMotorTrigger = true;
   if (programStarted != wasStarted || !telemetryEnabled) {

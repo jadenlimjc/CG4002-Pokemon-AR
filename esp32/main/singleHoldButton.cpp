@@ -1,7 +1,7 @@
 #include "singleHoldButton.h"
 
-SingleHoldButton::SingleHoldButton(int pin, int threshold, unsigned long holdTimeMs)
-  : TouchButton(pin, threshold), holdTimeMs_(holdTimeMs) {}
+SingleHoldButton::SingleHoldButton(int pin, unsigned long holdTimeMs)
+  : TouchButton(pin), holdTimeMs_(holdTimeMs) {}
 
 bool SingleHoldButton::checkHoldConfirmed() {
   if (touchedState_ && !firedThisTouch_ && heldForMs() >= holdTimeMs_) {
