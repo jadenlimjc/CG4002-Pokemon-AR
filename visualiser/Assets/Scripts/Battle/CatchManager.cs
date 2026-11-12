@@ -13,6 +13,7 @@ public class CatchManager : MonoBehaviour
     [Header("Reticle")]
     [SerializeField] private GameObject reticleUI;
     [SerializeField] private float reticleRadius = 150f;
+    private CrosshairUI crosshairUI;
 
     [Header("Catch Animation")]
     [SerializeField] private int maxJiggles = 3;
@@ -39,6 +40,14 @@ public class CatchManager : MonoBehaviour
             return;
         }
         Instance = this;
+        if (reticleUI != null)
+            crosshairUI = reticleUI.GetComponent<CrosshairUI>();
+    }
+
+    private void Update()
+    {
+        if (isAiming && crosshairUI != null)
+            crosshairUI.SetHighlight(FindPokemonInReticle() != null);
     }
 
     private void OnEnable()
