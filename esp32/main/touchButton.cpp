@@ -46,6 +46,10 @@ void TouchButton::update() {
         touchedState_ = false;
         touchArmed_ = true;
         releaseSamples_ = 0;
+        // The untouched sensor level can settle below its pre-touch baseline.
+        // Five stable release samples make the current level the new baseline,
+        // preventing an immediate false re-touch against the stale baseline.
+        baseline_ = static_cast<float>(rawValue_);
         onRelease();
       }
     } else {
