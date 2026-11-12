@@ -89,16 +89,10 @@ void TouchButton::update() {
     }
   } else {
     pressSamples_ = 0;
-    const int upwardEdge = baselineValue() +
-        requiredDrop(TOUCH_DROP_PERCENT, TOUCH_MIN_DROP);
-    if (rawValue_ < upwardEdge) {
-      // No edge: this reading is the steady state. Following it directly lets
-      // gradual drift move either way without the baseline lagging behind.
-      baseline_ = static_cast<float>(rawValue_);
+    if (rawValue_ > releaseThreshold) {
+      baseline_ += (static_cast<float>(rawValue_) - baseline_) *
+        TOUCH_BASELINE_TRACKING_ALPHA;
     }
-    // A sudden upward edge is not a touch and is not allowed to move the
-    // baseline. When it falls back, the unchanged steady baseline prevents
-    // that return from looking like a downward touch edge.
   }
 }
 
