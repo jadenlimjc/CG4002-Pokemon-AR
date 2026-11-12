@@ -158,10 +158,12 @@ public class CatchManager : MonoBehaviour
         {
             if (wild.GameObject == null || !wild.GameObject.activeInHierarchy) continue;
 
-            Renderer renderer = wild.GameObject.GetComponentInChildren<Renderer>();
-            if (renderer == null) continue;
+            Renderer[] renderers = wild.GameObject.GetComponentsInChildren<Renderer>();
+            if (renderers.Length == 0) continue;
 
-            Bounds bounds = renderer.bounds;
+            Bounds bounds = renderers[0].bounds;
+            for (int r = 1; r < renderers.Length; r++)
+                bounds.Encapsulate(renderers[r].bounds);
 
             Vector3[] corners = new Vector3[8];
             corners[0] = new Vector3(bounds.min.x, bounds.min.y, bounds.min.z);
