@@ -461,8 +461,20 @@ public class BattleManager : MonoBehaviour
 
         yield return new WaitForSeconds(minWait);
 
-        yield return null;
+        // Wait for the animator to enter a transition (trigger consumed)
+        float timeout = 0.5f;
+        float waited = 0f;
+        while (!animator.IsInTransition(0) && waited < timeout)
+        {
+            waited += Time.deltaTime;
+            yield return null;
+        }
 
+        // Wait for the transition to finish
+        while (animator.IsInTransition(0))
+            yield return null;
+
+        // Wait for the destination clip to finish playing
         AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
         while (state.normalizedTime < 1f)
         {
