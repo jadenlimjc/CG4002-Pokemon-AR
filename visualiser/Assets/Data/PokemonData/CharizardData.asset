@@ -16,38 +16,38 @@ MonoBehaviour:
   pokedexNumber: 1
   primaryType: 2
   secondaryType: 10
-  maxHP: 100
-  attack: 50
-  defense: 50
+  maxHP: 156
+  attack: 84
+  defense: 78
   speed: 50
   spawnBehavior: 1
   spawnScale: 70
   moveSpeed: 1
   baseCatchRate: 0.5
   moves:
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+  - moveName: Fire Punch
+    moveType: 2
+    power: 75
+    accuracy: 90
     isProtect: 0
-    animationTrigger: 
-  - moveName: 
-    moveType: 0
+    animationTrigger: isAttacking
+  - moveName: Protect
+    moveType: 1
     power: 0
-    accuracy: 0
-    isProtect: 0
+    accuracy: 100
+    isProtect: 1
     animationTrigger: 
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+  - moveName: WIng Attack
+    moveType: 10
+    power: 60
+    accuracy: 100
     isProtect: 0
-    animationTrigger: 
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+    animationTrigger: isAttacking
+  - moveName: Fly
+    moveType: 10
+    power: 90
+    accuracy: 100
     isProtect: 0
-    animationTrigger: 
+    animationTrigger: isAttacking
   modelPrefab: {fileID: 1754757414477881273, guid: 0bc03edb1f47e4410b195a9d0fc417d3, type: 3}
   partySprite: {fileID: 21300000, guid: e322f024488a74312b8938ce76f2ba39, type: 3}

@@ -44,50 +44,67 @@ public class PairingUI : MonoBehaviour
         }
         Instance = this;
     }
+private void Start()
+{
+    Debug.Log("[PairingUI] Start method called.");
 
-    private void Start()
+    if (device1Button != null)
+        device1Button.onClick.AddListener(() => PairWithDevice("1"));
+    if (device2Button != null)
+        device2Button.onClick.AddListener(() => PairWithDevice("2"));
+    if (unpairButton != null)
+        unpairButton.onClick.AddListener(ForgetPairing);
+    if (closeButton != null)
+        closeButton.onClick.AddListener(ClosePairing);
+
+    var net = NetworkManager.Instance;
+    if (net == null)
     {
-        if (device1Button != null)
-            device1Button.onClick.AddListener(() => PairWithDevice("1"));
-        if (device2Button != null)
-            device2Button.onClick.AddListener(() => PairWithDevice("2"));
-        if (unpairButton != null)
-            unpairButton.onClick.AddListener(ForgetPairing);
-        if (closeButton != null)
-            closeButton.onClick.AddListener(ClosePairing);
+        Debug.LogWarning("[PairingUI] NetworkManager.Instance is NULL during Start!");
+    }
+    else
+    {
+        Debug.Log($"[PairingUI] NetworkManager found. IsConnected: {net.IsConnected}, IsPaired: {net.IsPaired}, PairedId: {net.PairedDeviceId}");
+        
+        // Safely subscribe here where NetworkManager is guaranteed to exist
+        net.DevicesChanged += RefreshDeviceList;
+        net.PairingChanged += RefreshPairingState;
 
-        var net = NetworkManager.Instance;
-        if (net != null && net.IsPaired)
+        if (net.IsPaired)
         {
+            Debug.Log("[PairingUI] Already paired on startup. Hiding panel and opening ModeSelectUI.");
             Hide();
             ModeSelectUI.Instance?.Show();
             return;
         }
-
-        Show();
     }
 
-    private void OnEnable()
-    {
-        var net = NetworkManager.Instance;
-        if (net == null) return;
-        net.DevicesChanged += RefreshDeviceList;
-        net.PairingChanged += RefreshPairingState;
-    }
+    Show();
+}
 
-    private void OnDisable()
-    {
-        var net = NetworkManager.Instance;
-        if (net == null) return;
-        net.DevicesChanged -= RefreshDeviceList;
-        net.PairingChanged -= RefreshPairingState;
-    }
+private void OnEnable()
+{
+    // Leave empty or remove NetworkManager checks here 
+    // since initialization order handles it safely in Start().
+    Debug.Log("[PairingUI] OnEnable called.");
+}
 
-    private void Update()
-    {
-        if (!pairingPanel.activeSelf) return;
-        RefreshConnectionStatus();
-    }
+private void OnDisable()
+{
+    Debug.Log("[PairingUI] OnDisable called. Unsubscribing from network events.");
+    var net = NetworkManager.Instance;
+    if (net == null) return;
+    net.DevicesChanged -= RefreshDeviceList;
+    net.PairingChanged -= RefreshPairingState;
+}
+ private void Update()
+{
+    // Debug.Log("[PairingUI] Update is running..."); // Temporary test log
+    if (pairingPanel == null || !pairingPanel.activeSelf) return;
+
+    RefreshConnectionStatus();
+    RefreshDeviceList();
+}
 
     public void Show()
     {
@@ -116,6 +133,8 @@ public class PairingUI : MonoBehaviour
 
         bool d1Online = net.IsDeviceOnline("1");
         bool d2Online = net.IsDeviceOnline("2");
+
+        Debug.Log($"[PairingUI] Check -> D1 Online: {d1Online} | D2 Online: {d2Online} | Dictionary Count: {net.GetOnlineDevices().Count}");
 
         if (device1Status != null)
         {

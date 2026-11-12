@@ -16,38 +16,38 @@ MonoBehaviour:
   pokedexNumber: 4
   primaryType: 3
   secondaryType: 10
-  maxHP: 100
-  attack: 50
-  defense: 50
+  maxHP: 140
+  attack: 85
+  defense: 55
   speed: 50
   spawnBehavior: 1
   spawnScale: 2
   moveSpeed: 1
   baseCatchRate: 0.6
   moves:
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+  - moveName: Gulp Missile
+    moveType: 3
+    power: 70
+    accuracy: 100
     isProtect: 0
-    animationTrigger: 
-  - moveName: 
-    moveType: 0
+    animationTrigger: isAttacking
+  - moveName: Protect
+    moveType: 1
     power: 0
-    accuracy: 0
-    isProtect: 0
+    accuracy: 100
+    isProtect: 1
     animationTrigger: 
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+  - moveName: Air Slash
+    moveType: 10
+    power: 80
+    accuracy: 95
     isProtect: 0
-    animationTrigger: 
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+    animationTrigger: isAttacking
+  - moveName: Fly
+    moveType: 10
+    power: 90
+    accuracy: 100
     isProtect: 0
-    animationTrigger: 
+    animationTrigger: isAttacking
   modelPrefab: {fileID: 3619135283008021572, guid: acda9ca62a0164dcfa112c314d9e68f9, type: 3}
   partySprite: {fileID: 21300000, guid: 5aa72555da2ea43aba7fb5d9af3cd1cb, type: 3}

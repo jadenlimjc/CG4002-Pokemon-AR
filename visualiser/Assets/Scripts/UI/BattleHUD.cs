@@ -275,7 +275,7 @@ public class BattleHUD : MonoBehaviour
             _ => null
         };
 
-        if (target != null)
+        if (target != null && (BattleManager.Instance == null || !BattleManager.Instance.IsProcessingMove))
             StartCoroutine(FlashTile(target));
     }
 

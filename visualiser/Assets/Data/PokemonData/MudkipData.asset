@@ -17,37 +17,37 @@ MonoBehaviour:
   primaryType: 3
   secondaryType: 0
   maxHP: 100
-  attack: 50
+  attack: 70
   defense: 50
   speed: 50
   spawnBehavior: 0
-  spawnScale: 70
+  spawnScale: 50
   moveSpeed: 1
   baseCatchRate: 0.8
   moves:
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+  - moveName: Water Gun
+    moveType: 3
+    power: 40
+    accuracy: 100
     isProtect: 0
-    animationTrigger: 
-  - moveName: 
-    moveType: 0
+    animationTrigger: isAttacking
+  - moveName: Protect
+    moveType: 1
     power: 0
-    accuracy: 0
-    isProtect: 0
+    accuracy: 100
+    isProtect: 1
     animationTrigger: 
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+  - moveName: Mud Shot
+    moveType: 9
+    power: 55
+    accuracy: 80
     isProtect: 0
-    animationTrigger: 
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+    animationTrigger: isAttacking
+  - moveName: Flip Turn
+    moveType: 3
+    power: 60
+    accuracy: 100
     isProtect: 0
-    animationTrigger: 
+    animationTrigger: isAttacking
   modelPrefab: {fileID: 2044147987640301277, guid: 78183cc41e42e4415a69c92940025c3a, type: 3}
   partySprite: {fileID: 21300000, guid: ff1878510f0a24a71a824b5d3b4fd473, type: 3}
