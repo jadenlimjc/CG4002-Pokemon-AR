@@ -107,7 +107,7 @@ public class OnScreenControls : MonoBehaviour
         });
     }
 
-    private bool meshVisible = true;
+    private bool meshVisible = false;
 
     private void CreateUtilityButtons()
     {
