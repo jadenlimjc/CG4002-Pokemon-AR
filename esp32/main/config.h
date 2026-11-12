@@ -22,16 +22,18 @@ const int TOUCH_RING   = T6; // BCLK/E014
 const uint16_t TOUCH_BASELINE_SAMPLE_COUNT = 50; // 1 second at 50 Hz; keep fingers off at boot
 const uint8_t TOUCH_DROP_PERCENT = 15;
 const int TOUCH_MIN_DROP = 100;
-const uint8_t TOUCH_RELEASE_DROP_PERCENT = 40;
+const uint8_t TOUCH_RELEASE_DROP_PERCENT = 10;
 const int TOUCH_RELEASE_MIN_DROP = 50;
 const float TOUCH_BASELINE_TRACKING_ALPHA = 0.005f;
+const unsigned long TOUCH_BASELINE_RECOVERY_DELAY_MS = 3000;
 const uint8_t TOUCH_PRESS_DEBOUNCE_SAMPLES = 3;   // 60 ms at the 50 Hz hardware cadence
 const uint8_t TOUCH_RELEASE_DEBOUNCE_SAMPLES = 5; // 100 ms before another touch can fire
 static_assert(TOUCH_BASELINE_SAMPLE_COUNT > 0, "Touch calibration needs samples");
+static_assert(TOUCH_BASELINE_RECOVERY_DELAY_MS > 0, "Touch recovery needs a delay");
 static_assert(TOUCH_PRESS_DEBOUNCE_SAMPLES > 0 && TOUCH_RELEASE_DEBOUNCE_SAMPLES > 0,
               "Touch debounce needs at least one sample");
-static_assert(TOUCH_RELEASE_DROP_PERCENT > TOUCH_DROP_PERCENT,
-              "Touch release threshold must be below the press threshold");
+static_assert(TOUCH_DROP_PERCENT > TOUCH_RELEASE_DROP_PERCENT,
+              "Touch release must be less sensitive than touch detection");
 
 const unsigned long TOGGLE_HOLD_TIME_MS = 600;   // middle/ring: single hold
 const unsigned long MOTOR_RUN_TIME_MS   = 175;
