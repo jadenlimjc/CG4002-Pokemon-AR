@@ -13,6 +13,7 @@ public class BattleManager : MonoBehaviour
     [SerializeField] private int wildHP;
     [SerializeField] private bool isPlayerTurn = true;
     [SerializeField] private bool isProcessingMove = false;
+    public bool IsProcessingMove => isProcessingMove;
 
     [Header("Spawn Offset")]
     [SerializeField] private float playerPokemonDistance = 1.5f;
