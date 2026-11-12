@@ -18,8 +18,8 @@ void TouchButton::begin() {
 
 void TouchButton::update() {
   // Poll at 50 Hz. During the first second all readings are assumed untouched
-  // and averaged. Afterwards the low-pass baseline follows only slow, clearly
-  // untouched drift; a sudden downward step is treated as contact.
+  // and averaged. Afterwards readings inside the edge band become the new
+  // steady state immediately; a sudden downward step is treated as contact.
   rawValue_ = touchRead(pin_);
   if (!calibrated_) {
     baselineAccumulator_ += static_cast<uint32_t>(rawValue_);
@@ -89,10 +89,16 @@ void TouchButton::update() {
     }
   } else {
     pressSamples_ = 0;
-    if (rawValue_ > releaseThreshold) {
-      baseline_ += (static_cast<float>(rawValue_) - baseline_) *
-          TOUCH_BASELINE_TRACKING_ALPHA;
+    const int upwardEdge = baselineValue() +
+        requiredDrop(TOUCH_DROP_PERCENT, TOUCH_MIN_DROP);
+    if (rawValue_ < upwardEdge) {
+      // No edge: this reading is the steady state. Following it directly lets
+      // gradual drift move either way without the baseline lagging behind.
+      baseline_ = static_cast<float>(rawValue_);
     }
+    // A sudden upward edge is not a touch and is not allowed to move the
+    // baseline. When it falls back, the unchanged steady baseline prevents
+    // that return from looking like a downward touch edge.
   }
 }
 

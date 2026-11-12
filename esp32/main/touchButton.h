@@ -4,8 +4,8 @@
 #include <Arduino.h>
 
 // =====================================================
-// TouchButton: calibrates an untouched startup baseline, tracks slow drift,
-// and debounces the large relative drop caused by a finger.
+// TouchButton: calibrates an untouched startup baseline, follows the steady
+// sensor level, and debounces a sudden relative drop caused by a finger.
 // =====================================================
 class TouchButton {
   public:
