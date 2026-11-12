@@ -1,6 +1,5 @@
 using System;
 using System.Collections;
-using System.Threading;
 using UnityEngine;
 
 public class TutorialManager : MonoBehaviour
@@ -233,7 +232,6 @@ public class TutorialManager : MonoBehaviour
         }
 
         OnStepChanged?.Invoke(currentStepIndex, step);
-        PublishStepToMqtt();
 
         if (step.autoAdvanceDelay > 0 && step.expectedGesture == GestureAction.NONE)
         {
@@ -330,16 +328,4 @@ public class TutorialManager : MonoBehaviour
             DemoModeManager.Instance.SetMode(DemoMode.FullPlay);
     }
 
-    private void PublishStepToMqtt()
-    {
-        if (NetworkManager.Instance == null || NetworkManager.Instance.Client == null) return;
-        if (!NetworkManager.Instance.IsConnected) return;
-
-        TutorialStep step = steps[currentStepIndex];
-        string json = $"{{\"step\":{currentStepIndex + 1},\"total\":{steps.Length}," +
-                       $"\"name\":\"{step.name}\",\"instruction\":\"{step.instruction}\"}}";
-
-        _ = NetworkManager.Instance.Client.PublishAsync(
-            "tutorial/step", json, CancellationToken.None);
-    }
 }
