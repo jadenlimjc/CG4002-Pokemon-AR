@@ -5,7 +5,7 @@
 
 // =====================================================
 // TouchButton: calibrates an untouched startup baseline, tracks slow drift,
-// and detects the large relative drop caused by a finger.
+// and debounces the large relative drop caused by a finger.
 // =====================================================
 class TouchButton {
   public:
@@ -46,6 +46,8 @@ class TouchButton {
     float baseline_ = 0.0f;
     uint32_t baselineAccumulator_ = 0;
     uint16_t baselineSamples_ = 0;
+    uint8_t pressSamples_ = 0;
+    uint8_t releaseSamples_ = 0;
     unsigned long startMillis_ = 0;
 };
 

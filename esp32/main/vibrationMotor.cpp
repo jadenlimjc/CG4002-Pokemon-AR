@@ -48,12 +48,6 @@ void VibrationMotor::registerRunningFlag(bool *flag) {
   }
 }
 
-void VibrationMotor::stopAll() {
-  digitalWrite(pin_, LOW);
-  anyPhysicallyOn_ = false;
-  pulseStartMillis_ = 0;
-}
-
 bool VibrationMotor::anySourceRunning() const {
   for (int i = 0; i < numFlags_; i++) {
     if (*runningFlags_[i]) {

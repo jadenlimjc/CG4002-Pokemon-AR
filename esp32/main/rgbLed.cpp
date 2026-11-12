@@ -27,12 +27,8 @@ void RgbLed::off()   {
   setColor(0, 0, 0); 
 }
 
-void RgbLed::green() { 
-  setColor(0, 255, 0); 
-}
-
-void RgbLed::red()   { 
-  setColor(255, 0, 0); 
+void RgbLed::red(uint8_t brightness)   {
+  setColor(brightness, 0, 0);
 }
 
 void RgbLed::blue(uint8_t brightness)  {

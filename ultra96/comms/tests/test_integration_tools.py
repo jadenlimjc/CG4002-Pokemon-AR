@@ -261,6 +261,21 @@ class ProcessingTests(unittest.TestCase):
         subscriptions = self.client.subscribe.call_args.args[0]
         self.assertIn(("esp32/+/touch_debug", 0), subscriptions)
 
+        dashboard.on_message(self.client, None, message(
+            b'{"state":"online"}', topic="esp32/board1/status",
+        ))
+        touch_payload = (
+            b'{"raw":[410,320,515],"baseline":[810,720,900],'
+            b'"touch_below":[608,540,675],"drop_percent":25,"min_drop":100}'
+        )
+        dashboard.on_message(self.client, None, message(
+            touch_payload, topic="esp32/board1/touch_debug",
+        ))
+        self.assertEqual(
+            dashboard.monitors["board1"].touch_debug,
+            decode_touch_debug(touch_payload),
+        )
+
     def test_final_dashboard_keys_target_selected_device(self):
         worker = SimpleNamespace(confidence_threshold=0.75)
         dashboard = GestureDashboard(self.client, worker)

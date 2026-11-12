@@ -13,6 +13,17 @@ The default broker is `127.0.0.1:1883`. Run this **instead of** `main.py`,
 send duplicate gestures and ACKs. The boards must already be streaming IMU
 telemetry. This dashboard does not change their operating mode or configuration.
 
+The dashboard's bottom `Log:` row shows only the newest event. The complete
+rotating diagnostic log is written to `/tmp/cg4002-final-demo.log`; follow it
+from a second Ultra96 terminal with:
+
+```sh
+tail -F /tmp/cg4002-final-demo.log
+```
+
+Use `--log-file PATH` to choose another location. Two 4 MiB rotated backups are
+kept alongside the active log.
+
 Useful options:
 
 ```sh
