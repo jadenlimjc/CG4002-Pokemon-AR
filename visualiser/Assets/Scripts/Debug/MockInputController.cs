@@ -107,26 +107,5 @@ public class MockInputController : MonoBehaviour
             }
         }
 
-        GUILayout.BeginArea(new Rect(Screen.width - 310, Screen.height - 310, 300, 300));
-        GUILayout.Label("=== MOCK INPUT (Debug) ===");
-        GUILayout.Label($"State: {GameStateManager.Instance?.CurrentPhase}");
-        GUILayout.Label($"Aiming: {(CatchManager.Instance?.IsAiming == true ? "YES" : "no")}");
-        GUILayout.Label($"Party: {PlayerParty.Instance?.Count ?? 0}/{PlayerParty.MaxPartySize}");
-        GUILayout.Label("");
-        GUILayout.Label("[A] Aim (show reticle)");
-        GUILayout.Label("[C] Catch Throw (fire ball)");
-        GUILayout.Label("[X] Cancel (hide reticle)");
-        GUILayout.Label("[B] Battle Entry");
-        GUILayout.Label("[1-4] Battle Moves");
-        GUILayout.Label("[F] Flee  [V] Party  [I] Item");
-        GUILayout.Label("[R] Reset to Idle");
-        GUILayout.Label("[T] Tutorial  [G] God Mode  [P] Full Play");
-        GUILayout.Label("[S] Skip Tutorial Step");
-        GUILayout.Label("[Q] Toggle Pairing UI");
-        GUILayout.Label("");
-        GUILayout.Label($"Mode: {DemoModeManager.Instance?.CurrentMode}");
-        GUILayout.Label($"Network: {(NetworkManager.Instance?.IsConnected == true ? "Connected" : "Disconnected")}");
-        GUILayout.Label($"Paired: {(NetworkManager.Instance?.IsPaired == true ? "Player " + NetworkManager.Instance.PairedDeviceId : "No")}");
-        GUILayout.EndArea();
     }
 }

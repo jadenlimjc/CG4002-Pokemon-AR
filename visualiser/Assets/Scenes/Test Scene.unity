@@ -350,15 +350,16 @@ MonoBehaviour:
   minSpawnClearance: 0.5
   maxWildPokemon: 3
   grassPool:
-  - {fileID: 11400000, guid: e1e5b39b7302c463bbf0bf80705f4c32, type: 2}
+  - {fileID: 11400000, guid: dbb245a5ddbc14a2ba66d008afb3f448, type: 2}
   - {fileID: 11400000, guid: 5deb183e37db24861b52fd022ad91ef6, type: 2}
   skyPool:
   - {fileID: 11400000, guid: 94ba56ae12ea8479d9d18a3dfa9fc51f, type: 2}
   - {fileID: 11400000, guid: 9e3123f01c38a41cb9e78893822be1f4, type: 2}
   defaultPool:
   - {fileID: 11400000, guid: 5deb183e37db24861b52fd022ad91ef6, type: 2}
-  - {fileID: 11400000, guid: e1e5b39b7302c463bbf0bf80705f4c32, type: 2}
+  - {fileID: 11400000, guid: 94ba56ae12ea8479d9d18a3dfa9fc51f, type: 2}
   - {fileID: 11400000, guid: dbb245a5ddbc14a2ba66d008afb3f448, type: 2}
+  - {fileID: 11400000, guid: 9e3123f01c38a41cb9e78893822be1f4, type: 2}
   terrainDetectionThreshold: 0.05
 --- !u!1 &26014707
 GameObject:
@@ -1389,6 +1390,12 @@ MonoBehaviour:
   minMessageTime: 1
   turnTransitionDelay: 1
   potionHealAmount: 20
+  protectShieldColor: {r: 0.3, g: 0.9, b: 1, a: 0.25}
+  protectShieldScale: 2
+  protectFadeInTime: 0.3
+  protectFadeOutTime: 0.5
+  protectPulseSpeed: 2
+  protectPulseAmount: 0.05
 --- !u!1 &196903184
 GameObject:
   m_ObjectHideFlags: 0

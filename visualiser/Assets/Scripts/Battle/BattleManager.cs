@@ -53,6 +53,14 @@ public class BattleManager : MonoBehaviour
     [Header("Potion")]
     [SerializeField] private int potionHealAmount = 20;
 
+    [Header("Protect Shield")]
+    [SerializeField] private Color protectShieldColor = new Color(0.3f, 0.9f, 1f, 0.25f);
+    [SerializeField] private float protectShieldScale = 2f;
+    [SerializeField] private float protectFadeInTime = 0.3f;
+    [SerializeField] private float protectFadeOutTime = 0.5f;
+    [SerializeField] private float protectPulseSpeed = 2f;
+    [SerializeField] private float protectPulseAmount = 0.05f;
+
     private Animator playerAnimator;
     private Animator wildAnimator;
     private PokemonData wildPokemonData;
@@ -62,6 +70,7 @@ public class BattleManager : MonoBehaviour
     private bool isWaitingRunConfirm = false;
     private bool isWaitingForcedSwitch = false;
     private GameObject activePokeball;
+    private GameObject protectShield;
 
     private void Awake()
     {
@@ -461,8 +470,20 @@ public class BattleManager : MonoBehaviour
 
         yield return new WaitForSeconds(minWait);
 
-        yield return null;
+        // Wait for the animator to enter a transition (trigger consumed)
+        float timeout = 0.5f;
+        float waited = 0f;
+        while (!animator.IsInTransition(0) && waited < timeout)
+        {
+            waited += Time.deltaTime;
+            yield return null;
+        }
 
+        // Wait for the transition to finish
+        while (animator.IsInTransition(0))
+            yield return null;
+
+        // Wait for the destination clip to finish playing
         AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
         while (state.normalizedTime < 1f)
         {
@@ -488,7 +509,14 @@ public class BattleManager : MonoBehaviour
 
         if (move.isProtect)
         {
+            protectShield = CreateProtectShield(playerPokemonInstance);
+            yield return StartCoroutine(FadeInShield(protectShield));
+
             yield return StartCoroutine(ExecuteWildMove(blocked: true));
+
+            yield return StartCoroutine(FadeOutAndDestroyShield(protectShield));
+            protectShield = null;
+
             if (!isWaitingForcedSwitch)
                 isProcessingMove = false;
             yield break;
@@ -785,6 +813,11 @@ public class BattleManager : MonoBehaviour
             Destroy(activePokeball);
             activePokeball = null;
         }
+        if (protectShield != null)
+        {
+            Destroy(protectShield);
+            protectShield = null;
+        }
         isBattleCatching = false;
         isBattleAiming = false;
         isWaitingRunConfirm = false;
@@ -795,5 +828,92 @@ public class BattleManager : MonoBehaviour
     {
         yield return new WaitForSeconds(delay);
         GameStateManager.Instance.TransitionTo(phase);
+    }
+
+    private GameObject CreateProtectShield(GameObject target)
+    {
+        GameObject shield = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        shield.name = "ProtectShield";
+
+        Collider col = shield.GetComponent<Collider>();
+        if (col != null) Destroy(col);
+
+        Renderer rend = shield.GetComponent<Renderer>();
+        Material mat = new Material(Shader.Find("Standard"));
+        mat.SetFloat("_Mode", 3); // Transparent
+        mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        mat.SetInt("_ZWrite", 0);
+        mat.DisableKeyword("_ALPHATEST_ON");
+        mat.EnableKeyword("_ALPHABLEND_ON");
+        mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        mat.renderQueue = 3000;
+        mat.SetFloat("_Glossiness", 0.9f);
+        mat.SetFloat("_Metallic", 0.1f);
+        mat.color = new Color(protectShieldColor.r, protectShieldColor.g, protectShieldColor.b, 0f);
+        rend.material = mat;
+
+        Bounds bounds = new Bounds(target.transform.position, Vector3.zero);
+        foreach (Renderer r in target.GetComponentsInChildren<Renderer>())
+            bounds.Encapsulate(r.bounds);
+
+        shield.transform.position = bounds.center;
+        float maxExtent = Mathf.Max(bounds.extents.x, bounds.extents.y, bounds.extents.z);
+        float diameter = maxExtent * protectShieldScale;
+        shield.transform.localScale = Vector3.one * diameter;
+
+        return shield;
+    }
+
+    private IEnumerator FadeInShield(GameObject shield)
+    {
+        if (shield == null) yield break;
+        Renderer rend = shield.GetComponent<Renderer>();
+        if (rend == null) yield break;
+
+        float elapsed = 0f;
+        Color c = rend.material.color;
+        while (elapsed < protectFadeInTime)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / protectFadeInTime;
+            c.a = Mathf.Lerp(0f, protectShieldColor.a, t);
+            rend.material.color = c;
+            yield return null;
+        }
+        c.a = protectShieldColor.a;
+        rend.material.color = c;
+    }
+
+    private IEnumerator FadeOutAndDestroyShield(GameObject shield)
+    {
+        if (shield == null) yield break;
+        Renderer rend = shield.GetComponent<Renderer>();
+        if (rend == null) { Destroy(shield); yield break; }
+
+        float elapsed = 0f;
+        Color c = rend.material.color;
+        float startAlpha = c.a;
+        while (elapsed < protectFadeOutTime)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / protectFadeOutTime;
+            c.a = Mathf.Lerp(startAlpha, 0f, t);
+            rend.material.color = c;
+            yield return null;
+        }
+        Destroy(shield);
+    }
+
+    private void UpdateShieldPulse()
+    {
+        if (protectShield == null) return;
+        float pulse = 1f + Mathf.Sin(Time.time * protectPulseSpeed) * protectPulseAmount;
+        protectShield.transform.localScale *= pulse / (1f + Mathf.Sin((Time.time - Time.deltaTime) * protectPulseSpeed) * protectPulseAmount);
+    }
+
+    private void Update()
+    {
+        UpdateShieldPulse();
     }
 }
