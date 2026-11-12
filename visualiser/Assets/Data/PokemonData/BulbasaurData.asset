@@ -25,29 +25,29 @@ MonoBehaviour:
   moveSpeed: 1
   baseCatchRate: 0.8
   moves:
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+  - moveName: Poison Jab
+    moveType: 8
+    power: 75
+    accuracy: 100
     isProtect: 0
-    animationTrigger: 
-  - moveName: 
-    moveType: 0
+    animationTrigger: isAttacking
+  - moveName: Protect
+    moveType: 1
     power: 0
-    accuracy: 0
-    isProtect: 0
+    accuracy: 100
+    isProtect: 1
     animationTrigger: 
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+  - moveName: Vine Whip
+    moveType: 4
+    power: 60
+    accuracy: 100
     isProtect: 0
-    animationTrigger: 
-  - moveName: 
-    moveType: 0
-    power: 0
-    accuracy: 0
+    animationTrigger: isAttacking
+  - moveName: Dig
+    moveType: 9
+    power: 50
+    accuracy: 100
     isProtect: 0
-    animationTrigger: 
+    animationTrigger: isAttacking
   modelPrefab: {fileID: 3899190650109281182, guid: 57dc978187f414a95b98b6292f303748, type: 3}
   partySprite: {fileID: 21300000, guid: 12a912ac6b3374c91b83f1d21ddcaf17, type: 3}
