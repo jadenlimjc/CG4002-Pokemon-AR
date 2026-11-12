@@ -16,9 +16,9 @@ MonoBehaviour:
   pokedexNumber: 3
   primaryType: 2
   secondaryType: 13
-  maxHP: 100
-  attack: 50
-  defense: 50
+  maxHP: 190
+  attack: 115
+  defense: 80
   speed: 50
   spawnBehavior: 0
   spawnScale: 0.8
