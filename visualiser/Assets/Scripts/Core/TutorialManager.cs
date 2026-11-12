@@ -55,7 +55,7 @@ public class TutorialManager : MonoBehaviour
         },
         new TutorialStep {
             name = "View Party",
-            instruction = "Open your Party menu to see your Pokemon!",
+            instruction = "Reach you back-pocket to see the Pokemon in your party!",
             expectedGesture = GestureAction.PARTY_POKEMON
         },
         new TutorialStep {
@@ -99,7 +99,7 @@ public class TutorialManager : MonoBehaviour
         },
         new TutorialStep {
             name = "Switch Pokemon",
-            instruction = "Open the Party menu in battle to switch your active Pokemon!",
+            instruction = "Reach your back-pocket in battle to switch your active Pokemon!",
             expectedGesture = GestureAction.NONE,
             autoAdvanceDelay = 6f
         },
@@ -318,7 +318,7 @@ public class TutorialManager : MonoBehaviour
     {
         isActive = false;
         Debug.Log("[Tutorial] Tutorial complete!");
-        OnTutorialFeedback?.Invoke("Tutorial complete! Switching to Full Play mode.");
+        OnTutorialFeedback?.Invoke("Switching to Full Play mode.");
 
         StartCoroutine(SwitchToFullPlayAfterDelay(3f));
     }
