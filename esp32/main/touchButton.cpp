@@ -18,8 +18,8 @@ void TouchButton::begin() {
 
 void TouchButton::update() {
   // Poll at 50 Hz. During the first second all readings are assumed untouched
-  // and averaged. Afterwards the low-pass baseline follows only slow, clearly
-  // untouched drift; a sudden downward step is treated as contact.
+  // and averaged. Afterwards readings inside the edge band become the new
+  // steady state immediately; a sudden downward step is treated as contact.
   rawValue_ = touchRead(pin_);
   if (!calibrated_) {
     baselineAccumulator_ += static_cast<uint32_t>(rawValue_);
@@ -50,6 +50,14 @@ void TouchButton::update() {
       }
     } else {
       releaseSamples_ = 0;
+      // There are no intentional long-held touches. If the sensor remains
+      // latched for three seconds, slowly treat its current level as the new
+      // baseline. This lowers the release threshold until the stuck state can
+      // clear, using the same gentle tracking rate as normal baseline drift.
+      if (heldForMs() >= TOUCH_BASELINE_RECOVERY_DELAY_MS) {
+        baseline_ += (static_cast<float>(rawValue_) - baseline_) *
+            TOUCH_BASELINE_TRACKING_ALPHA;
+      }
     }
     return;
   }
@@ -83,7 +91,7 @@ void TouchButton::update() {
     pressSamples_ = 0;
     if (rawValue_ > releaseThreshold) {
       baseline_ += (static_cast<float>(rawValue_) - baseline_) *
-          TOUCH_BASELINE_TRACKING_ALPHA;
+        TOUCH_BASELINE_TRACKING_ALPHA;
     }
   }
 }
